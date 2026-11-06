@@ -1,0 +1,5 @@
+#!/bin/sh
+# ./dev: the one front door. The logic is tools/dev.py; the commands are
+# listed in AGENTS.md.
+set -eu
+exec python3 "$(dirname "$0")/tools/dev.py" "$@"

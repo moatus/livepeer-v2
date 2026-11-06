@@ -1,0 +1,6 @@
+#!/bin/sh
+# The dev tool's own fast check: every mechanical rule is shown to fail on a
+# seeded violation.
+set -eu
+cd "$(dirname "$0")/.."
+exec python3 -m unittest -q tools/test_dev.py
