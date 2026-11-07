@@ -69,7 +69,7 @@ itself is correct.
 | Seam | Held by | Strength |
 |---|---|---|
 | rules | Every example in `vectors/` is run by both the calculator and the contract tests. A rule change without an example change shows in the change report. | Checked on every change, once the calculator and contracts exist |
-| interfaces | Each contract's public functions, events and errors are declared in one folder. The change report lists every declaration added or removed. | Read from the source on every change |
+| interfaces | Each contract's public functions, events and errors are declared in one folder. The change report lists every declaration line added or removed there. Once the contracts exist, `contracts/check` compares the compiler's ABI of each contract against its declared interface, so a public function added to an implementation cannot go unlisted. | Read from the source today; from the compiler once the contracts exist |
 | money | The token accepts mint calls from one address fixed at deployment. One contract holds the USDC. The door rules above. | The chain refuses, once the contracts exist. The door rules run today. |
 | authority | Authority is checked again at the moment of execution, in one place. | Review against the money-path checklist |
 | maths | Reward maths is written as functions the compiler forbids from reading or changing state, so the calculation cannot mint or pay. | The compiler refuses |

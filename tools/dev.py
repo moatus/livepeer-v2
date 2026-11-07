@@ -40,8 +40,9 @@ def git(*args: str, check: bool = True) -> str:
 # --- the seam map -----------------------------------------------------------
 
 
-def table(name: str) -> list[dict[str, str]]:
-    text = (ROOT / "SEAMS.md").read_text()
+def table(name: str, text: str | None = None) -> list[dict[str, str]]:
+    if text is None:
+        text = (ROOT / "SEAMS.md").read_text()
     found = re.search(rf"<!-- BEGIN {name} -->\n(.*?)<!-- END {name} -->", text, re.S)
     if not found:
         sys.exit(f"dev: SEAMS.md has no {name} table")
@@ -60,8 +61,8 @@ def ticks(cell: str) -> list[str]:
     return re.findall(r"`([^`]+)`", cell)
 
 
-def seams() -> list[dict]:
-    rows = table("SEAM MAP")
+def seams(text: str | None = None) -> list[dict]:
+    rows = table("SEAM MAP", text)
     for row in rows:
         row["patterns"] = ticks(row["paths"])
         if row["review"] not in ("owner", "agent") or row["freeze"] not in ("yes", "no"):
@@ -69,6 +70,12 @@ def seams() -> list[dict]:
         if not row["patterns"]:
             sys.exit(f"dev: SEAMS.md seam '{row['seam']}' names no path")
     return rows
+
+
+def seams_at(commit: str) -> list[dict]:
+    """The seam map as it was at a commit, so a change cannot route itself."""
+    text = git("show", f"{commit}:SEAMS.md", check=False)
+    return seams(text) if text.strip() else seams()
 
 
 def seam_of(path: str, rows: list[dict]) -> dict | None:
@@ -185,9 +192,13 @@ def check_components(kind: str) -> list[tuple[str, str, list[str]]]:
     return out
 
 
-def run_verify() -> list[tuple[str, str, list[str]]]:
+def run_verify(components: bool = True) -> list[tuple[str, str, list[str]]]:
+    """The structure checks, then each component's own check."""
     paths, rows = files(), seams()
-    return [check_cover(paths, rows), *check_doors(paths), *check_components("check")]
+    results = [check_cover(paths, rows), *check_doors(paths)]
+    if components:
+        results += check_components("check")
+    return results
 
 
 def code_for(results: list[tuple[str, str, list[str]]]) -> int:
@@ -288,6 +299,7 @@ def cmd_review(args) -> int:
     base = git("merge-base", args.base, "HEAD").strip()
     dirty = bool(git("status", "--porcelain").strip())
     rows = seams()
+    base_rows = seams_at(base)
 
     # What changed: committed since the base, plus anything not yet committed.
     counts: dict[str, list[int]] = {}
@@ -320,6 +332,14 @@ def cmd_review(args) -> int:
     frozen = [row["seam"] for row in touched if row["freeze"] == "yes"]
     owned = [row["seam"] for row in touched if row["review"] == "owner"]
     other = [row["seam"] for row in touched if row["freeze"] == "no" and row["seam"] != "factory"]
+    # Route by the map as it was at the base too, so a change that edits
+    # SEAMS.md cannot move itself out of the owner's view.
+    base_touched = {seam_of(p, base_rows)["seam"] for p in counts if seam_of(p, base_rows)}
+    for row in base_rows:
+        if row["seam"] in base_touched and row["review"] == "owner" and row["seam"] not in owned:
+            owned.append(f"{row['seam']} (owner-routed at the base)")
+        if row["seam"] in base_touched and row["freeze"] == "yes" and row["seam"] not in frozen:
+            frozen.append(f"{row['seam']} (a freeze seam at the base)")
 
     out = print
     out("# Change report")
@@ -342,11 +362,11 @@ def cmd_review(args) -> int:
         out("**Implements the frozen rules.** No rule, shared example or contract interface changed.")
     out(f"Rules and decisions named by the commits: {', '.join(rules) if rules else 'none'}."
         + (f" Spec: {'; '.join(specs)}." if specs else ""))
-    if owned or unowned:
-        reasons = owned + (["a file no seam owns"] if unowned else [])
+    if owned or unowned or asks:
+        reasons = owned + (["a file no seam owns"] if unowned else []) + (["a decision named by the commits"] if asks else [])
         out(f"**Routing: OWNER REVIEW REQUIRED** ({', '.join(reasons)}).")
     else:
-        out("**Routing: agent review only.** No owner-routed seam was touched.")
+        out("**Routing: agent review only.** No owner-routed seam was touched and no decision was named.")
     out()
 
     out("## Structure")
@@ -390,13 +410,17 @@ def cmd_review(args) -> int:
             if line[:1] in "+-" and not line.startswith(("+++", "---")) and declared.search(line):
                 delta.append(f"- `{line[0]} {line[1:].strip()}` ({path})")
     if delta:
-        out("Declarations added (+) or removed (-):")
+        out("Declarations added (+) or removed (-) in the declared interface files:")
         for line in delta:
             out(line)
     elif (ROOT / "contracts").is_dir():
-        out("No public function, event or error was added or removed.")
+        out("No declaration line changed in the declared interface files.")
     else:
         out("No contracts exist yet.")
+    out()
+    out("This reads the interface files only. A public function added straight to an"
+        " implementation contract does not show here until the compiler's ABI is"
+        " compared against the declared interfaces, which arrives with the contracts.")
     out()
 
     out("## Doors")
@@ -415,7 +439,10 @@ def cmd_review(args) -> int:
 
     out("## Checks run on this candidate")
     out()
-    results = run_verify()
+    results = run_verify(components=args.checks)
+    if not args.checks:
+        results += [(f"{folder}/check", NOT_RUN, ["not asked for: `./dev review --checks` or `./dev verify`"])
+                    for folder in CODE_DIRS if (ROOT / folder).is_dir()]
     out("| Check | Result |")
     out("|---|---|")
     for name, state, detail in results:
@@ -423,7 +450,7 @@ def cmd_review(args) -> int:
         out(f"| {name} | {state}{note} |")
     if code_for(results) == 1:
         out()
-        out("**A fast check failed.** Run `./dev verify` for the output.")
+        out("**A structure check failed.** Run `./dev verify` for the output.")
     out()
 
     out("## Checks not run")
@@ -448,6 +475,9 @@ def cmd_review(args) -> int:
     for row in touched:
         if row["review"] == "owner":
             items.append(f"Confirm the change to **{row['seam']}** ({row['what crosses it']}): {len(by_seam[row['seam']])} file(s), listed under Structure.")
+    if any(row["review"] == "owner" for row in touched) and not asks:
+        items.append("The commits do not say what this changes for a participant. Before this goes to the owner,"
+                     " the builder adds a `Needs-owner:` line that says so in one sentence, and the reviewer checks it.")
     if unowned:
         items.append("Decide where the files no seam owns belong.")
     if items:
@@ -467,6 +497,7 @@ def main() -> int:
     commands.add_parser("verify", help="the fast checks, every change").set_defaults(run=cmd_verify)
     review = commands.add_parser("review", help="the change report a reviewer reads")
     review.add_argument("--base", default="main")
+    review.add_argument("--checks", action="store_true", help="also run each component's check (build and tests)")
     review.set_defaults(run=cmd_review)
     commands.add_parser("qualify", help="the heavy checks, when a stage closes").set_defaults(run=cmd_qualify)
     demo = commands.add_parser("demo", help="the one-command demo")

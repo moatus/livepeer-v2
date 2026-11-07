@@ -155,6 +155,44 @@ class Review(Fixture):
         self.assertIn("**Implements the frozen rules.**", out)
         self.assertIn("Routing: agent review only", out)
         self.assertIn("Nothing. No owner-routed seam changed", out)
+        self.assertIn("Routing: agent review only", out)
+
+    def test_a_named_decision_routes_to_the_owner_even_on_agent_seams(self):
+        self.add("calculator/check", PASS, executable=True)
+        self.add("calculator/calc.py", "print(1)\n")
+        self.commit("Round down\n\nNeeds-owner: Confirm dust is left unminted (D-07).")
+        _, out = self.dev("review", "--base", "HEAD~1")
+        self.assertIn("OWNER REVIEW REQUIRED** (a decision named by the commits)", out)
+        self.assertIn("1. Confirm dust is left unminted (D-07).", out)
+
+    def test_a_change_cannot_route_itself_away_by_editing_the_seam_map(self):
+        seams = self.repo / "SEAMS.md"
+        row = "| factory | The checks, this map and the guides agents work from |"
+        text = seams.read_text()
+        start = text.index(row)
+        end = text.index("\n", start)
+        line = text[start:end]
+        self.assertIn("| owner | no |", line)
+        seams.write_text(text[:start] + line.replace("| owner | no |", "| agent | no |") + text[end:])
+        self.commit("Quietly make the factory agent-reviewed")
+        _, out = self.dev("review", "--base", "HEAD~1")
+        self.assertIn("OWNER REVIEW REQUIRED** (factory (owner-routed at the base))", out)
+
+    def test_an_owner_seam_change_without_an_explanation_is_asked_for_one(self):
+        self.add("deployments/local.json", "{}\n")
+        self.commit("Manifest")
+        _, out = self.dev("review", "--base", "HEAD~1")
+        self.assertIn("The commits do not say what this changes for a participant", out)
+
+    def test_the_report_does_not_run_component_checks_unless_asked(self):
+        self.add("calculator/check", FAIL, executable=True)
+        self.commit("A calculator whose check fails")
+        code, out = self.dev("review", "--base", "HEAD~1")
+        self.assertEqual(code, 0, out)
+        self.assertIn("| calculator/check | not_run (not asked for", out)
+        self.assertNotIn("boom", out)
+        _, out = self.dev("review", "--base", "HEAD~1", "--checks")
+        self.assertIn("| calculator/check | failed |", out)
 
     def test_a_freeze_mixed_with_implementation_is_called_out(self):
         self.add("vectors/first.json", "{}\n")
