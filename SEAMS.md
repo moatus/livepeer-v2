@@ -20,11 +20,13 @@ repository must belong to one, so a new top-level folder cannot appear without
 a row here.
 
 - **Review** says who must look when the seam changes. `owner` means the
-  change report is routed to the owner. `agent` means the agent review is
-  enough.
+  change report is routed to the owner. `council` means the change proceeds
+  on a council ruling that its commits name (`Council: D-03`) and the owner
+  reviews the ruling later; with no ruling named, or no record of it, the
+  change is the owner's. `agent` means the agent review is enough.
 - **Freeze** marks the seams that define what is being built. A change to one
   is a freeze change: it is made on its own, before the code that implements
-  it, and it is where the owner decides.
+  it, and it is where the owner or the council decides.
 - **Status** is `in force` when the location exists or is settled, and
   `proposed` when it is a starting position that the named spec's freeze will
   confirm or change.
@@ -32,7 +34,7 @@ a row here.
 <!-- BEGIN SEAM MAP -->
 | Seam | What crosses it | Paths | Review | Freeze | Status |
 |---|---|---|---|---|---|
-| rules | The rules we build against, and the numbers they must produce | `rulebook/` `vectors/` | owner | yes | in force |
+| rules | The rules we build against, and the numbers they must produce | `rulebook/` `vectors/` | council | yes | in force |
 | interfaces | The public shape of every contract | `contracts/interfaces/` | owner | yes | proposed until the S-03 freeze |
 | money | Minting LPT, and holding or moving USDC | `contracts/src/money/` | owner | no | proposed until the S-03 freeze |
 | authority | Who may act for a node, and who may change a parameter | `contracts/src/authority/` | owner | no | proposed until the S-03 freeze |

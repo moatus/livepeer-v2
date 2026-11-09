@@ -146,6 +146,45 @@ class Review(Fixture):
         self.assertIn("1. Confirm emission follows the main text", out)
         self.assertIn("`rulebook/R-03.md` (new, +1 / -0)", out)
 
+    def test_a_rule_change_under_a_council_ruling_does_not_wait_for_the_owner(self):
+        (self.research / "council").mkdir()
+        (self.research / "council" / "D-03.md").write_text("# D-03\n")
+        self.add("rulebook/R-03.md", "# R-03 Emission\n")
+        self.commit("Add R-03\n\nCouncil: D-03")
+        code, out = self.dev("review", "--base", "HEAD~1")
+        self.assertEqual(code, 0, out)
+        self.assertIn("Decided by council ruling D-03. The owner keeps or changes it later.", out)
+        self.assertIn("**Routing: council ruling D-03, then agent review.**", out)
+        self.assertNotIn("OWNER REVIEW REQUIRED", out)
+        self.assertIn("Nothing now.", out)
+        self.assertIn("Not waiting for you: council ruling D-03 decided the change to rules.", out)
+
+    def test_a_rule_change_naming_no_council_ruling_is_the_owners(self):
+        self.add("rulebook/R-03.md", "# R-03 Emission\n")
+        self.commit("Add R-03")
+        _, out = self.dev("review", "--base", "HEAD~1")
+        self.assertIn("OWNER REVIEW REQUIRED** (rules (no council ruling named by the commits))", out)
+        self.assertIn("This is where the owner decides.", out)
+
+    def test_a_council_ruling_with_no_record_is_the_owners(self):
+        self.add("rulebook/R-03.md", "# R-03 Emission\n")
+        self.commit("Add R-03\n\nCouncil: D-03")
+        _, out = self.dev("review", "--base", "HEAD~1")
+        self.assertIn("OWNER REVIEW REQUIRED** (rules (no council record found for D-03))", out)
+        self.assertIn("It waits for you because there is no council record found for D-03.", out)
+
+    def test_a_council_ruling_does_not_cover_an_owner_seam_in_the_same_change(self):
+        (self.research / "council").mkdir()
+        (self.research / "council" / "D-03.md").write_text("# D-03\n")
+        self.add("rulebook/R-03.md", "# R-03 Emission\n")
+        self.add("contracts/check", PASS, executable=True)
+        self.add("contracts/interfaces/IEmission.sol", "interface IEmission {\n  function emission(uint256 round) external view returns (uint256);\n}\n")
+        self.commit("Add R-03 and its interface\n\nCouncil: D-03")
+        _, out = self.dev("review", "--base", "HEAD~1")
+        self.assertIn("OWNER REVIEW REQUIRED** (interfaces)", out)
+        self.assertIn("This is where the owner decides.", out)
+        self.assertIn("Confirm the change to **interfaces**", out)
+
     def test_calculator_work_needs_no_owner(self):
         self.add("calculator/check", PASS, executable=True)
         self.add("calculator/calc.py", "print(1)\n")
