@@ -41,7 +41,7 @@ a row here.
 | maths | Reward calculation inside the contracts | `contracts/src/math/` | agent | no | proposed until the S-05 freeze |
 | node | Where the node meets the contracts, and every change we carry against upstream | `nodefork/` | owner | no | in force |
 | deployment | What one testnet version contains | `deployments/` | owner | no | in force |
-| factory | The checks, this map and the guides agents work from | `dev` `tools/` `SEAMS.md` `AGENTS.md` `CLAUDE.md` `.t3code/` `.gitea/` `.gitignore` | owner | no | in force |
+| factory | The checks, this map and the guides agents work from | `dev` `tools/` `SEAMS.md` `AGENTS.md` `CLAUDE.md` `.t3code/` `.github/` `.gitignore` | owner | no | in force |
 | contracts | Contract code and tests outside the seams above | `contracts/` | agent | no | in force |
 | calculator | The independent calculator | `calculator/` | agent | no | in force |
 | programs | Helper programs that run beside the node | `programs/` | agent | no | in force |

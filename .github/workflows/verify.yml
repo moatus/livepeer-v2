@@ -1,5 +1,7 @@
 # Runs the fast checks on every push, on the host's own runner. It reports;
 # it does not stop a push.
+# The private host reads this folder. Before this repository is published
+# elsewhere, change `runs-on`: no other host has a runner with this label.
 name: verify
 
 on:
