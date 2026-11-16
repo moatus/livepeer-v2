@@ -1,0 +1,279 @@
+{
+  "profile": "october-main-text-v0",
+  "rulebook": "rulebook/october-main-text-v0.md",
+  "reading": "Every number is a decimal string of an exact integer. Each case has exactly four keys: id, kind, inputs and expected. The parameters and a case's inputs are everything needed to compute it; expected holds either exact amounts or one code. Deleting every case's expected leaves the inputs alone. A claim case names the round case it was earned in, whose inputs it uses.",
+  "units": {
+    "usdc": "micro-USDC, 10^-6 USDC",
+    "lpt": "wei, 10^-18 LPT",
+    "millionths": "the cut, the emission shares and a score are integers over 1000000"
+  },
+  "parameters": {
+    "emission_base_wei": "1000000000000000000000",
+    "emission_half_life_rounds": "840",
+    "reward_delay_rounds": "7",
+    "node_cut_millionths": "500000",
+    "node_emission_share_millionths": "940000",
+    "validator_emission_share_millionths": "10000",
+    "treasury_emission_share_millionths": "50000"
+  },
+  "codes": ["NOT_REGISTERED", "SCORE_OUT_OF_RANGE", "CLAIM_TOO_EARLY", "ALREADY_CLAIMED"],
+  "cases": [
+    {
+      "id": "settle-even",
+      "kind": "settlement",
+      "inputs": {"gross_micro_usdc": "2500000", "payee_registered": true},
+      "expected": {"node_micro_usdc": "1250000", "network_micro_usdc": "1250000", "recognized_micro_usdc": "2500000"}
+    },
+    {
+      "id": "settle-odd",
+      "kind": "settlement",
+      "inputs": {"gross_micro_usdc": "1000001", "payee_registered": true},
+      "expected": {"node_micro_usdc": "500000", "network_micro_usdc": "500001", "recognized_micro_usdc": "1000001"}
+    },
+    {
+      "id": "settle-one",
+      "kind": "settlement",
+      "inputs": {"gross_micro_usdc": "1", "payee_registered": true},
+      "expected": {"node_micro_usdc": "0", "network_micro_usdc": "1", "recognized_micro_usdc": "1"}
+    },
+    {
+      "id": "settle-unregistered",
+      "kind": "settlement",
+      "inputs": {"gross_micro_usdc": "2500000", "payee_registered": false},
+      "expected": {"code": "NOT_REGISTERED"}
+    },
+    {
+      "id": "ceiling-0",
+      "kind": "ceiling",
+      "inputs": {"round": "0"},
+      "expected": {"ceiling_wei": "1000000000000000000000"}
+    },
+    {
+      "id": "ceiling-1",
+      "kind": "ceiling",
+      "inputs": {"round": "1"},
+      "expected": {"ceiling_wei": "999175165148489107267"}
+    },
+    {
+      "id": "ceiling-420",
+      "kind": "ceiling",
+      "inputs": {"round": "420"},
+      "expected": {"ceiling_wei": "707106781186547524400"}
+    },
+    {
+      "id": "ceiling-839",
+      "kind": "ceiling",
+      "inputs": {"round": "839"},
+      "expected": {"ceiling_wei": "500412757882842450669"}
+    },
+    {
+      "id": "ceiling-840",
+      "kind": "ceiling",
+      "inputs": {"round": "840"},
+      "expected": {"ceiling_wei": "500000000000000000000"}
+    },
+    {
+      "id": "ceiling-841",
+      "kind": "ceiling",
+      "inputs": {"round": "841"},
+      "expected": {"ceiling_wei": "499587582574244553633"}
+    },
+    {
+      "id": "ceiling-1680",
+      "kind": "ceiling",
+      "inputs": {"round": "1680"},
+      "expected": {"ceiling_wei": "250000000000000000000"}
+    },
+    {
+      "id": "ceiling-1-shares",
+      "kind": "ceiling",
+      "inputs": {"round": "1"},
+      "expected": {"validators_wei": "9991751651484891072", "treasury_wei": "49958758257424455363"}
+    },
+    {
+      "id": "round-roadmap",
+      "kind": "round",
+      "inputs": {
+        "round": "0",
+        "nodes": [
+          {"node": "A", "fees_micro_usdc": "600000000", "stake_wei": "2000000000000000000000", "score": "1000000"},
+          {"node": "B", "fees_micro_usdc": "400000000", "stake_wei": "8000000000000000000000", "score": "1000000"}
+        ]
+      },
+      "expected": {
+        "paid_wei": {"A": "188000000000000000000", "B": "376000000000000000000"},
+        "validators_wei": "10000000000000000000",
+        "treasury_wei": "50000000000000000000",
+        "minted_wei": "624000000000000000000"
+      }
+    },
+    {
+      "id": "round-self-payer",
+      "kind": "round",
+      "inputs": {
+        "round": "0",
+        "nodes": [
+          {"node": "X", "fees_micro_usdc": "100000000", "stake_wei": "2000000000000000000", "score": "1000000"},
+          {"node": "Y", "fees_micro_usdc": "50000000", "stake_wei": "5000000000000000000", "score": "1000000"},
+          {"node": "Z", "fees_micro_usdc": "600000000", "stake_wei": "93000000000000000000", "score": "1000000"},
+          {"node": "S", "fees_micro_usdc": "250000000", "stake_wei": "0", "score": "1000000"}
+        ]
+      },
+      "expected": {
+        "paid_wei": {"X": "18800000000000000000", "Y": "47000000000000000000", "Z": "564000000000000000000", "S": "0"},
+        "validators_wei": "10000000000000000000",
+        "treasury_wei": "50000000000000000000",
+        "minted_wei": "689800000000000000000"
+      }
+    },
+    {
+      "id": "round-staked-self-payer",
+      "kind": "round",
+      "inputs": {
+        "round": "0",
+        "nodes": [
+          {"node": "H", "fees_micro_usdc": "1000000000", "stake_wei": "8000000000000000000000", "score": "1000000"},
+          {"node": "W", "fees_micro_usdc": "250000000", "stake_wei": "2000000000000000000000", "score": "1000000"}
+        ]
+      },
+      "expected": {
+        "paid_wei": {"H": "752000000000000000000", "W": "188000000000000000000"},
+        "validators_wei": "10000000000000000000",
+        "treasury_wei": "50000000000000000000",
+        "minted_wei": "1000000000000000000000"
+      }
+    },
+    {
+      "id": "round-small-node",
+      "kind": "round",
+      "inputs": {
+        "round": "0",
+        "nodes": [
+          {"node": "T", "fees_micro_usdc": "1000000", "stake_wei": "1000000000000000000", "score": "1000000"},
+          {"node": "U", "fees_micro_usdc": "2999999000000", "stake_wei": "2000000000000000000", "score": "1000000"}
+        ]
+      },
+      "expected": {
+        "paid_wei": {"T": "313333333333333", "U": "626666666666666666666"},
+        "validators_wei": "10000000000000000000",
+        "treasury_wei": "50000000000000000000",
+        "minted_wei": "686666979999999999999"
+      }
+    },
+    {
+      "id": "round-thirds",
+      "kind": "round",
+      "inputs": {
+        "round": "0",
+        "nodes": [
+          {"node": "P", "fees_micro_usdc": "100000000", "stake_wei": "100000000000000000000", "score": "1000000"},
+          {"node": "Q", "fees_micro_usdc": "100000000", "stake_wei": "100000000000000000000", "score": "1000000"},
+          {"node": "R", "fees_micro_usdc": "100000000", "stake_wei": "100000000000000000000", "score": "1000000"}
+        ]
+      },
+      "expected": {
+        "paid_wei": {"P": "313333333333333333333", "Q": "313333333333333333333", "R": "313333333333333333333"},
+        "validators_wei": "10000000000000000000",
+        "treasury_wei": "50000000000000000000",
+        "minted_wei": "999999999999999999999"
+      }
+    },
+    {
+      "id": "round-one-division",
+      "kind": "round",
+      "inputs": {
+        "round": "0",
+        "nodes": [
+          {"node": "P", "fees_micro_usdc": "100000000", "stake_wei": "100000000000000000000", "score": "750000"},
+          {"node": "Q", "fees_micro_usdc": "100000000", "stake_wei": "100000000000000000000", "score": "750000"},
+          {"node": "R", "fees_micro_usdc": "100000000", "stake_wei": "100000000000000000000", "score": "750000"}
+        ]
+      },
+      "expected": {
+        "paid_wei": {"P": "235000000000000000000", "Q": "235000000000000000000", "R": "235000000000000000000"},
+        "validators_wei": "10000000000000000000",
+        "treasury_wei": "50000000000000000000"
+      }
+    },
+    {
+      "id": "round-no-fees",
+      "kind": "round",
+      "inputs": {
+        "round": "0",
+        "nodes": [
+          {"node": "A", "fees_micro_usdc": "0", "stake_wei": "2000000000000000000000", "score": "1000000"},
+          {"node": "B", "fees_micro_usdc": "0", "stake_wei": "8000000000000000000000", "score": "1000000"}
+        ]
+      },
+      "expected": {
+        "paid_wei": {"A": "0", "B": "0"},
+        "validators_wei": "10000000000000000000",
+        "treasury_wei": "50000000000000000000",
+        "minted_wei": "60000000000000000000"
+      }
+    },
+    {
+      "id": "round-no-stake",
+      "kind": "round",
+      "inputs": {
+        "round": "0",
+        "nodes": [
+          {"node": "A", "fees_micro_usdc": "5000000", "stake_wei": "0", "score": "1000000"}
+        ]
+      },
+      "expected": {
+        "paid_wei": {"A": "0"},
+        "validators_wei": "10000000000000000000",
+        "treasury_wei": "50000000000000000000",
+        "minted_wei": "60000000000000000000"
+      }
+    },
+    {
+      "id": "round-chained",
+      "kind": "round",
+      "inputs": {
+        "round": "1",
+        "nodes": [
+          {"node": "D", "fees_micro_usdc": "300000000", "stake_wei": "3000000000000000000000", "score": "1000000"},
+          {"node": "E", "fees_micro_usdc": "100000000", "stake_wei": "1000000000000000000000", "score": "1000000"}
+        ]
+      },
+      "expected": {
+        "paid_wei": {"D": "704418491429684820623", "E": "234806163809894940207"},
+        "validators_wei": "9991751651484891072",
+        "treasury_wei": "49958758257424455363",
+        "minted_wei": "999175165148489107265"
+      }
+    },
+    {
+      "id": "claim-early",
+      "kind": "claim",
+      "inputs": {"earned_in": "round-roadmap", "node": "A", "claim_round": "6", "score": "1000000", "already_paid": false},
+      "expected": {"code": "CLAIM_TOO_EARLY"}
+    },
+    {
+      "id": "claim-open",
+      "kind": "claim",
+      "inputs": {"earned_in": "round-roadmap", "node": "A", "claim_round": "7", "score": "1000000", "already_paid": false},
+      "expected": {"paid_wei": "188000000000000000000"}
+    },
+    {
+      "id": "claim-rescored",
+      "kind": "claim",
+      "inputs": {"earned_in": "round-roadmap", "node": "A", "claim_round": "7", "score": "500000", "already_paid": false},
+      "expected": {"paid_wei": "94000000000000000000"}
+    },
+    {
+      "id": "claim-again",
+      "kind": "claim",
+      "inputs": {"earned_in": "round-roadmap", "node": "A", "claim_round": "8", "score": "1000000", "already_paid": true},
+      "expected": {"code": "ALREADY_CLAIMED"}
+    },
+    {
+      "id": "claim-score-range",
+      "kind": "claim",
+      "inputs": {"earned_in": "round-roadmap", "node": "A", "claim_round": "7", "score": "1000001", "already_paid": false},
+      "expected": {"code": "SCORE_OUT_OF_RANGE"}
+    }
+  ]
+}
