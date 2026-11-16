@@ -1,0 +1,7 @@
+#!/bin/sh
+# The contracts' fast check: build and run every test. ./dev runs it from
+# this folder. Exit 0 passed, 1 failed, 2 could not run.
+set -u
+cd "$(dirname "$0")"
+command -v forge >/dev/null 2>&1 || { echo "forge is not installed (./dev doctor)"; exit 2; }
+forge test || exit 1

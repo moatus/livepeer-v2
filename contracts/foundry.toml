@@ -1,0 +1,9 @@
+# The contracts project. The compiler version is pinned so every machine
+# builds the same bytecode; forge downloads it once on first use.
+[profile.default]
+src = "src"
+test = "test"
+out = "out"
+cache_path = "cache"
+libs = []
+solc_version = "0.8.30"
