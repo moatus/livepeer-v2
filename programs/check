@@ -4,5 +4,8 @@
 set -u
 cd "$(dirname "$0")"
 command -v go >/dev/null 2>&1 || { echo "go is not installed (./dev doctor)"; exit 2; }
+# An older Go would try to download the version go.mod names; that is a
+# missing tool, not a failure.
+GOTOOLCHAIN=local go list -m >/dev/null 2>&1 || { echo "the Go version go.mod names is not installed (./dev doctor)"; exit 2; }
 go vet ./... || exit 1
 go test ./... || exit 1
