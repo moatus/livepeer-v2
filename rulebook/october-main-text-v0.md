@@ -70,16 +70,24 @@ cases. Every number in it is a decimal string. A case has an `id`, a
 leaves the inputs alone.
 
 - A **settlement** case is one payment of `gross_micro_usdc` to an address
-  that is or is not a registered node.
-- A **ceiling** case is one round number.
+  that is or is not a registered node. It states the node's recognized fee
+  (`recognized_micro_usdc`, R-04) and the split (`node_micro_usdc` and
+  `network_micro_usdc`, R-03), or a code.
+- A **ceiling** case is one round number. It states `ceiling_wei` (R-05),
+  or, where its id says shares, R-10's `validators_wei` and
+  `treasury_wei` of that ceiling.
 - A **round** case is one round number and the round's registered nodes,
   each with its recognized fees, its stake and its score. The round's
   totals are taken over the nodes listed. `paid_wei` is each node's reward
-  at that score. `minted_wei` is given only where every score is 10^6, so
-  no case depends on where a withheld part goes (D-21, open).
+  at that score, and `validators_wei` and `treasury_wei` are R-10's two
+  amounts. `minted_wei` is everything the round mints: the nodes' rewards
+  plus the validator and treasury amounts. It is given only where every
+  score is 10^6, so no case depends on where a withheld part goes (D-21,
+  open).
 - A **claim** case claims one node's reward from a round case
   (`earned_in`), at a claim round, with the score read at claim and
-  whether that entitlement has already paid.
+  whether that entitlement has already paid. It states `paid_wei`, or a
+  code.
 
 ---
 
