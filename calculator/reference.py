@@ -37,6 +37,10 @@ class Parameters:
     round_length_blocks: int = 50
     ticket_validity_rounds: int = 2
     release_wait_rounds: int = 3
+    claim_window_rounds: int | None = None
+    unbonding_period_rounds: int = 21
+    default_reward_cut_millionths: int = 0
+    validator_set_size: int = 3
 
     @classmethod
     def from_strings(cls, values: dict) -> "Parameters":
@@ -157,11 +161,14 @@ def calculate(kind: str, inputs: dict, parameters: Parameters,
         refusals = []
         if claim_round < earning_round + parameters.reward_delay_rounds:
             refusals.append("CLAIM_TOO_EARLY")
+        if (parameters.claim_window_rounds is not None and
+                claim_round > earning_round + parameters.reward_delay_rounds + parameters.claim_window_rounds):
+            refusals.append("CLAIM_EXPIRED")
         if already_paid:
             refusals.append("ALREADY_CLAIMED")
         if score > MILLION:
             refusals.append("SCORE_OUT_OF_RANGE")
-        if len(refusals) > 1:
+        if len(refusals) > 1 and parameters.claim_window_rounds is None:
             raise ValueError("R-12 does not order simultaneous refusals: " + ", ".join(refusals))
         if refusals:
             return {"code": refusals[0]}
@@ -297,7 +304,7 @@ def ledger(inputs: dict, parameters: Parameters) -> dict:
                 fees[s["round"]][node] += gross
                 used.add(s["ticket"])
         else:
-            raise ValueError(f"unknown ledger action: {action!r}")
+            raise NotImplementedError(f"ledger action: {action!r}")
         if code:
             refused.append({"step": s["step"], "code": code})
     return {"deposits_micro_usdc": deposits, "earmarks_micro_usdc": earmarks,

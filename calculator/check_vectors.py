@@ -31,7 +31,7 @@ def check(path: Path) -> int:
         return 1
 
     try:
-        if document["profile"] not in ("october-main-text-v0", "october-main-text-v1"):
+        if document["profile"] not in ("october-main-text-v0", "october-main-text-v1", "october-main-text-v2"):
             raise ValueError("unknown rulebook profile")
         parameters = Parameters.from_strings(document["parameters"])
         cases = document["cases"]
@@ -47,6 +47,7 @@ def check(path: Path) -> int:
         return 1
 
     failures = 0
+    unimplemented = []
     for case in cases:
         try:
             actual = decimal_strings(calculate(case["kind"], case["inputs"], parameters, rounds))
@@ -61,12 +62,18 @@ def check(path: Path) -> int:
             if actual != expected:
                 raise ValueError(f"expected {json.dumps(expected, sort_keys=True)}; "
                                  f"got {json.dumps(actual, sort_keys=True)}")
+        except NotImplementedError as error:
+            failures += 1
+            unimplemented.append(case["id"])
+            print(f"FAIL {case['id']}: not implemented: {error}")
         except (KeyError, TypeError, ValueError) as error:
             failures += 1
             print(f"FAIL {case['id']}: {error}")
         else:
             print(f"PASS {case['id']}")
 
+    if unimplemented:
+        print("not implemented: " + ", ".join(unimplemented))
     print(f"calculator: {len(cases) - failures}/{len(cases)} cases passed; {failures} failed")
     return 1 if failures else 0
 
