@@ -215,7 +215,8 @@ every `expected` leaves the inputs alone.
   A step is either refused with one code, and then changes nothing, or
   takes effect. `expected` states the balances after the last step:
   `deposits_micro_usdc` for every payer; `earmarks_micro_usdc` for every
-  payer and every node one of its `fund` steps names; `paid_micro_usdc`,
+  payer, holding every node one of its `fund` steps names, and empty
+  (`{}`) for a payer whose `fund` steps name none; `paid_micro_usdc`,
   the USDC the Broker paid out to every address a step names as a node or
   a payout; `released_micro_usdc`, what every payer has received by
   release; `network_micro_usdc`, the network share held; and
