@@ -25,9 +25,13 @@ fs_permissions = [{ access = "read", path = "../vectors" }]
 [profile.qualify.fuzz]
 runs = 100000
 seed = "0x5eed"
+# Failures found are kept under the profile's own cache, so mutations.py
+# can clear them between seeded errors.
+failure_persist_dir = "cache/qualify/failures/fuzz"
 
 [profile.qualify.invariant]
 runs = 256
 depth = 200
 fail_on_revert = true
 show_metrics = true
+failure_persist_dir = "cache/qualify/failures/invariant"

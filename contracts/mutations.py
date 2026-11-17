@@ -97,12 +97,17 @@ def catch(cmd, work):
         code, out = run(["sh", "./check"], work)
         return code != 0, True, first_failure(out)
     if cmd.startswith("qualify:"):
-        shutil.rmtree(work / "cache" / "qualify" / "invariant", ignore_errors=True)
+        # Failures kept by the last mutant (foundry.toml) must not replay here.
+        shutil.rmtree(work / "cache" / "qualify" / "failures", ignore_errors=True)
         env = dict(os.environ, FOUNDRY_PROFILE="qualify")
         code, out = run(["forge", "test", "--match-contract", cmd[len("qualify:"):]], work, env)
         return code != 0, "Ran " in out, first_failure(out)
+    # A mutant that no longer compiles proves nothing about the named test:
+    # it is not ran (NOTRUN fails the run). Only the "check" path above may
+    # rely on the compiler.
     code, out = run(["forge", "test", "--match-test", cmd], work)
-    return code != 0, "No tests match" not in out, first_failure(out)
+    ran = "No tests match" not in out and "Compiler run failed" not in out
+    return code != 0, ran, first_failure(out)
 
 
 def main(sel):

@@ -15,10 +15,16 @@ failed=0
 
 echo "== invariant and fuzz runs (profile qualify)"
 start=$(date +%s)
-if [ -n "${LP2_QUALIFY_SEED:-}" ]; then
-    FOUNDRY_PROFILE=qualify forge test --fuzz-seed "$LP2_QUALIFY_SEED" || failed=1
-else
-    FOUNDRY_PROFILE=qualify forge test || failed=1
+[ -n "${LP2_QUALIFY_SEED:-}" ] && set -- --fuzz-seed "$LP2_QUALIFY_SEED"
+# The output is kept (under the ignored cache) to check the runs happened:
+# forge exits 0 when it finds no tests.
+mkdir -p cache/qualify
+log=cache/qualify/runs.log
+{ FOUNDRY_PROFILE=qualify forge test "$@"; echo $? >"$log.code"; } 2>&1 | tee "$log"
+[ "$(cat "$log.code")" = 0 ] || failed=1
+if ! grep -q 'MoneyInvariants invariants (runs: [1-9]' "$log"; then
+    echo "runs: not_run (no invariant campaign ran)"
+    [ $failed -eq 0 ] && failed=2
 fi
 echo "runs: $(( $(date +%s) - start ))s"
 

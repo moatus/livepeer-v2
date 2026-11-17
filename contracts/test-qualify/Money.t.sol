@@ -154,10 +154,9 @@ contract MoneyInvariants {
     }
 
     /// R-03: the network share is each gross less the node's rounded-down
-    /// half, held in the Broker; the two halves sum to every gross.
+    /// half, held in the Broker.
     function invariant_R03_split_and_network_share() external view {
         eqOr(broker.networkHeld(), h.paidToNetwork(), "R-03: network share held");
-        eqOr(h.paidToNodes() + h.paidToNetwork(), h.paidGross(), "R-03: halves sum to the gross");
     }
 
     /// R-04: each fee is counted, for its node, in the round it was

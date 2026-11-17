@@ -50,7 +50,6 @@ contract Handler is Stage2 {
     uint256 public minted;
     uint256 public funded;
     uint256 public released;
-    uint256 public paidGross;
     uint256 public paidToNodes;
     uint256 public paidToNetwork;
     mapping(uint256 => uint256) public feesShould;
@@ -379,7 +378,6 @@ contract Handler is Stage2 {
         walletShould[payout] += toNode;
         paidToNodes += toNode;
         paidToNetwork += paid - toNode;
-        paidGross += paid;
         paidFrom[payer] += paid;
         // R-04: counted in the round it is redeemed.
         feesShould[round] += paid;
