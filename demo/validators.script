@@ -1,0 +1,15 @@
+# The scripted validators of the stage 3 demo (S-05 section 1), run by
+# programs/validators. Each line is one act in one on-chain round:
+#   round validator target score   the validator votes score on target
+#   round validator opt-in         the validator opts itself in
+# V1 to V3 bond in round 2, so they have stake at the start of round 3 and
+# are seated from round 4 when they opt in. Their votes stand until replaced,
+# so the claims of round 9 read them: M 500,000 (V1 and V2 vote 500,000, V3
+# not at all), K 0 (V1 and V2 vote 0), N 1,000,000 (nobody votes on it).
+3 V1 opt-in
+3 V2 opt-in
+3 V3 opt-in
+4 V1 M 500000
+4 V2 M 500000
+4 V1 K 0
+4 V2 K 0

@@ -35,13 +35,31 @@ const contractsABI = `[
  {"type":"function","name":"getSenderInfo","stateMutability":"view","inputs":[{"name":"payer","type":"address"}],"outputs":[{"name":"sender","type":"tuple","components":[{"name":"deposit","type":"uint256"},{"name":"withdrawRound","type":"uint256"}]},{"name":"reserve","type":"tuple","components":[{"name":"fundsRemaining","type":"uint256"},{"name":"claimedInCurrentRound","type":"uint256"}]}]},
  {"type":"function","name":"claimableReserve","stateMutability":"view","inputs":[{"name":"payer","type":"address"},{"name":"node","type":"address"}],"outputs":[{"name":"","type":"uint256"}]},
  {"type":"function","name":"initializeRound","stateMutability":"nonpayable","inputs":[],"outputs":[]},
- {"type":"function","name":"currentRound","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"uint256"}]}
+ {"type":"function","name":"currentRound","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"uint256"}]},
+ {"type":"function","name":"bond","stateMutability":"nonpayable","inputs":[{"name":"node","type":"address"},{"name":"amount","type":"uint256"}],"outputs":[]},
+ {"type":"function","name":"unbond","stateMutability":"nonpayable","inputs":[{"name":"node","type":"address"},{"name":"amount","type":"uint256"}],"outputs":[]},
+ {"type":"function","name":"transferBond","stateMutability":"nonpayable","inputs":[{"name":"from","type":"address"},{"name":"to","type":"address"},{"name":"amount","type":"uint256"}],"outputs":[]},
+ {"type":"function","name":"unbondTransfer","stateMutability":"nonpayable","inputs":[{"name":"from","type":"address"},{"name":"to","type":"address"},{"name":"amount","type":"uint256"}],"outputs":[]},
+ {"type":"function","name":"rebond","stateMutability":"nonpayable","inputs":[{"name":"node","type":"address"},{"name":"amount","type":"uint256"}],"outputs":[]},
+ {"type":"function","name":"withdrawUnbonded","stateMutability":"nonpayable","inputs":[],"outputs":[]},
+ {"type":"function","name":"setRewardCut","stateMutability":"nonpayable","inputs":[{"name":"node","type":"address"},{"name":"cut","type":"uint256"}],"outputs":[]},
+ {"type":"function","name":"claim","stateMutability":"nonpayable","inputs":[{"name":"node","type":"address"},{"name":"round","type":"uint256"}],"outputs":[]},
+ {"type":"function","name":"withdrawParts","stateMutability":"nonpayable","inputs":[{"name":"node","type":"address"},{"name":"rounds","type":"uint256[]"}],"outputs":[]},
+ {"type":"function","name":"withdrawValidatorParts","stateMutability":"nonpayable","inputs":[{"name":"node","type":"address"},{"name":"rounds","type":"uint256[]"}],"outputs":[]},
+ {"type":"function","name":"mintRoundShares","stateMutability":"nonpayable","inputs":[{"name":"round","type":"uint256"}],"outputs":[]},
+ {"type":"function","name":"sharesMinted","stateMutability":"view","inputs":[{"name":"round","type":"uint256"}],"outputs":[{"name":"","type":"bool"}]},
+ {"type":"function","name":"optIn","stateMutability":"nonpayable","inputs":[{"name":"node","type":"address"}],"outputs":[]},
+ {"type":"function","name":"vote","stateMutability":"nonpayable","inputs":[{"name":"node","type":"address"},{"name":"target","type":"address"},{"name":"score","type":"uint256"}],"outputs":[]}
 ]`
 
-// Codes are the custom errors of contracts/interfaces, by name.
+// Codes are the custom errors of contracts/interfaces, by name. A test
+// reads the interface files and fails when one is missing here.
 var Codes = []string{
 	"NOT_REGISTERED", "PAYOUT_INVALID", "ROUND_NOT_OVER", "TICKET_EXPIRED", "TICKET_USED",
 	"TICKET_INVALID", "NOTHING_TO_PAY", "AMOUNT_TOO_LARGE", "RELEASE_NOT_READY",
+	"NOT_AUTHORIZED", "UNBOND_NOT_READY", "CUT_OUT_OF_RANGE", "SAME_NODE",
+	"CLAIM_TOO_EARLY", "CLAIM_EXPIRED", "ALREADY_CLAIMED", "SCORE_OUT_OF_RANGE", "NOT_CLAIMED", "NO_SUCH_ROUND",
+	"NOT_OPTED_IN", "STAKE_TOO_LOW", "NOT_VALIDATOR",
 }
 
 var parsedABI = func() abi.ABI {
@@ -169,6 +187,38 @@ func (s *Session) Try(ctx context.Context, at common.Address, method string, arg
 		return "", err
 	}
 	return "", nil
+}
+
+// TryAt is Try at the chain's newest block, which it names, so a refusal
+// can be placed among the transactions around it: the answer holds after
+// every transaction of that block.
+func (s *Session) TryAt(ctx context.Context, at common.Address, method string, args ...any) (code string, block uint64, err error) {
+	data, err := parsedABI.Pack(method, args...)
+	if err != nil {
+		return "", 0, err
+	}
+	head, err := s.Client.HeaderByNumber(ctx, nil)
+	if err != nil {
+		return "", 0, err
+	}
+	block = head.Number.Uint64()
+	_, err = s.Client.CallContract(ctx, ethereum.CallMsg{From: s.From, To: &at, Data: data}, head.Number)
+	if err != nil {
+		if c := RefusedCode(err); c != "" {
+			return c, block, nil
+		}
+		return "", block, err
+	}
+	return "", block, nil
+}
+
+// Bool reads a view that returns one boolean.
+func (s *Session) Bool(ctx context.Context, at common.Address, method string, args ...any) (bool, error) {
+	out, err := s.Call(ctx, at, method, args...)
+	if err != nil {
+		return false, err
+	}
+	return out[0].(bool), nil
 }
 
 // Send signs and sends a transaction, waits until it is mined and fails

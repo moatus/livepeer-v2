@@ -11,16 +11,19 @@ rulebook and labelled as ours.
 
 ## Status
 
-Stage 2 is built: nodes are paid in mock USDC for real jobs, with no stake.
-LPT, stake, scores, rewards and buyback come in later stages.
+Stage 3 is built: nodes are paid in mock USDC for real jobs, holders bond
+test LPT to them, scripted validators score them, and each round's LPT
+reward is claimed, split between a node and its holders, and minted under
+the round's ceiling. The buyback of LPT and parameter changes come in
+stage 4.
 
 | Part | State |
 |---|---|
-| Rulebook and shared examples | `october-main-text-v1`: stage 2's rules and 35 worked cases |
+| Rulebook and shared examples | `october-main-text-v2`: stage 3's rules and 74 worked cases (v1, stage 2's, is kept) |
 | Independent calculator | Computes every shared example from the rulebook alone |
-| Contracts | Stage 2: Controller, Registry, RoundClock, Broker, MockUSDC |
+| Contracts | Stage 2: Controller, Registry, RoundClock, Broker, MockUSDC. Stage 3: TestLPT, StakeLedger, Scores, Claims |
 | Node integration | The unmodified node, configured by flags alone; no fork |
-| One-command demo | `./dev demo` |
+| One-command demo | `./dev demo` (stage 3); `./dev demo stage-2` still runs stage 2's |
 
 ## Run the demo
 
@@ -35,14 +38,78 @@ older. `./dev doctor` checks all but Docker. The first run also
 needs the internet: it fetches the node's pinned commit from GitHub and
 builds it, its Go modules, the tiny model (about 145 MB, checked against its
 sha256) and the model server's image (pinned by digest). These are kept in
-`.cache/demo/`, so later runs start at once. A run takes about two minutes.
+`.cache/demo/`, so later runs start at once. A run takes about two and a half minutes.
 
-It uses eight local ports from 47700 (`LP2_DEMO_PORT_BASE=48000 ./dev demo`
+It uses twelve local ports from 47700 (`LP2_DEMO_PORT_BASE=48000 ./dev demo`
 moves them) and stops everything it started when it ends, including on
 Ctrl-C. It never touches a public chain: everything runs on a local chain
 with throwaway keys made by the run.
 
-What it does, in this order, printing each step:
+### Stage 3: one reward cycle
+
+`./dev demo` runs one full reward cycle, the one the shared example
+`ledger-cycle` describes. What it does, in this order, printing each step:
+
+1. Starts a fresh local chain and deploys the nine contracts, with a
+   genesis supply of 10,000,000 test LPT held by the deployer. It starts
+   the tiny model, the node's orchestrator for each of three nodes, N, M
+   and K, and a signer for the payer P.
+2. **Round 1.** N, M and K register; N pays to its wallet W and takes a
+   20 % reward cut. Four holders are given test LPT and bond it: O 100 and
+   D 300 to N, E 600 to M, F 250 to K. P deposits 5 USDC and sets 1 USDC
+   aside for each node. Three scripted validators, V1 to V3, register. The
+   keeper starts round 2 and mints round 1's validator and treasury
+   amounts.
+3. **Round 2.** Five paid relays of 1 USDC each, three for N and one each
+   for M and K, which the nodes redeem in round 2. O bonds a further 100
+   to N, and the validators bond 5,000, 3,000 and 2,000 to themselves;
+   both count from round 3, so round 2's stake is N 400, M 600, K 250.
+4. **The keeper stopped.** It is stopped while round 2 ends: the round
+   lasts two round lengths, and its validator and treasury amounts cannot
+   be minted yet (`CLAIM_TOO_EARLY`). Then another account starts round 3,
+   as anyone may: round 2's amounts are due and nobody has minted them. Run
+   again, the keeper finds them unminted and mints them in full, so a
+   stopped keeper delays them and loses nothing; a second mint is refused
+   (`ALREADY_CLAIMED`). From then on the keeper starts every round.
+5. **The validators** (`programs/validators`, run from
+   `demo/validators.script`) opt in in round 3 and, as members from round 4,
+   vote M 500,000 and K 0. Nobody votes on N, so it reads as 1,000,000.
+6. **Round 8.** N's claim for round 2 is refused as too early
+   (`CLAIM_TOO_EARLY`), and M's claim for N as not M's (`NOT_AUTHORIZED`).
+7. **Round 9.** A rival's and a delegator's claims for N are refused
+   (`NOT_AUTHORIZED`). N claims at score 1,000,000: W receives the cut,
+   60.110377935333104693 LPT, and Claims the pot, 240.441511741332418772,
+   from which O and D withdraw their parts, 60.110377935333104693 and
+   180.331133805999314079. N's second claim and D's second withdrawal are
+   refused (`ALREADY_CLAIMED`). M claims at 500,000: 93.922465523957976083
+   LPT goes to Claims as E's part, and as much again is never minted. K
+   claims at 0, is paid 0 and its entitlement closes. F starts to move 100
+   LPT from K to M, which would arrive in round 30.
+8. **Rounds 10 to 12.** F unbonds 40 of the move before it arrives, then
+   rebonds the 40: to M it is refused (`AMOUNT_TOO_LARGE`), to K it is
+   taken. K's stake reads 250, 210 and 250 LPT in rounds 10, 11 and 12.
+9. Prints every balance read from the chain beside the calculator's figure
+   for the same steps: the USDC of every wallet, the test LPT of every
+   address the run names, Claims (still holding E's part) and StakeLedger
+   among them, each round's validator and treasury amounts, the LPT minted
+   for each round (454.424865109532845983 for round 2) and in all, every
+   stake shown and every refusal. It checks them against the stage's
+   worked figures, and prints the 544.750300038956261284 LPT never minted
+   for round 2.
+10. Writes the whole run as a `ledger` case, built from what the demo sent,
+    what the keeper sent and what the chain's views show, and runs
+    `./calculator/check` on it.
+
+The node, the keeper, `lp2-fund`, `lp2-stake` (which sends the bonds,
+claims, withdrawals, transfers, unbonds and rebonds with each person's
+throwaway key) and the scripted validators are the only things that send
+transactions; the demo itself only registers nodes, gives out test LPT and
+mines empty blocks where it would otherwise wait for the chain.
+
+### Stage 2: paid jobs with no stake
+
+`./dev demo stage-2` runs stage 2's demo against stage 2's rulebook. What it
+does, in this order, printing each step:
 
 1. Starts a fresh local chain, deploys the five contracts, and starts the
    tiny model, the node's orchestrator for a node N, and a signer for each
@@ -81,17 +148,21 @@ What it does, in this order, printing each step:
 The demo mines empty blocks where it would otherwise wait for the chain,
 for example the 40 blocks before the node redeems a ticket.
 
-It ends with `DEMO PASSED` and exit 0 when every figure is equal and every
+### Both
+
+Each ends with `DEMO PASSED` and exit 0 when every figure is equal and every
 behaviour was seen, `DEMO FAILED` and exit 1 naming each figure or
 behaviour that was not, or `DEMO NOT RUN` and exit 2 when a tool, a
 download or a port was missing. The log, the contract addresses, each
 process's output and the case are in `.cache/demo/run/`; check the case
 again with `./calculator/check .cache/demo/run/ledger-case.json`.
 
-Every stand-in the demo uses (the local chain, mock USDC, the fixed price,
+Every stand-in a demo uses (the local chain, mock USDC, the fixed price,
 every ticket winning, 50-block rounds, the tiny model, no governance and no
-buyback) is named in `deployments/stage-2-local.json`, which the demo reads
-its settings from.
+buyback, and from stage 3 test LPT and its genesis supply, the treasury
+address, the scripted validators and the keeper) is named in its manifest,
+`deployments/stage-3-local.json` or `deployments/stage-2-local.json`, which
+it reads its settings from.
 
 ## What else you can run
 
@@ -107,8 +178,9 @@ its settings from.
   `vectors/` the worked cases with the exact numbers they must produce.
 - `calculator/` computes every worked case from the rulebook alone, and
   `contracts/` runs every one through the contracts.
-- `programs/` holds the funding program and the round keeper that run
-  beside the node, and `demo/` the one-command demo.
+- `programs/` holds what runs beside the node: the funding program, the
+  round keeper, `lp2-stake` for holders and nodes, and the scripted
+  validators; `demo/` holds the one-command demo.
 - `deployments/` names what each testnet version contains.
 - `SEAMS.md` names the places where something important crosses (rules,
   contract interfaces, money, authority, the node) and what enforces each.
