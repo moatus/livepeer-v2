@@ -8,18 +8,18 @@ import {ITicketBroker} from "../interfaces/ITicketBroker.sol";
 /// Runs the shared `ledger` cases through the contracts. Every input and
 /// every expected number is read from vectors/october-main-text-v1.json.
 ///
-/// Phase 2 builds funding and redemption, so it runs every case made only
-/// of register, fund and redeem steps. ledger-release and ledger-payout
-/// need release and setPayout, which phase 4 builds; WAITING names them,
-/// and test_every_ledger_case_is_run fails on any other case left out.
+/// test_every_ledger_case_is_run fails on any ledger case left unrun.
 contract LedgerTest is Stage2 {
-    string[2] private WAITING = ["ledger-release", "ledger-payout"];
-
     string private path;
     string[] private payers;
     string[] private nodes;
     string[] private refusedSteps;
     string[] private refusedCodes;
+    /// Each observe step: its number, and the deposit and claimable earmark
+    /// the node was shown.
+    string[] private observedSteps;
+    uint256[] private observedDeposits;
+    uint256[] private observedClaimable;
 
     function setUp() external {
         loadVectors();
@@ -32,11 +32,25 @@ contract LedgerTest is Stage2 {
     function test_ledger_replay() external { run("ledger-replay"); }
     function test_ledger_expired() external { run("ledger-expired"); }
     function test_ledger_unregistered() external { run("ledger-unregistered"); }
+    function test_ledger_release() external { run("ledger-release"); }
+    function test_ledger_payout() external { run("ledger-payout"); }
+
+    /// R-23: ledger-reserve gives the same numbers after 999 more
+    /// registrations, made before its steps.
+    function test_ledger_reserve_after_999_registrations() external {
+        deploy();
+        for (uint256 i = 0; i < 999; i++) {
+            vm.prank(address(uint160(0x10000 + i)));
+            registry.register();
+        }
+        steps("ledger-reserve");
+    }
 
     function test_every_ledger_case_is_run() external view {
-        string[7] memory ran = [
+        string[9] memory ran = [
             "ledger-demo", "ledger-reserve", "ledger-partial", "ledger-empty",
-            "ledger-replay", "ledger-expired", "ledger-unregistered"
+            "ledger-replay", "ledger-expired", "ledger-unregistered", "ledger-release",
+            "ledger-payout"
         ];
         string[] memory ids = abi.decode(vm.parseJson(vectors, ".cases[*].id"), (string[]));
         string[] memory kinds = abi.decode(vm.parseJson(vectors, ".cases[*].kind"), (string[]));
@@ -44,7 +58,6 @@ contract LedgerTest is Stage2 {
             if (!eq(kinds[i], "ledger")) continue;
             bool found = false;
             for (uint256 j = 0; j < ran.length; j++) found = found || eq(ids[i], ran[j]);
-            for (uint256 j = 0; j < WAITING.length; j++) found = found || eq(ids[i], WAITING[j]);
             require(found, string.concat("ledger case not run: ", ids[i]));
         }
     }
@@ -53,6 +66,12 @@ contract LedgerTest is Stage2 {
 
     function run(string memory id) internal {
         deploy();
+        steps(id);
+    }
+
+    /// Runs a case's steps on the current deployment, then checks every
+    /// expected figure.
+    function steps(string memory id) internal {
         path = string.concat(".cases[", vm.toString(caseIndex(id)), "]");
         for (uint256 i = 0; ; i++) {
             string memory s = string.concat(path, ".inputs.steps[", vm.toString(i), "]");
@@ -84,8 +103,20 @@ contract LedgerTest is Stage2 {
                 num(s, ".face_micro_usdc")
             );
             refused = redeem(t, sig, rand);
+        } else if (eq(action, "set_payout")) {
+            refused = setPayout(str(s, ".node"), who(str(s, ".payout")));
+        } else if (eq(action, "request_release")) {
+            refused = requestRelease(str(s, ".payer"), optionalNode(s), num(s, ".amount_micro_usdc"));
+        } else if (eq(action, "release")) {
+            refused = release(str(s, ".payer"), optionalNode(s));
+        } else if (eq(action, "observe")) {
+            address payer = who(str(s, ".payer"));
+            (ITicketBroker.Sender memory shown,) = broker.getSenderInfo(payer);
+            observedSteps.push(str(s, ".step"));
+            observedDeposits.push(shown.deposit);
+            observedClaimable.push(broker.claimableReserve(payer, who(str(s, ".node"))));
         } else {
-            revert(string.concat("phase 2 does not build the action ", action));
+            revert(string.concat("unknown action ", action));
         }
         if (refused.length > 0) {
             refusedSteps.push(str(s, ".step"));
@@ -171,28 +202,44 @@ contract LedgerTest is Stage2 {
             );
         }
 
-        string[] memory steps = refusedField(x, "step");
-        string[] memory codes = refusedField(x, "code");
-        expectEq(refusedSteps.length, steps.length, "refused steps");
-        for (uint256 i = 0; i < steps.length; i++) {
+        string[] memory nums = listField(x, ".refused", "step");
+        string[] memory codes = listField(x, ".refused", "code");
+        expectEq(refusedSteps.length, nums.length, "refused steps");
+        for (uint256 i = 0; i < nums.length; i++) {
             require(
-                eq(refusedSteps[i], steps[i]) && eq(refusedCodes[i], codes[i]),
+                eq(refusedSteps[i], nums[i]) && eq(refusedCodes[i], codes[i]),
                 string.concat(
                     "refusal ", vm.toString(i), ": got step ", refusedSteps[i], " ", refusedCodes[i],
-                    ", want step ", steps[i], " ", codes[i]
+                    ", want step ", nums[i], " ", codes[i]
                 )
+            );
+        }
+
+        nums = listField(x, ".observed", "step");
+        expectEq(observedSteps.length, nums.length, "observed steps");
+        for (uint256 i = 0; i < nums.length; i++) {
+            require(eq(observedSteps[i], nums[i]), string.concat("observed ", vm.toString(i), ": step ", nums[i]));
+            string memory o = string.concat(x, ".observed[", vm.toString(i), "]");
+            expectEq(observedDeposits[i], num(o, ".deposit_micro_usdc"), string.concat("step ", nums[i], " deposit shown"));
+            expectEq(
+                observedClaimable[i], num(o, ".claimable_micro_usdc"), string.concat("step ", nums[i], " claimable shown")
             );
         }
     }
 
-    /// Read one by one: forge returns a lone match of `[*]` as a value,
-    /// not a list.
-    function refusedField(string memory x, string memory field) internal view returns (string[] memory out) {
+    /// One field of each entry of a list. Read one by one: forge returns a
+    /// lone match of `[*]` as a value, not a list.
+    function listField(string memory x, string memory list, string memory field)
+        internal
+        view
+        returns (string[] memory out)
+    {
+        string memory at = string.concat(x, list);
         uint256 n = 0;
-        while (vm.keyExistsJson(vectors, string.concat(x, ".refused[", vm.toString(n), "]"))) n++;
+        while (vm.keyExistsJson(vectors, string.concat(at, "[", vm.toString(n), "]"))) n++;
         out = new string[](n);
         for (uint256 i = 0; i < n; i++) {
-            out[i] = str(x, string.concat(".refused[", vm.toString(i), "].", field));
+            out[i] = str(at, string.concat("[", vm.toString(i), "].", field));
         }
     }
 
@@ -204,6 +251,11 @@ contract LedgerTest is Stage2 {
         string memory k = string.concat(at, field);
         if (!vm.keyExistsJson(vectors, k)) return eq(field, ".round") ? 2 : 0;
         return vm.parseUint(vm.parseJsonString(vectors, k));
+    }
+
+    /// A release step names no node when it is about the deposit.
+    function optionalNode(string memory s) internal view returns (address) {
+        return vm.keyExistsJson(vectors, string.concat(s, ".node")) ? who(str(s, ".node")) : address(0);
     }
 
     function str(string memory at, string memory field) internal view returns (string memory) {

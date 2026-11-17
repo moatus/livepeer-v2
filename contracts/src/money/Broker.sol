@@ -10,17 +10,14 @@ import {IRegistry} from "../../interfaces/IRegistry.sol";
 /// and the network share (rulebook R-03, R-04, R-21, R-22). The node finds
 /// it under the name "TicketBroker" and calls it with the current
 /// protocol's names, shapes and ticket hash.
-///
-/// Stage 2, phase 2: funding, redemption and the node's reads. Release
-/// (requestRelease, release) is built in phase 4; until then nothing is
-/// ever pending, so every read below shows the whole balance, and this
-/// contract does not yet declare the whole ITicketBroker shape.
-contract Broker {
+contract Broker is ITicketBroker {
     /// Node cut (R-03): 500,000 over 10^6.
     uint256 private constant NODE_CUT = 500_000;
     uint256 private constant ONE = 1_000_000;
     /// Ticket validity (R-22): the creation round and the 2 rounds after it.
     uint256 private constant TICKET_VALIDITY = 2;
+    /// Release wait (R-22): a request may be released from its round + 3.
+    uint256 private constant RELEASE_WAIT = 3;
     /// Half the secp256k1 order: a larger s is the malleable twin of a
     /// signature and is refused, so a submitter cannot re-roll the win test.
     uint256 private constant HALF_N = 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0;
@@ -29,11 +26,21 @@ contract Broker {
     IRegistry private immutable registry;
     IRoundClock private immutable clock;
 
-    mapping(address => uint256) private deposit;
-    mapping(address => mapping(address => uint256)) private earmark;
-    /// Each payer's earmarks summed, kept on every change so that no read
-    /// visits the nodes a payer has named (R-23).
-    mapping(address => uint256) private earmarkTotal;
+    /// One balance of a payer: its deposit (node address(0)) or its earmark
+    /// for one node, with the release pending on it (R-22). A pending
+    /// amount is never above the balance, and a cleared request has
+    /// pending and readyRound 0.
+    struct Balance {
+        uint256 amount;
+        uint256 pending;
+        uint256 readyRound;
+    }
+
+    mapping(address => mapping(address => Balance)) private balance;
+    /// Each payer's earmarks less their pending releases, summed, kept on
+    /// every change so that no read visits the nodes a payer has named
+    /// (R-23).
+    mapping(address => uint256) private shownEarmarks;
 
     mapping(bytes32 => bool) public usedTickets;
     mapping(uint256 => mapping(address => uint256)) public feesOf;
@@ -49,78 +56,104 @@ contract Broker {
     // --- payer ---------------------------------------------------------
 
     /// Takes `deposit_ + earmark_` of the caller's USDC (R-21). With
-    /// earmark 0 it funds the deposit and names no node.
+    /// earmark 0 it funds the deposit and names no node. Funding leaves a
+    /// pending request as it is (R-22).
     function fund(uint256 deposit_, address node, uint256 earmark_) external {
         if (earmark_ == 0) {
             node = address(0);
         } else {
-            if (!registry.isRegistered(node)) revert ITicketBroker.NOT_REGISTERED();
-            earmark[msg.sender][node] += earmark_;
-            earmarkTotal[msg.sender] += earmark_;
+            if (!registry.isRegistered(node)) revert NOT_REGISTERED();
+            Balance storage e = balance[msg.sender][node];
+            _set(msg.sender, node, e, e.amount + earmark_, e.pending, e.readyRound);
         }
-        deposit[msg.sender] += deposit_;
-        emit ITicketBroker.Funded(msg.sender, deposit_, node, earmark_);
+        Balance storage d = balance[msg.sender][address(0)];
+        _set(msg.sender, address(0), d, d.amount + deposit_, d.pending, d.readyRound);
+        emit Funded(msg.sender, deposit_, node, earmark_);
         require(usdc.transferFrom(msg.sender, address(this), deposit_ + earmark_), "USDC transfer failed");
+    }
+
+    /// Asks to take `amount` out of the deposit (node address(0)) or one
+    /// earmark, at most its balance (R-22). From now the node is shown the
+    /// balance less `amount`. A new request replaces the pending one and
+    /// restarts the wait; amount 0 cancels it.
+    function requestRelease(address node, uint256 amount) external {
+        Balance storage b = balance[msg.sender][node];
+        if (amount > b.amount) revert AMOUNT_TOO_LARGE();
+        uint256 readyRound = amount == 0 ? 0 : clock.currentRound() + RELEASE_WAIT;
+        _set(msg.sender, node, b, b.amount, amount, readyRound);
+        emit ReleaseRequested(msg.sender, node, amount, readyRound);
+    }
+
+    /// Pays the payer its pending amount from the request's round + 3, and
+    /// clears the request (R-22).
+    function release(address node) external {
+        Balance storage b = balance[msg.sender][node];
+        uint256 amount = b.pending;
+        if (amount == 0 || clock.currentRound() < b.readyRound) revert RELEASE_NOT_READY();
+        _set(msg.sender, node, b, b.amount - amount, 0, 0);
+        emit Released(msg.sender, node, amount);
+        require(usdc.transfer(msg.sender, amount), "USDC transfer failed");
     }
 
     // --- what the node is shown ---------------------------------------
 
-    /// node address(0) is the deposit. Nothing is pending before phase 4.
+    /// node address(0) is the deposit, as in requestRelease.
     function earmarkOf(address payer, address node)
         external
         view
         returns (uint256 amount, uint256 pending, uint256 readyRound)
     {
-        amount = node == address(0) ? deposit[payer] : earmark[payer][node];
-        return (amount, 0, 0);
+        Balance storage b = balance[payer][node];
+        return (b.amount, b.pending, b.readyRound);
     }
 
-    /// The deposit, and every earmark summed as fundsRemaining (R-21).
+    /// The deposit less its pending release, and every earmark less its
+    /// pending release, summed as fundsRemaining (R-21, R-22). Neither can
+    /// fall below 0, since nothing pending is above its balance.
     /// withdrawRound and claimedInCurrentRound are always 0.
-    function getSenderInfo(address payer)
-        external
-        view
-        returns (ITicketBroker.Sender memory, ITicketBroker.ReserveInfo memory)
-    {
-        return (ITicketBroker.Sender(deposit[payer], 0), ITicketBroker.ReserveInfo(earmarkTotal[payer], 0));
+    function getSenderInfo(address payer) external view returns (Sender memory, ReserveInfo memory) {
+        Balance storage d = balance[payer][address(0)];
+        return (Sender(d.amount - d.pending, 0), ReserveInfo(shownEarmarks[payer], 0));
     }
 
-    /// That node's earmark: the per-node guarantee the node checks against
-    /// the face before it accepts a ticket (R-21).
+    /// That node's earmark less its pending release: the per-node guarantee
+    /// the node checks against the face before it accepts a ticket (R-21).
     function claimableReserve(address payer, address node) external view returns (uint256) {
-        return earmark[payer][node];
+        if (node == address(0)) return 0;
+        Balance storage e = balance[payer][node];
+        return e.amount - e.pending;
     }
 
     // --- redemption -----------------------------------------------------
 
     /// Anyone may submit a ticket; the node's half goes only to the
     /// recipient's payout address (R-03). Pays min(face, deposit + that
-    /// node's earmark), deposit first (R-04).
-    function redeemWinningTicket(ITicketBroker.Ticket calldata t, bytes calldata sig, uint256 recipientRand)
-        external
-    {
+    /// node's earmark), deposit first (R-04), drawing on the whole balance
+    /// whatever is pending.
+    function redeemWinningTicket(Ticket calldata t, bytes calldata sig, uint256 recipientRand) external {
         bytes32 ticketHash = keccak256(
             abi.encodePacked(
                 t.recipient, t.sender, t.faceValue, t.winProb, t.senderNonce, t.recipientRandHash, t.auxData
             )
         );
         uint256 round = _requireValid(t, ticketHash, sig, recipientRand);
-        if (!registry.isRegistered(t.recipient)) revert ITicketBroker.NOT_REGISTERED();
+        if (!registry.isRegistered(t.recipient)) revert NOT_REGISTERED();
 
-        uint256 fromDeposit = deposit[t.sender];
-        uint256 fromEarmark = earmark[t.sender][t.recipient];
+        Balance storage d = balance[t.sender][address(0)];
+        Balance storage e = balance[t.sender][t.recipient];
+        uint256 fromDeposit = d.amount;
+        uint256 fromEarmark = e.amount;
         if (fromDeposit >= t.faceValue) {
             (fromDeposit, fromEarmark) = (t.faceValue, 0);
         } else if (fromDeposit + fromEarmark > t.faceValue) {
             fromEarmark = t.faceValue - fromDeposit;
         }
         uint256 paid = fromDeposit + fromEarmark;
-        if (paid == 0) revert ITicketBroker.NOTHING_TO_PAY();
+        if (paid == 0) revert NOTHING_TO_PAY();
 
         usedTickets[ticketHash] = true;
-        deposit[t.sender] -= fromDeposit;
-        earmark[t.sender][t.recipient] -= fromEarmark;
-        earmarkTotal[t.sender] -= fromEarmark;
+        _draw(t.sender, address(0), d, fromDeposit);
+        _draw(t.sender, t.recipient, e, fromEarmark);
 
         // floor(paid * NODE_CUT / ONE), split so that no product overflows
         // for any amount a payer can fund.
@@ -131,35 +164,62 @@ contract Broker {
         totalFees[round] += paid;
 
         address payout = registry.payoutOf(t.recipient);
-        emit ITicketBroker.FeeSettled(
-            round, t.recipient, t.sender, ticketHash, paid, nodeAmount, networkAmount, payout
-        );
+        emit FeeSettled(round, t.recipient, t.sender, ticketHash, paid, nodeAmount, networkAmount, payout);
         if (nodeAmount > 0) require(usdc.transfer(payout, nodeAmount), "USDC transfer failed");
     }
 
+    // --- internals ------------------------------------------------------
+
+    /// Lowers a balance by what a ticket took, and its pending amount to
+    /// the balance left where it is above it; a pending amount that
+    /// reaches 0 is cleared, so a later top-up is shown at once (R-22).
+    function _draw(address payer, address node, Balance storage b, uint256 taken) private {
+        uint256 left = b.amount - taken;
+        if (b.pending < left) {
+            _set(payer, node, b, left, b.pending, b.readyRound);
+        } else {
+            _set(payer, node, b, left, left, left == 0 ? 0 : b.readyRound);
+        }
+    }
+
+    /// The one place a balance changes, so the earmarks shown to the signer
+    /// stay summed (R-23).
+    function _set(
+        address payer,
+        address node,
+        Balance storage b,
+        uint256 amount,
+        uint256 pending,
+        uint256 readyRound
+    ) private {
+        if (node != address(0)) {
+            shownEarmarks[payer] = shownEarmarks[payer] - (b.amount - b.pending) + (amount - pending);
+        }
+        (b.amount, b.pending, b.readyRound) = (amount, pending, readyRound);
+    }
+
     /// Today's checks, in today's order. Returns the current round.
-    function _requireValid(
-        ITicketBroker.Ticket calldata t,
-        bytes32 ticketHash,
-        bytes calldata sig,
-        uint256 recipientRand
-    ) private view returns (uint256 round) {
-        if (t.recipient == address(0) || t.sender == address(0)) revert ITicketBroker.TICKET_INVALID();
-        if (t.auxData.length != 64) revert ITicketBroker.TICKET_INVALID();
+    function _requireValid(Ticket calldata t, bytes32 ticketHash, bytes calldata sig, uint256 recipientRand)
+        private
+        view
+        returns (uint256 round)
+    {
+        if (t.recipient == address(0) || t.sender == address(0)) revert TICKET_INVALID();
+        if (t.auxData.length != 64) revert TICKET_INVALID();
         (uint256 creationRound, bytes32 creationHash) = abi.decode(t.auxData, (uint256, bytes32));
         bytes32 roundHash = clock.blockHashForRound(creationRound);
         // Kept as text: the node treats this revert as final.
         require(roundHash != bytes32(0), "ticket creationRound does not have a block hash");
-        if (creationHash != roundHash) revert ITicketBroker.TICKET_INVALID();
+        if (creationHash != roundHash) revert TICKET_INVALID();
         round = clock.currentRound();
-        if (round > creationRound + TICKET_VALIDITY) revert ITicketBroker.TICKET_EXPIRED();
+        if (round > creationRound + TICKET_VALIDITY) revert TICKET_EXPIRED();
         if (keccak256(abi.encodePacked(recipientRand)) != t.recipientRandHash) {
-            revert ITicketBroker.TICKET_INVALID();
+            revert TICKET_INVALID();
         }
-        if (usedTickets[ticketHash]) revert ITicketBroker.TICKET_USED();
-        if (_signer(ticketHash, sig) != t.sender) revert ITicketBroker.TICKET_INVALID();
+        if (usedTickets[ticketHash]) revert TICKET_USED();
+        if (_signer(ticketHash, sig) != t.sender) revert TICKET_INVALID();
         if (uint256(keccak256(abi.encodePacked(sig, recipientRand))) >= t.winProb) {
-            revert ITicketBroker.TICKET_INVALID();
+            revert TICKET_INVALID();
         }
     }
 

@@ -4,28 +4,43 @@ pragma solidity 0.8.30;
 import {IRegistry} from "../../interfaces/IRegistry.sol";
 import {IRoundClock} from "../../interfaces/IRoundClock.sol";
 
-/// Who is a node (rulebook R-01). Anyone registers, at any time, free;
-/// registration is permanent and registering again changes nothing. The
-/// node finds it under the name "BondingManager".
-///
-/// Stage 2, phase 2: setPayout is built in phase 4, so every node is paid
-/// at its own address until then, and this contract does not yet declare
-/// the whole IRegistry shape.
-contract Registry {
+/// Who is a node, and where its USDC half is paid (rulebook R-01). Anyone
+/// registers, at any time, free; registration is permanent and registering
+/// again changes nothing. The node finds it under the name "BondingManager".
+contract Registry is IRegistry {
     IRoundClock private immutable clock;
-    mapping(address => bool) private registered;
+    /// The Broker's address, fixed at deployment. A payout there would keep
+    /// the node's half inside the Broker, so it is refused. The Broker is
+    /// deployed after this contract, so the deployer passes the address the
+    /// Broker will have.
+    address private immutable broker;
 
-    constructor(IRoundClock clock_) {
+    mapping(address => bool) private registered;
+    /// address(0) means the node itself.
+    mapping(address => address) private payout;
+
+    constructor(IRoundClock clock_, address broker_) {
+        require(broker_ != address(0), "zero address");
         clock = clock_;
+        broker = broker_;
     }
 
     function register() external {
         if (registered[msg.sender]) return;
         registered[msg.sender] = true;
-        emit IRegistry.NodeRegistered(msg.sender, clock.currentRound());
+        emit NodeRegistered(msg.sender, clock.currentRound());
     }
 
-    function isRegistered(address a) public view returns (bool) {
+    /// Only the node sets its own payout; address(0) makes it the node
+    /// itself again. The event names the address the node is now paid at.
+    function setPayout(address payout_) external {
+        if (!registered[msg.sender]) revert NOT_REGISTERED();
+        if (payout_ == broker) revert PAYOUT_INVALID();
+        payout[msg.sender] = payout_;
+        emit PayoutSet(msg.sender, payoutOf(msg.sender));
+    }
+
+    function isRegistered(address a) external view returns (bool) {
         return registered[a];
     }
 
@@ -35,8 +50,10 @@ contract Registry {
         return registered[a];
     }
 
-    /// The node itself until it sets another (setPayout, phase 4).
-    function payoutOf(address node) external pure returns (address) {
-        return node;
+    /// The node itself until it sets another. Read by the Broker at
+    /// redemption (R-03).
+    function payoutOf(address node) public view returns (address) {
+        address p = payout[node];
+        return p == address(0) ? node : p;
     }
 }

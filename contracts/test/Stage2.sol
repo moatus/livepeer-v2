@@ -8,7 +8,6 @@ import {RoundClock} from "../src/clock/RoundClock.sol";
 import {Broker} from "../src/money/Broker.sol";
 import {MockUSDC} from "../src/money/MockUSDC.sol";
 import {ITicketBroker} from "../interfaces/ITicketBroker.sol";
-import {IRegistry} from "../interfaces/IRegistry.sol";
 
 /// A fresh stage 2 deployment, the shared examples, and the steps a test
 /// takes as a participant: register, fund, sign and redeem a ticket.
@@ -21,13 +20,16 @@ abstract contract Stage2 {
 
     string internal vectors;
 
-    /// Deploys the five contracts at block 100 (round 1 starts there).
+    /// Deploys the five contracts at block 100 (round 1 starts there). The
+    /// Registry is given the address the Broker will be created at.
     function deploy() internal {
         vm.roll(100);
         clock = new RoundClock();
-        registry = new Registry(clock);
         usdc = new MockUSDC();
-        broker = new Broker(usdc, IRegistry(address(registry)), clock);
+        address next = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1);
+        registry = new Registry(clock, next);
+        broker = new Broker(usdc, registry, clock);
+        require(address(broker) == next, "Broker at the address the Registry was given");
         controller = new Controller(address(registry), address(clock), address(broker));
     }
 
@@ -88,6 +90,30 @@ abstract contract Stage2 {
             return ret;
         }
         return "";
+    }
+
+    /// `node` sets its payout. Returns the revert data, empty on success.
+    function setPayout(string memory node, address payout) internal returns (bytes memory) {
+        vm.prank(who(node));
+        (bool ok, bytes memory ret) = address(registry).call(abi.encodeCall(Registry.setPayout, (payout)));
+        return ok ? bytes("") : ret;
+    }
+
+    /// `payer` asks to release `amount` from its deposit (node address(0))
+    /// or its earmark for `node`. Returns the revert data, empty on success.
+    function requestRelease(string memory payer, address node, uint256 amount) internal returns (bytes memory) {
+        vm.prank(who(payer));
+        (bool ok, bytes memory ret) =
+            address(broker).call(abi.encodeCall(Broker.requestRelease, (node, amount)));
+        return ok ? bytes("") : ret;
+    }
+
+    /// `payer` releases what is pending on its deposit (node address(0)) or
+    /// its earmark for `node`. Returns the revert data, empty on success.
+    function release(string memory payer, address node) internal returns (bytes memory) {
+        vm.prank(who(payer));
+        (bool ok, bytes memory ret) = address(broker).call(abi.encodeCall(Broker.release, (node)));
+        return ok ? bytes("") : ret;
     }
 
     /// The ticket, signature and random value a payer gives a node, as the

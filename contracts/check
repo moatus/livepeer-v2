@@ -1,7 +1,49 @@
 #!/bin/sh
-# The contracts' fast check: build and run every test. ./dev runs it from
-# this folder. Exit 0 passed, 1 failed, 2 could not run.
+# The contracts' fast check: build and run every test, then compare each
+# contract's compiled ABI with its interface file. ./dev runs it from this
+# folder. Exit 0 passed, 1 failed, 2 could not run.
 set -u
 cd "$(dirname "$0")"
 command -v forge >/dev/null 2>&1 || { echo "forge is not installed (./dev doctor)"; exit 2; }
+command -v python3 >/dev/null 2>&1 || { echo "python3 is not installed (./dev doctor)"; exit 2; }
 forge test || exit 1
+
+# Each deployed contract and the interface file that declares its public
+# shape. The two ABIs must hold the same functions, events and errors, with
+# the same types, indexed flags and mutability. The constructor is not
+# public shape; parameter names do not change a call's encoding, and a
+# public mapping's getter cannot name its own; pure counts as view, since a
+# caller cannot tell them apart.
+python3 - <<'EOF'
+import json, subprocess, sys
+
+PAIRS = [("Controller", "IController"), ("Registry", "IRegistry"), ("RoundClock", "IRoundClock"),
+         ("Broker", "ITicketBroker"), ("MockUSDC", "IMockUSDC")]
+
+def params(ps):
+    return [[p["type"], p.get("internalType"), p.get("indexed"), params(p.get("components", []))] for p in ps]
+
+def shape(name):
+    abi = json.loads(subprocess.run(["forge", "inspect", name, "abi", "--json"],
+                                    check=True, capture_output=True, text=True).stdout)
+    out = set()
+    for e in abi:
+        if e["type"] == "constructor":
+            continue
+        mutability = "view" if e.get("stateMutability") == "pure" else e.get("stateMutability")
+        out.add(json.dumps([e["type"], e.get("name"), params(e.get("inputs", [])),
+                            params(e.get("outputs", [])), mutability, e.get("anonymous")]))
+    return out
+
+failed = False
+for contract, interface in PAIRS:
+    c, i = shape(contract), shape(interface)
+    for e in sorted(c - i):
+        print(f"abi: {contract} has, {interface} does not declare: {e}")
+    for e in sorted(i - c):
+        print(f"abi: {interface} declares, {contract} does not have: {e}")
+    failed = failed or c != i
+    if c == i:
+        print(f"abi: {contract} equals {interface}")
+sys.exit(1 if failed else 0)
+EOF

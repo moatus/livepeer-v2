@@ -7,6 +7,8 @@ interface Vm {
     function roll(uint256 blockNumber) external;
     function prank(address sender) external;
     function addr(uint256 privateKey) external pure returns (address);
+    function getNonce(address account) external view returns (uint64);
+    function computeCreateAddress(address deployer, uint256 nonce) external pure returns (address);
     function sign(uint256 privateKey, bytes32 digest) external pure returns (uint8 v, bytes32 r, bytes32 s);
     function projectRoot() external view returns (string memory);
     function readFile(string calldata path) external view returns (string memory);

@@ -7,8 +7,7 @@ import {ITicketBroker} from "../interfaces/ITicketBroker.sol";
 
 /// What the node relies on beyond the ledger cases: the names it looks up,
 /// what it is shown of a payer, the round clock it signs against, and the
-/// ticket checks it treats as final. Phase 4 adds every cause of
-/// TICKET_INVALID and the 250-block round.
+/// ticket checks it treats as final.
 contract Stage2Test is Stage2 {
     function setUp() external {
         loadVectors();
@@ -77,12 +76,78 @@ contract Stage2Test is Stage2 {
         require(clock.blockHashForRound(3) == bytes32(0), "round 3 not started");
     }
 
-    /// A ticket signed by anyone but its sender is refused TICKET_INVALID,
-    /// and nothing moves.
+    /// R-18's example: round 2 starts one round length after deployment;
+    /// nobody starts round 3 for five round lengths (250 blocks), and then
+    /// round 3 starts with no round number skipped. A ticket signed in
+    /// that long round 2 is paid in round 3.
+    function test_ticket_signed_in_a_long_round_is_paid() external {
+        uint256 len = param("round_length_blocks");
+        vm.roll(100 + len);
+        clock.initializeRound();
+        expectEq(clock.currentRound(), 2, "round 2");
+        register("N");
+        require(fund("P", 1_000_000, address(0), 0).length == 0, "fund");
+
+        vm.roll(100 + len + 5 * len - 1);
+        (ITicketBroker.Ticket memory t, bytes memory sig, uint256 rand) = ticket("long", "P", who("N"), 2, 10_001);
+
+        vm.roll(100 + len + 5 * len);
+        clock.initializeRound();
+        expectEq(clock.currentRound(), 3, "round 3, none skipped");
+        require(redeem(t, sig, rand).length == 0, "paid");
+        expectEq(broker.feesOf(3, who("N")), t.faceValue, "fee counted in round 3");
+    }
+
+    // --- every cause of TICKET_INVALID, each moving nothing ----------------
+
+    /// A ticket signed by anyone but its sender.
     function test_wrong_signature_is_refused() external {
         (ITicketBroker.Ticket memory t,, uint256 rand) = funded();
         bytes memory forged = signTicket(key("Q"), t);
         refusedAndNothingMoved(t, forged, rand, "TICKET_INVALID");
+    }
+
+    /// A random value that does not match the ticket's commitment.
+    function test_wrong_random_value_is_refused() external {
+        (ITicketBroker.Ticket memory t, bytes memory sig, uint256 rand) = funded();
+        refusedAndNothingMoved(t, sig, rand + 1, "TICKET_INVALID");
+    }
+
+    /// auxData of 96 bytes, holding a valid round and hash first.
+    function test_wrong_aux_data_length_is_refused() external {
+        (ITicketBroker.Ticket memory t,, uint256 rand) = funded();
+        t.auxData = abi.encodePacked(t.auxData, bytes32(0));
+        refusedAndNothingMoved(t, signTicket(key("P"), t), rand, "TICKET_INVALID");
+    }
+
+    /// A creation round that has started, with another block hash.
+    function test_wrong_block_hash_is_refused() external {
+        (ITicketBroker.Ticket memory t,, uint256 rand) = funded();
+        t.auxData = abi.encodePacked(clock.currentRound(), bytes32(uint256(1)));
+        refusedAndNothingMoved(t, signTicket(key("P"), t), rand, "TICKET_INVALID");
+    }
+
+    /// A zero recipient, on a ticket its sender signed.
+    function test_zero_recipient_is_refused() external {
+        (ITicketBroker.Ticket memory t,, uint256 rand) = funded();
+        t.recipient = address(0);
+        refusedAndNothingMoved(t, signTicket(key("P"), t), rand, "TICKET_INVALID");
+    }
+
+    /// A zero sender, with a signature from which ecrecover returns the
+    /// zero address.
+    function test_zero_sender_is_refused() external {
+        (ITicketBroker.Ticket memory t,, uint256 rand) = funded();
+        t.sender = address(0);
+        bytes memory sig = abi.encodePacked(bytes32(0), bytes32(0), uint8(27));
+        refusedAndNothingMoved(t, sig, rand, "TICKET_INVALID");
+    }
+
+    /// A ticket that did not win: win probability 0.
+    function test_losing_ticket_is_refused() external {
+        (ITicketBroker.Ticket memory t,, uint256 rand) = funded();
+        t.winProb = 0;
+        refusedAndNothingMoved(t, signTicket(key("P"), t), rand, "TICKET_INVALID");
     }
 
     /// A ticket naming a round that has not started is refused with the
@@ -116,6 +181,8 @@ contract Stage2Test is Stage2 {
         return ticket("t1", "P", who("N"), 2, 10_001);
     }
 
+    /// The ticket is refused with `want`, and no money, fee record or used
+    /// ticket changed.
     function refusedAndNothingMoved(
         ITicketBroker.Ticket memory t,
         bytes memory sig,
@@ -123,11 +190,19 @@ contract Stage2Test is Stage2 {
         string memory want
     ) internal {
         uint256 held = usdc.balanceOf(address(broker));
+        (uint256 dep,,) = broker.earmarkOf(who("P"), address(0));
+        (uint256 mark,,) = broker.earmarkOf(who("P"), who("N"));
         bytes memory ret = redeem(t, sig, rand);
+        require(ret.length > 0, "paid, not refused");
         require(eq(code(ret), want), string.concat("refused with ", code(ret)));
         expectEq(usdc.balanceOf(address(broker)), held, "Broker USDC");
-        expectEq(usdc.balanceOf(t.recipient), 0, "node paid");
+        expectEq(usdc.balanceOf(who("N")), 0, "node paid");
         expectEq(broker.networkHeld(), 0, "network");
+        (uint256 depAfter,,) = broker.earmarkOf(who("P"), address(0));
+        (uint256 markAfter,,) = broker.earmarkOf(who("P"), who("N"));
+        expectEq(depAfter, dep, "deposit");
+        expectEq(markAfter, mark, "earmark");
+        expectEq(broker.feesOf(clock.currentRound(), who("N")), 0, "fees of N");
         expectEq(broker.totalFees(clock.currentRound()), 0, "fees");
         require(!broker.usedTickets(ticketHash(t)), "ticket unused");
     }
