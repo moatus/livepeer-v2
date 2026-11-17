@@ -9,6 +9,54 @@ command -v python3 >/dev/null 2>&1 || { echo "python3 is not installed (./dev do
 forge test || exit 1
 python3 -m unittest -q test_mutations || exit 1
 
+# The reward maths (rulebook v2). Every function in src/math/ is declared
+# pure in a library, so the compiler refuses one that reads or changes
+# state. And C(r), for every residue r below 840 and for r = 840, 841 and
+# 1,680, is R-05's exact floor: the largest c with
+# c^840 x 2^r <= EmissionBase^840, held to that inequality here in exact
+# integers. EmissionBase and the half-life are read from the shared examples.
+python3 - <<'EOF' || exit 1
+import glob, json, re, subprocess, sys
+
+failed = False
+for path in sorted(glob.glob("src/math/**/*.sol", recursive=True)):
+    text = re.sub(r"//[^\n]*|/\*.*?\*/", "", open(path).read(), flags=re.S)
+    for kind in re.findall(r"\b(contract|interface|abstract)\b", text):
+        print(f"maths: {path} declares a {kind}; reward maths is a library")
+        failed = True
+    for head in re.findall(r"\bfunction\b[^{;]*", text):
+        if not re.search(r"\bpure\b", head):
+            name = head.split("(")[0].split()[-1]
+            print(f"maths: {path} {name} is not pure")
+            failed = True
+
+v = json.load(open("../vectors/october-main-text-v2.json"))["parameters"]
+base, half = int(v["emission_base_wei"]), int(v["emission_half_life_rounds"])
+run = subprocess.run(["forge", "test", "--match-test", "test_ceiling_residues", "--json", "-vv"],
+                     capture_output=True, text=True)
+logs = [line for suite in json.loads(run.stdout).values()
+        for result in suite["test_results"].values() for line in result["decoded_logs"]]
+got = {}
+for line in logs:
+    m = re.fullmatch(r"C\((\d+)\): (\d+)", line)
+    if m:
+        got[int(m.group(1))] = int(m.group(2))
+    elif line.startswith("gas max: "):
+        gas = line[len("gas max: "):]
+want = list(range(half)) + [half, half + 1, 2 * half]
+if sorted(got) != want:
+    print(f"maths: the residue test printed {len(got)} ceilings, not {len(want)}")
+    failed = True
+top = base ** half
+wrong = [r for r in want if r in got and not (got[r] ** half << r <= top < (got[r] + 1) ** half << r)]
+for r in wrong:
+    print(f"maths: C({r}) = {got[r]} is not the exact floor")
+failed = failed or bool(wrong)
+if not failed:
+    print(f"maths: every function pure; C(r) exact for {len(want)} rounds; costliest {gas} gas")
+sys.exit(1 if failed else 0)
+EOF
+
 # Each deployed contract and the interface file that declares its public
 # shape. The two ABIs must hold the same functions, events and errors, with
 # the same types, indexed flags and mutability. The constructor is not
@@ -18,8 +66,17 @@ python3 -m unittest -q test_mutations || exit 1
 python3 - <<'EOF'
 import json, subprocess, sys
 
-PAIRS = [("Controller", "IController"), ("Registry", "IRegistry"), ("RoundClock", "IRoundClock"),
-         ("Broker", "ITicketBroker"), ("MockUSDC", "IMockUSDC")]
+PAIRS = [("Controller", "IController"), ("Registry", "IRegistryV2"), ("RoundClock", "IRoundClock"),
+         ("Broker", "ITicketBroker"), ("MockUSDC", "IMockUSDC"), ("StakeLedger", "IStakeLedger"),
+         ("TestLPT", "ITestLPT"), ("Claims", "IClaims")]
+
+# Declared in an interface but built by a later phase, which removes its
+# line here when it builds them. Nothing else may be missing.
+LATER = {
+    # S-05 phase 4 builds Claims without the validator pot; S-06's phase 4
+    # adds it.
+    "IClaims": {"validatorPayOf", "validatorPartOf", "ValidatorPaid"},
+}
 
 def params(ps):
     return [[p["type"], p.get("internalType"), p.get("indexed"), params(p.get("components", []))] for p in ps]
@@ -29,7 +86,7 @@ def shape(name):
                                     check=True, capture_output=True, text=True).stdout)
     out = set()
     for e in abi:
-        if e["type"] == "constructor":
+        if e["type"] == "constructor" or e.get("name") in LATER.get(name, ()):
             continue
         mutability = "view" if e.get("stateMutability") == "pure" else e.get("stateMutability")
         out.add(json.dumps([e["type"], e.get("name"), params(e.get("inputs", [])),
@@ -45,6 +102,7 @@ for contract, interface in PAIRS:
         print(f"abi: {interface} declares, {contract} does not have: {e}")
     failed = failed or c != i
     if c == i:
-        print(f"abi: {contract} equals {interface}")
+        later = sorted(LATER.get(interface, ()))
+        print(f"abi: {contract} equals {interface}" + (f", less {', '.join(later)}" if later else ""))
 sys.exit(1 if failed else 0)
 EOF

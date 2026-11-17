@@ -34,7 +34,11 @@ abstract contract Stage2 {
     }
 
     function loadVectors() internal {
-        vectors = vm.readFile(string.concat(vm.projectRoot(), "/../vectors/october-main-text-v1.json"));
+        loadVectors("october-main-text-v1");
+    }
+
+    function loadVectors(string memory profile) internal {
+        vectors = vm.readFile(string.concat(vm.projectRoot(), "/../vectors/", profile, ".json"));
     }
 
     function param(string memory name) internal view returns (uint256) {
@@ -163,7 +167,7 @@ abstract contract Stage2 {
     /// The stable code a call was refused with: a custom error's name, or
     /// the kept revert text.
     function code(bytes memory ret) internal pure returns (string memory) {
-        string[9] memory codes = [
+        string[19] memory codes = [
             "NOT_REGISTERED",
             "TICKET_EXPIRED",
             "TICKET_USED",
@@ -172,7 +176,17 @@ abstract contract Stage2 {
             "AMOUNT_TOO_LARGE",
             "RELEASE_NOT_READY",
             "PAYOUT_INVALID",
-            "ROUND_NOT_OVER"
+            "ROUND_NOT_OVER",
+            "NOT_AUTHORIZED",
+            "UNBOND_NOT_READY",
+            "CUT_OUT_OF_RANGE",
+            "CLAIM_TOO_EARLY",
+            "CLAIM_EXPIRED",
+            "ALREADY_CLAIMED",
+            "SCORE_OUT_OF_RANGE",
+            "NOT_CLAIMED",
+            "NO_SUCH_ROUND",
+            "SAME_NODE"
         ];
         if (ret.length == 4) {
             for (uint256 i = 0; i < codes.length; i++) {

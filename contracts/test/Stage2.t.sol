@@ -31,6 +31,21 @@ contract Stage2Test is Stage2 {
         require(registry.payoutOf(n) == n, "paid at its own address");
     }
 
+    /// S-09 3.2's one authority check, until stage 4: only the node's own
+    /// address may act for it; its payout may not. It reads nothing about
+    /// the node, so an address not yet registered may act for itself, and
+    /// the call it makes refuses it with NOT_REGISTERED after (D-39).
+    function test_only_the_node_itself_may_act_for_it() external {
+        address n = who("N");
+        require(registry.mayActFor(n, n), "before it registers");
+        register("N");
+        require(setPayout("N", who("W")).length == 0, "payout set");
+        require(registry.mayActFor(n, n), "the node itself");
+        require(!registry.mayActFor(who("W"), n), "not its payout");
+        require(!registry.mayActFor(who("H"), n), "not another address");
+        require(!registry.mayActFor(n, who("M")), "not for another node");
+    }
+
     /// R-21: after ledger-demo's funding, the node is shown the deposit and
     /// its own earmark, and the signer the earmarks summed. Another node
     /// is shown no earmark.
