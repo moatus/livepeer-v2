@@ -35,7 +35,10 @@ round's inputs with the claim's score.
 
 Ledger cases replay registration, funding, redemption, payout, observation and
 release in fresh in-memory state. The default check covers all 35 v1 cases;
-an explicit v0 file remains supported. No state survives a calculation.
+an explicit v0 file remains supported. No state survives a calculation. The check also runs ledger input regressions.
+Decreasing rounds, conflicting details for one ticket ID (including refused
+attempts), and observations without a node raise `ValueError` with a
+`ledger input error` message, rather than returning a rule refusal code.
 The ledger format has no Broker address, so it cannot express PAYOUT_INVALID.
 Future tickets and simultaneous redemption refusals are reported as unsupported
 inputs rather than inventing a stable code or refusal precedence.

@@ -179,6 +179,21 @@ def calculate(kind: str, inputs: dict, parameters: Parameters,
 def ledger(inputs: dict, parameters: Parameters) -> dict:
     """R-01/03/04/21/22: replay a fresh account ledger from inputs alone."""
     steps = inputs["steps"]
+    previous_round = 0
+    tickets = {}
+    for s in steps:
+        round_number = integer(s["round"])
+        if round_number < previous_round:
+            raise ValueError(f"ledger input error at step {s['step']}: round decreases")
+        previous_round = round_number
+        if s["action"] == "observe" and not s.get("node"):
+            raise ValueError(f"ledger input error at step {s['step']}: observe requires a node")
+        if s["action"] == "redeem":
+            details = (s["payer"], s["node"], integer(s["face_micro_usdc"]),
+                       integer(s["created_round"]))
+            if s["ticket"] in tickets and tickets[s["ticket"]] != details:
+                raise ValueError(f"ledger input error at step {s['step']}: ticket details changed")
+            tickets[s["ticket"]] = details
     payers = {s["payer"] for s in steps if "payer" in s}
     deposits = dict.fromkeys(payers, 0)
     earmarks = {p: {} for p in payers}
