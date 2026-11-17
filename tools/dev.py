@@ -448,8 +448,8 @@ def cmd_review(args) -> int:
         out("No contracts exist yet.")
     out()
     out("This reads the interface files only. A public function added straight to an"
-        " implementation contract does not show here until the compiler's ABI is"
-        " compared against the declared interfaces, which arrives with the contracts.")
+        " implementation contract does not show here; `contracts/check` catches it by"
+        " comparing each contract's compiled ABI with its interface file.")
     out()
 
     out("## Doors")
