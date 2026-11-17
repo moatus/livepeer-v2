@@ -124,6 +124,9 @@ def calculate(kind: str, inputs: dict, parameters: Parameters,
     minting only when all scores are full: D-21 leaves withheld rewards open.
     A claim is a stateless calculation against the supplied already-paid flag.
     """
+    if kind == "validators":
+        return validators(inputs, parameters)
+
     if kind == "split":
         return split(integer(inputs["paid_wei"]), inputs)
 
@@ -360,3 +363,67 @@ def split(paid: int, inputs: dict) -> dict:
     parts = {h: pot * b // total if total else 0 for h, b in bonds.items()}
     return {"cut_wei": cut, "pot_wei": pot, "parts_wei": parts,
             "dust_wei": pot - sum(parts.values())}
+
+
+def validators(inputs: dict, parameters: Parameters) -> dict:
+    """R-13 / D-35: calls edit next round seats, never current membership."""
+    current, pending, opted = [], [], set()
+    votes, observed, refused = {}, [], []
+    previous = 0
+    for step in inputs["steps"]:
+        r = integer(step["round"])
+        if r < previous:
+            raise ValueError("validator rounds decrease")
+        if r > previous:
+            for node in set(current) - set(pending):
+                votes.pop(node, None)
+            current = pending.copy()
+            previous = r
+        stakes = {}
+        for entry in sorted(inputs["stakes"], key=lambda e: integer(e["from_round"])):
+            if integer(entry["from_round"]) <= r:
+                stakes.update({n: integer(v) for n, v in entry["stake_wei"].items()})
+        node, action = step.get("node"), step["action"]
+        code = None
+        if action in ("seat", "opt_in"):
+            repeated = node in opted
+            if action == "opt_in":
+                opted.add(node)
+            if action == "opt_in" and repeated:
+                continue
+            if node not in opted:
+                code = "NOT_OPTED_IN"
+            elif node not in pending:
+                smallest = min(reversed(pending), key=lambda n: stakes.get(n, 0)) if pending else None
+                if not stakes.get(node, 0) or (len(pending) >= parameters.validator_set_size
+                        and stakes[node] <= stakes.get(smallest, 0)):
+                    code = "STAKE_TOO_LOW"
+                else:
+                    if len(pending) >= parameters.validator_set_size:
+                        pending.remove(smallest)
+                    pending.append(node)
+            if action == "opt_in":
+                code = None
+        elif action in ("opt_out", "unseat"):
+            if action == "opt_out":
+                opted.discard(node)
+            if node in pending and (action == "opt_out" or stakes.get(node, 0) == 0):
+                pending.remove(node)
+        elif action == "vote":
+            value = integer(step["score"])
+            if node not in current:
+                code = "NOT_VALIDATOR"
+            elif value > MILLION:
+                code = "SCORE_OUT_OF_RANGE"
+            else:
+                votes.setdefault(node, {})[step["target"]] = step["score"]
+        elif action == "observe":
+            target = step["target"]
+            standing = {n: v[target] for n, v in votes.items() if target in v}
+            observed.append({"step": step["step"], "members": sorted(current),
+                             "score": median_score(current, standing)})
+        else:
+            raise ValueError(f"unknown validator action: {action}")
+        if code:
+            refused.append({"step": step["step"], "code": code})
+    return {"observed": observed, "refused": refused}
