@@ -1,4 +1,8 @@
-"""Independent integer implementation of rulebook october-main-text-v1.
+"""Independent integer implementation of rulebook october-main-text-v2.
+
+LPT replay models round-start stake/cuts, bonding, transfers, unbonding,
+claims, minting and holder pots. It rejects overspending, earning round zero,
+unordered refusals and unregistered self-claims/cuts lacking a rule.
 
 Only parameters and inputs enter these functions; expected vector outputs do not.
 Amounts returned by calculate() are Python integers in the rulebook's units.
@@ -480,6 +484,8 @@ class LptReplay:
         if a == 'grant_lpt':
             self.bal[s['to']] += amount
         elif a == 'set_cut':
+            if n not in payouts:
+                raise ValueError('ledger input error: R-24 gives no rule for an unregistered set_cut')
             cut = integer(s['cut_millionths'])
             if cut > MILLION:
                 return 'CUT_OUT_OF_RANGE'
@@ -489,6 +495,11 @@ class LptReplay:
             observed.append({'step': s['step'], 'stake_wei': sum(v for (holder, node), v in b.items() if node == n), 'total_stake_wei': sum(b.values())})
         elif a in ('bond', 'transfer', 'unbond', 'unbond_transfer', 'rebond'):
             old, new = s.get('from', n), s.get('to', n)
+            if a in ('transfer', 'rebond') and new not in payouts:
+                available = (self.staying[h, old] if a == 'transfer' else
+                             sum(t[-1] for t in self.unbonded if t[:2] == [h, n] and t[-2] > r))
+                if amount > available:
+                    raise ValueError('ledger input error: R-15 does not order simultaneous NOT_REGISTERED and AMOUNT_TOO_LARGE refusals')
             if a in ('bond', 'transfer', 'rebond') and new not in payouts:
                 return 'NOT_REGISTERED'
             if a == 'bond':
@@ -532,6 +543,8 @@ class LptReplay:
                 raise ValueError('earning rounds start at one')
             if a == 'claim' and s['caller'] != n:
                 return 'NOT_AUTHORIZED'
+            if a == 'claim' and n not in payouts:
+                raise ValueError('ledger input error: R-12 gives no rule for an unregistered self-claim')
             if a == 'mint_shares':
                 if earned >= r:
                     return 'CLAIM_TOO_EARLY'
@@ -553,21 +566,26 @@ class LptReplay:
                     return result['code']
                 value = result['paid_wei']
                 self.pay(earned, n, value, 'node', payouts)
-            self.minted[str(earned)] = self.minted.get(str(earned), 0) + value
+            if value > 0:
+                self.minted[str(earned)] = self.minted.get(str(earned), 0) + value
         elif a in ('withdraw_parts', 'withdraw_validator_parts'):
             category = 'node' if a == 'withdraw_parts' else 'validator'
             rounds = [integer(v) for v in s['rounds']]
             keys = [(category, e, n, h) for e in rounds]
-            if len(set(keys)) != len(keys) or any(k in self.drawn for k in keys):
+            already = len(set(keys)) != len(keys) or any(k in self.drawn for k in keys)
+            missing = any((category, e, n) not in self.pots and (category == 'node' or str(e) not in self.shares) for e in rounds)
+            if already and missing:
+                raise ValueError('ledger input error: R-24 does not order simultaneous ALREADY_CLAIMED and NOT_CLAIMED refusals')
+            if already:
                 return 'ALREADY_CLAIMED'
-            if any((category, e, n) not in self.pots and (category == 'node' or str(e) not in self.shares) for e in rounds):
+            if missing:
                 return 'NOT_CLAIMED'
             value = sum(self.pots.get((category, e, n), {}).get(h, 0) for e in rounds)
             self.drawn.update(keys)
             self.bal[h] += value
             self.bal['Claims'] -= value
         else:
-            raise NotImplementedError(f'ledger action: {a!r}')
+            raise ValueError(f'unknown ledger action: {a!r}')
 
     def result(self):
         return ({'lpt_wei': self.bal, 'shares_wei': self.shares,
