@@ -34,7 +34,7 @@ divided once, as R-08 and R-19 require. Claims recompute from the earning
 round's inputs with the claim's score.
 
 Ledger cases replay registration, funding, redemption, payout, observation and
-release in fresh in-memory state. The default check covers 64 v2, 35 v1 and 26 v0 cases. No state survives a calculation. The check also runs ledger input regressions.
+release in fresh in-memory state. The default check covers 74 v2, 35 v1 and 26 v0 cases. No state survives a calculation. The check also runs ledger input regressions.
 Decreasing rounds, conflicting details for one ticket ID (including refused
 attempts), and observations without a node raise `ValueError` with a
 `ledger input error` message, rather than returning a rule refusal code.
@@ -44,11 +44,12 @@ inputs rather than inventing a stable code or refusal precedence.
 
 This is a calculator, not a settlement or entitlement store.
 It does not decide where withheld rewards go (D-21), so rounds with any
-score below one million do not return `minted_wei`. Claims follow R-12/D-26's refusal order.
+score below one million do not return `minted_wei`. When two refusals apply, they follow the general order in the rulebook's
+units section (D-26, D-38, D-39, D-40).
 
 LPT replay covers bonds, transfers, unbonds, rebonds, round-start stake and
 cut snapshots, claims, share minting and holder withdrawals from per-round,
-per-node pots. Bonds exceeding holder LPT and earning round zero are invalid
-inputs. Unordered simultaneous rebond, transfer and withdrawal refusals are
-input errors. Unregistered self-claims and cut setters are unsupported inputs:
-R-12 and R-24 do not specify their outcomes.
+per-node pots. Bonds exceeding holder LPT are invalid inputs. Earning round
+zero gets `NO_SUCH_ROUND`; unregistered self-claims and self-cuts get
+`NOT_REGISTERED`. Among simultaneous LPT refusals, only a withdrawal that
+is both `ALREADY_CLAIMED` and `NOT_CLAIMED` remains an input error.
