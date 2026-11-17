@@ -304,6 +304,15 @@ class Qualify(Fixture):
         self.assertEqual(code, 0, out)
         self.assertFalse((self.repo / ".cache/dev/qualify.json").exists())
 
+    def test_a_passing_heavy_check_still_shows_the_parts_it_did_not_run(self):
+        self.add("calculator/check", PASS, executable=True)
+        self.add("calculator/qualify", "#!/bin/sh\necho 'runs: 3s'\necho 'static analysis: not_run (nothing installed)'\nexit 0\n", executable=True)
+        code, out = self.dev("qualify")
+        self.assertEqual(code, 0, out)
+        self.assertIn("passed   calculator/qualify", out)
+        self.assertIn("static analysis: not_run (nothing installed)", out)
+        self.assertNotIn("runs: 3s", out)
+
     def test_a_failing_heavy_check_fails(self):
         self.add("calculator/check", PASS, executable=True)
         self.add("calculator/qualify", FAIL, executable=True)

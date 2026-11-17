@@ -184,7 +184,9 @@ def check_components(kind: str) -> list[tuple[str, str, list[str]]]:
         done = subprocess.run([str(script)], cwd=base, capture_output=True, text=True)
         took = f"{time.time() - started:.1f}s"
         if done.returncode == 0:
-            out.append((name, PASSED, [took]))
+            # A part a passing script says it did not run is shown, never hidden.
+            skipped = [line.strip() for line in (done.stdout + done.stderr).splitlines() if NOT_RUN in line]
+            out.append((name, PASSED, [took, *skipped]))
         elif done.returncode == 2:
             out.append((name, NOT_RUN, (done.stdout + done.stderr).strip().splitlines()[-15:]))
         else:
