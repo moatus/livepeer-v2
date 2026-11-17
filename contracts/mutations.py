@@ -29,7 +29,7 @@ V2 = "../vectors/october-main-text-v2.json"
 M = [
  # name, [(file, old, new)], command ('check' or forge --match-test regex)
  ("abi: extra public function on Broker", [(B, "    // --- internals", "    function extra() external {}\n\n    // --- internals")], "check"),
- ("abi: extra error on Registry, never reached", [(R, "        if (payout_ == broker) revert PAYOUT_INVALID();", "        if (payout_ == broker) revert PAYOUT_INVALID();\n        if (payout_ == address(1)) revert EXTRA();"), (R, "contract Registry is IRegistry {", "error EXTRA();\n\ncontract Registry is IRegistry {")], "check"),
+ ("abi: extra error on Registry, never reached", [(R, "        if (payout_ == broker) revert PAYOUT_INVALID();", "        if (payout_ == broker) revert PAYOUT_INVALID();\n        if (payout_ == address(1)) revert EXTRA();"), (R, "contract Registry is IRegistryV2 {", "error EXTRA();\n\ncontract Registry is IRegistryV2 {")], "check"),
  ("abi: interface function dropped from Registry (compiler)", [(R, "    function isActiveTranscoder(address a) external view returns (bool) {\n        return registered[a];\n    }\n", "")], "check"),
  ("release wait 2", [(B, "RELEASE_WAIT = 3", "RELEASE_WAIT = 2")], "test_ledger_release"),
  ("redemption does not clamp pending", [(B, "        if (b.pending < left) {", "        if (true) {")], "test_ledger_release"),
