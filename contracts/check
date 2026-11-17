@@ -68,7 +68,7 @@ import json, subprocess, sys
 
 PAIRS = [("Controller", "IController"), ("Registry", "IRegistryV2"), ("RoundClock", "IRoundClock"),
          ("Broker", "ITicketBroker"), ("MockUSDC", "IMockUSDC"), ("StakeLedger", "IStakeLedger"),
-         ("TestLPT", "ITestLPT"), ("Claims", "IClaims")]
+         ("TestLPT", "ITestLPT"), ("Claims", "IClaims"), ("Scores", "IScores")]
 
 # Declared in an interface but built by a later phase, which removes its
 # line here when it builds them. Nothing else may be missing.

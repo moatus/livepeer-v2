@@ -21,6 +21,8 @@ applies; 2 could not run.
 import os, pathlib, re, shutil, signal, subprocess, sys, tempfile, time
 
 B, R, C = "src/money/Broker.sol", "src/authority/Registry.sol", "src/clock/RoundClock.sol"
+S = "src/scores/Scores.sol"
+V2 = "../vectors/october-main-text-v2.json"
 
 # name, [(file, old, new)], catching check[, fast_green]
 M = [
@@ -72,6 +74,45 @@ M = [
  ("drawn to 0 keeps its ready round", [(B, "_set(payer, node, b, left, left, left == 0 ? 0 : b.readyRound);", "_set(payer, node, b, left, left, b.readyRound);")], "qualify:MoneyInvariants", True),
  ("top-up cancels a pending deposit release", [(B, "        _set(msg.sender, address(0), d, d.amount + deposit_, d.pending, d.readyRound);", "        _set(msg.sender, address(0), d, d.amount + deposit_, 0, 0);")], "qualify:MoneyInvariants", True),
 
+ # Scores (spec S-06 phase 2): each rule of R-11 and R-13 a case or test pins.
+ ("scores: an example's expected score changed", [(V2, '"expected": {"score": "166666"}', '"expected": {"score": "166667"}')], "test_score_even_floor"),
+ ("scores: abi: extra public function", [(S, "    // --- views", "    function size() external pure returns (uint256) {\n        return N;\n    }\n\n    // --- views")], "check"),
+ ("scores: no vote counts as 0", [(S, "v.seated == nodes[m[k]].seated ? v.score : MAX_SCORE", "v.seated == nodes[m[k]].seated ? v.score : 0")], "test_score_none"),
+ ("scores: even count takes the upper middle", [(S, "        return (s[k / 2 - 1] + s[k / 2]) / 2;", "        return s[k / 2];")], "test_score_even"),
+ ("scores: even count rounds up", [(S, "        return (s[k / 2 - 1] + s[k / 2]) / 2;", "        return (s[k / 2 - 1] + s[k / 2] + 1) / 2;")], "test_score_even_floor"),
+ ("scores: no members scores 0", [(S, "        if (k == 0) return MAX_SCORE;", "        if (k == 0) return 0;")], "test_score_empty"),
+ ("scores: of equal smallest, the one seated first leaves", [(S, "                if (s <= smallest) {", "                if (s < smallest) {")], "test_validators_tie"),
+ ("scores: a tie displaces the incumbent", [(S, "            if (stake <= smallest) return false;", "            if (stake < smallest) return false;")], "test_a_tie_keeps_the_incumbent"),
+ ("scores: zero stake seated in a free seat", [(S, "        if (stake == 0) return false;\n", "")], "test_calls_that_change_nothing"),
+ ("scores: a change counts from the current round", [(S, "        if (n > 0 && history[n - 1].fromRound <= r) return history[n - 1].members;", "        if (n > 0) return history[n - 1].members;")], "test_validators_opt_out_vote"),
+ ("scores: membersAt reads the latest list", [(S, "        uint256 lo = 0;\n        uint256 hi = history.length;", "        uint256 lo = history.length;\n        uint256 hi = history.length;")], "test_validators_seats"),
+ ("scores: a started round's list is rewritten", [(S, "if (n == 0 || history[n - 1].fromRound != r + 1) {", "if (n == 0) {")], "test_validators_seats"),
+ ("scores: votes never lapse", [(S, "v.seated == nodes[m[k]].seated ? v.score : MAX_SCORE", "v.seated != 0 ? v.score : MAX_SCORE")], "test_validators_seats"),
+ ("scores: a return within the round is seated anew", [(S, "        if (!_has(_current(r), node)) {", "        if (true) {")], "test_validators_return_"),
+ ("scores: seating order is the call order", [(S, "for (; i > 0 && (next[i - 1] == address(0) || nodes[next[i - 1]].seated > number); i--) {", "for (; i > 0 && next[i - 1] == address(0); i--) {")], "test_validators_return_order"),
+ ("scores: a displaced member may not vote in its last round", [(S, "        if (!_has(_current(r), node)) revert NOT_VALIDATOR();", "        if (!_has(_current(r), node) || !_has(_latest(), node)) revert NOT_VALIDATOR();")], "test_displaced_member_vote"),
+ ("scores: displacement drops the votes at once", [(S, "            displaced = next[at];", "            displaced = next[at];\n            nodes[displaced].seated = 0;")], "test_displaced_member_vote"),
+ ("scores: unseat ignores stake", [(S, "        if (!_has(_latest(), node) || ledger.stakeAt(node, r) != 0) return;", "        if (!_has(_latest(), node)) return;")], "test_calls_that_change_nothing"),
+ ("scores: unseat does nothing", [(S, "        _leave(node, r);\n        emit Unseated(node, r + 1);", "        emit Unseated(node, r + 1);")], "test_validators_zero_stake"),
+ ("scores: opt-out keeps the seat", [(S, "        nodes[node].optedIn = false;\n        uint256 r = clock.currentRound();\n        _leave(node, r);", "        nodes[node].optedIn = false;\n        uint256 r = clock.currentRound();")], "test_validators_seats"),
+ ("scores: opting in again seats", [(S, "        if (nodes[node].optedIn) return;\n        nodes[node].optedIn = true;", "        if (nodes[node].optedIn) { _seat(node, clock.currentRound()); return; }\n        nodes[node].optedIn = true;")], "test_calls_that_change_nothing"),
+ ("scores: opt-in checks registration before authority", [(S, "        if (!registry.mayActFor(msg.sender, node)) revert NOT_AUTHORIZED();\n        if (!registry.isRegistered(node)) revert NOT_REGISTERED();", "        if (!registry.isRegistered(node)) revert NOT_REGISTERED();\n        if (!registry.mayActFor(msg.sender, node)) revert NOT_AUTHORIZED();")], "test_refusal_order_validators"),
+ ("scores: opt-in by an unregistered node accepted", [(S, "        if (!registry.isRegistered(node)) revert NOT_REGISTERED();\n", "")], "test_refusal_order_validators"),
+ ("scores: seat checks stake before opt-in", [(S, "        if (!nodes[node].optedIn) revert NOT_OPTED_IN();\n        if (!_seat(node, clock.currentRound())) revert STAKE_TOO_LOW();", "        if (ledger.stakeAt(node, clock.currentRound()) == 0) revert STAKE_TOO_LOW();\n        if (!nodes[node].optedIn) revert NOT_OPTED_IN();\n        if (!_seat(node, clock.currentRound())) revert STAKE_TOO_LOW();")], "test_refusal_order_validators"),
+ ("scores: vote range checked before membership", [(S, "        if (!_has(_current(r), node)) revert NOT_VALIDATOR();\n        if (score > MAX_SCORE) revert SCORE_OUT_OF_RANGE();", "        if (score > MAX_SCORE) revert SCORE_OUT_OF_RANGE();\n        if (!_has(_current(r), node)) revert NOT_VALIDATOR();")], "test_refusal_order_validators"),
+ ("scores: vote above 10^6 accepted", [(S, "        if (score > MAX_SCORE) revert SCORE_OUT_OF_RANGE();\n", "")], "test_validators_seats"),
+ ("scores: anyone votes for a node", [(S, "    function vote(address node, address target, uint256 score) external {\n        if (!registry.mayActFor(msg.sender, node)) revert NOT_AUTHORIZED();", "    function vote(address node, address target, uint256 score) external {")], "test_calls_for_a_node"),
+ ("scores: anyone opts a node out", [(S, "    function optOut(address node) external {\n        if (!registry.mayActFor(msg.sender, node)) revert NOT_AUTHORIZED();", "    function optOut(address node) external {")], "test_calls_for_a_node"),
+ ("scores: a vote by a non-member accepted", [(S, "        if (!_has(_current(r), node)) revert NOT_VALIDATOR();\n", "")], "test_validators_seats"),
+ ("scores: Seated names no displaced member", [(S, "        emit Seated(node, r + 1, displaced);", "        emit Seated(node, r + 1, address(0));")], "test_displaced_member_vote"),
+ ("scores: seat walks every opted-in node (R-23)", [
+    (S, "    uint64 private lastSeated;", "    uint64 private lastSeated;\n    address[] private everyOptedIn;"),
+    (S, "        nodes[node].optedIn = true;\n", "        nodes[node].optedIn = true;\n        everyOptedIn.push(node);\n"),
+    (S, "        if (_has(next, node)) return true;", "        if (_has(next, node)) return true;\n        uint256 seen = 0;\n        for (uint256 q = 0; q < everyOptedIn.length; q++) {\n            if (everyOptedIn[q] == node) seen++;\n        }\n        if (seen > 1) return false;")], "test_gas_does_not_grow"),
+ ("scores: scoreOf reads one slot per opted-in node (R-23)", [
+    (S, "    uint64 private lastSeated;", "    uint64 private lastSeated;\n    address[] private everyOptedIn;"),
+    (S, "        nodes[node].optedIn = true;\n", "        nodes[node].optedIn = true;\n        everyOptedIn.push(node);\n"),
+    (S, "        if (k == 0) return MAX_SCORE;", "        for (uint256 q = 0; q < everyOptedIn.length; q++) {\n            if (everyOptedIn[q] == node) return MAX_SCORE;\n        }\n        if (k == 0) return MAX_SCORE;")], "test_gas_does_not_grow"),
 ]
 
 ROOT = pathlib.Path(__file__).resolve().parent

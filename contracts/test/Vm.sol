@@ -35,6 +35,9 @@ interface Vm {
     function parseUint(string calldata value) external pure returns (uint256);
     function toString(uint256 value) external pure returns (string memory);
     function lastFrameGas() external view returns (Gas memory gas);
+    function cool(address target) external;
+    function snapshotState() external returns (uint256 snapshotId);
+    function revertToState(uint256 snapshotId) external returns (bool success);
 }
 
 Vm constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
