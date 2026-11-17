@@ -12,7 +12,15 @@ interface Vm {
         uint64 gasRemaining;
     }
 
+    struct Log {
+        bytes32[] topics;
+        bytes data;
+        address emitter;
+    }
+
     function roll(uint256 blockNumber) external;
+    function recordLogs() external;
+    function getRecordedLogs() external returns (Log[] memory logs);
     function prank(address sender) external;
     function addr(uint256 privateKey) external pure returns (address);
     function getNonce(address account) external view returns (uint64);

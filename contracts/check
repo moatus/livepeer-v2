@@ -67,7 +67,16 @@ import json, subprocess, sys
 
 PAIRS = [("Controller", "IController"), ("Registry", "IRegistryV2"), ("RoundClock", "IRoundClock"),
          ("Broker", "ITicketBroker"), ("MockUSDC", "IMockUSDC"), ("StakeLedger", "IStakeLedger"),
-         ("TestLPT", "ITestLPT")]
+         ("TestLPT", "ITestLPT"), ("Claims", "IClaims")]
+
+# Declared in an interface but built by a later phase, which removes its
+# line here when it builds them. Nothing else may be missing.
+LATER = {
+    # S-05 phase 4 builds Claims without the validator pot; S-06's phase 4
+    # adds it.
+    "IClaims": {"withdrawValidatorParts", "validatorPayOf", "validatorPartOf",
+                "ValidatorPaid", "ValidatorPartsWithdrawn"},
+}
 
 def params(ps):
     return [[p["type"], p.get("internalType"), p.get("indexed"), params(p.get("components", []))] for p in ps]
@@ -77,7 +86,7 @@ def shape(name):
                                     check=True, capture_output=True, text=True).stdout)
     out = set()
     for e in abi:
-        if e["type"] == "constructor":
+        if e["type"] == "constructor" or e.get("name") in LATER.get(name, ()):
             continue
         mutability = "view" if e.get("stateMutability") == "pure" else e.get("stateMutability")
         out.add(json.dumps([e["type"], e.get("name"), params(e.get("inputs", [])),
@@ -93,6 +102,7 @@ for contract, interface in PAIRS:
         print(f"abi: {interface} declares, {contract} does not have: {e}")
     failed = failed or c != i
     if c == i:
-        print(f"abi: {contract} equals {interface}")
+        later = sorted(LATER.get(interface, ()))
+        print(f"abi: {contract} equals {interface}" + (f", less {', '.join(later)}" if later else ""))
 sys.exit(1 if failed else 0)
 EOF

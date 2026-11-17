@@ -2,23 +2,16 @@
 pragma solidity 0.8.30;
 
 import {vm} from "./Vm.sol";
-import {LedgerRunner} from "./LedgerRunner.sol";
-import {Stage3} from "./Stage3.sol";
+import {LedgerRunnerV2} from "./LedgerRunnerV2.sol";
 import {StakeLedger} from "../src/money/StakeLedger.sol";
 import {TestLPT} from "../src/money/TestLPT.sol";
 import {Registry} from "../src/authority/Registry.sol";
 
-/// Runs the v2 `ledger` cases StakeLedger and test LPT can run on their
-/// own, from vectors/october-main-text-v2.json, with the holding checks of
-/// rulebook v2 after every step; then the refusals no case reaches, the
-/// mint refusals, and R-23's gas check.
-contract StakeLedgerTest is LedgerRunner, Stage3 {
-    /// Names an LPT step gave, as holders and as nodes.
-    string[] private holders;
-    string[] private lptNodes;
-    /// Gas of the last call of each step, when measured.
-    uint256[] private stepGas;
-
+/// Runs the v2 `ledger` cases with no claims, from
+/// vectors/october-main-text-v2.json, with the holding checks of rulebook
+/// v2 after every step; then the refusals no case reaches, the mint
+/// refusals, and R-23's gas check. Claims.t.sol runs the cases with claims.
+contract StakeLedgerTest is LedgerRunnerV2 {
     function setUp() external {
         loadVectors("october-main-text-v2");
     }
@@ -38,12 +31,12 @@ contract StakeLedgerTest is LedgerRunner, Stage3 {
 
     function runV2(string memory id) internal {
         deployStage3();
-        steps(id);
+        stepsV2(id);
     }
 
-    /// Every v2 ledger case is run here, or needs Claims and is S-05 phase
-    /// 4's to run. A new case fails this until someone runs it.
-    function test_every_v2_ledger_case_is_run_or_waits_for_claims() external view {
+    /// Every v2 ledger case is run here or in Claims.t.sol, or waits for
+    /// S-06's phase 4. A new case fails this until someone runs it.
+    function test_every_v2_ledger_case_is_run_or_waits_for_s06() external view {
         string[] memory ran = new string[](15);
         ran[0] = "ledger-demo";
         ran[1] = "ledger-reserve";
@@ -55,10 +48,11 @@ contract StakeLedgerTest is LedgerRunner, Stage3 {
         ran[7] = "ledger-release";
         ran[8] = "ledger-payout";
         ran[9] = "ledger-stake";
-        // Phase 4 (Claims): each has claim, withdrawal or mint_shares steps.
+        // Claims.t.sol.
         ran[10] = "ledger-cycle";
         ran[11] = "ledger-window";
         ran[12] = "ledger-mint-order";
+        // They name validator members: S-06's phase 4 runs them.
         ran[13] = "ledger-validator-pot";
         ran[14] = "ledger-mid-round";
         string memory missing = ledgerCasesNotIn(ran);
@@ -94,9 +88,7 @@ contract StakeLedgerTest is LedgerRunner, Stage3 {
     /// ledger keeps every amount and count in that range. A test LPT whose
     /// genesis exceeds 2**192 makes the boundary reachable.
     function deployWithSupply(uint256 supply) internal {
-        deploy();
-        lpt = new TestLPT(claimsAddress(), supply);
-        ledger = new StakeLedger(lpt, registry, clock);
+        deployStage3(supply);
     }
 
     /// One holder bonds more than 2**192, then moves, unbonds, rebonds and
@@ -309,137 +301,5 @@ contract StakeLedgerTest is LedgerRunner, Stage3 {
         measure(h, address(ledger), abi.encodeCall(StakeLedger.unbondedOf, (h)));
         measure(h, address(ledger), abi.encodeCall(StakeLedger.rebondableOf, (h, p)));
         return stepGas;
-    }
-
-    function measure(address caller, address target, bytes memory data) internal {
-        vm.prank(caller);
-        (bool ok,) = target.call(data);
-        ok; // refused calls are measured too
-        stepGas.push(vm.lastFrameGas().gasTotalUsed);
-    }
-
-    // --- the LPT steps ------------------------------------------------------
-
-    function act(string memory s, string memory action) internal override returns (bytes memory refused) {
-        if (eq(action, "grant_lpt")) {
-            // A transfer from the genesis supply, which the deployer holds.
-            remember(holders, str(s, ".to"));
-            lpt.transfer(who(str(s, ".to")), num(s, ".amount_wei"));
-        } else if (eq(action, "bond")) {
-            refused = bondAs(holder(s), node(s, ".node"), num(s, ".amount_wei"));
-        } else if (eq(action, "unbond")) {
-            refused = holderCall(s, abi.encodeCall(StakeLedger.unbond, (node(s, ".node"), num(s, ".amount_wei"))));
-        } else if (eq(action, "transfer")) {
-            refused = holderCall(
-                s, abi.encodeCall(StakeLedger.transferBond, (node(s, ".from"), node(s, ".to"), num(s, ".amount_wei")))
-            );
-        } else if (eq(action, "unbond_transfer")) {
-            refused = holderCall(
-                s,
-                abi.encodeCall(StakeLedger.unbondTransfer, (node(s, ".from"), node(s, ".to"), num(s, ".amount_wei")))
-            );
-        } else if (eq(action, "rebond")) {
-            refused = holderCall(s, abi.encodeCall(StakeLedger.rebond, (node(s, ".node"), num(s, ".amount_wei"))));
-        } else if (eq(action, "withdraw_unbonded")) {
-            refused = holderCall(s, abi.encodeCall(StakeLedger.withdrawUnbonded, ()));
-        } else if (eq(action, "set_cut")) {
-            address n = node(s, ".node");
-            refused =
-                as_(n, address(ledger), abi.encodeCall(StakeLedger.setRewardCut, (n, num(s, ".cut_millionths"))));
-        } else if (eq(action, "observe_stake")) {
-            uint256 r = clock.currentRound();
-            observed(s, ".stake_wei", ledger.stakeAt(node(s, ".node"), r), ".total_stake_wei", ledger.totalStakeAt(r));
-        } else if (
-            eq(action, "claim") || eq(action, "withdraw_parts") || eq(action, "withdraw_validator_parts")
-                || eq(action, "mint_shares")
-        ) {
-            revert(string.concat(action, " needs Claims (S-05 phase 4)"));
-        } else {
-            return super.act(s, action);
-        }
-        stepGas.push(vm.lastFrameGas().gasTotalUsed);
-    }
-
-    function holder(string memory s) internal returns (address) {
-        remember(holders, str(s, ".holder"));
-        return who(str(s, ".holder"));
-    }
-
-    function node(string memory s, string memory field) internal returns (address) {
-        remember(lptNodes, str(s, field));
-        return who(str(s, field));
-    }
-
-    function holderCall(string memory s, bytes memory data) internal returns (bytes memory) {
-        return as_(holder(s), address(ledger), data);
-    }
-
-    /// After every step, also (rulebook v2, the shared examples): the LPT
-    /// StakeLedger holds equals every bond staying, in transfer or arriving,
-    /// plus the unbonded LPT not withdrawn; Claims holds nothing, since no
-    /// claim exists yet; and the supply is the genesis supply, since only
-    /// Claims mints.
-    function holdsEverything(string memory where) internal view override {
-        super.holdsEverything(where);
-        uint256 sum = 0;
-        for (uint256 i = 0; i < holders.length; i++) {
-            address h = who(holders[i]);
-            (uint256 waiting, uint256 ready) = ledger.unbondedOf(h);
-            sum += waiting + ready;
-            for (uint256 j = 0; j < lptNodes.length; j++) {
-                sum += ledger.stayingOf(h, who(lptNodes[j]));
-                for (uint256 k = 0; k < lptNodes.length; k++) {
-                    sum += ledger.inTransferOf(h, who(lptNodes[j]), who(lptNodes[k]));
-                }
-            }
-        }
-        expectEq(lpt.balanceOf(address(ledger)), sum, string.concat(where, ": StakeLedger LPT"));
-        expectEq(lpt.balanceOf(claimsAddress()), 0, string.concat(where, ": Claims LPT"));
-        expectEq(lpt.totalSupply(), GENESIS, string.concat(where, ": supply"));
-    }
-
-    function checkExpected() internal view override {
-        super.checkExpected();
-        string memory x = string.concat(path, ".expected");
-        if (!vm.keyExistsJson(vectors, string.concat(x, ".lpt_wei"))) return;
-        string[] memory names = vm.parseJsonKeys(vectors, string.concat(x, ".lpt_wei"));
-        for (uint256 i = 0; i < names.length; i++) {
-            expectEq(
-                lpt.balanceOf(lptAddress(names[i])),
-                num(x, string.concat(".lpt_wei.", names[i])),
-                string.concat("lpt ", names[i])
-            );
-        }
-        expectEq(lpt.totalSupply() - GENESIS, num(x, ".lpt_minted_wei"), "lpt minted");
-        // Shares and per-round issuance need Claims (phase 4).
-        expectEq(vm.parseJsonKeys(vectors, string.concat(x, ".shares_wei")).length, 0, "shares_wei needs Claims");
-        expectEq(
-            vm.parseJsonKeys(vectors, string.concat(x, ".minted_for_round_wei")).length,
-            0,
-            "minted_for_round_wei needs Claims"
-        );
-    }
-
-    /// The case's names for the contracts and the treasury.
-    function lptAddress(string memory name) internal view returns (address) {
-        if (eq(name, "StakeLedger")) return address(ledger);
-        if (eq(name, "Claims")) return claimsAddress();
-        if (eq(name, "Treasury")) return treasuryAddress();
-        return who(name);
-    }
-
-    function resetRunner() internal {
-        delete payers;
-        delete nodes;
-        delete refusedSteps;
-        delete refusedCodes;
-        delete observedSteps;
-        delete observedFieldA;
-        delete observedFieldB;
-        delete observedA;
-        delete observedB;
-        delete holders;
-        delete lptNodes;
-        delete stepGas;
     }
 }
