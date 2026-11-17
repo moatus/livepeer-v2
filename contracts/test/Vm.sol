@@ -4,6 +4,14 @@ pragma solidity 0.8.30;
 /// The few forge cheatcodes the tests use, declared here so the project
 /// needs no test library. Each is forge's own, at forge's fixed address.
 interface Vm {
+    struct Gas {
+        uint64 gasLimit;
+        uint64 gasTotalUsed;
+        uint64 gasMemoryUsed;
+        int64 gasRefunded;
+        uint64 gasRemaining;
+    }
+
     function roll(uint256 blockNumber) external;
     function prank(address sender) external;
     function addr(uint256 privateKey) external pure returns (address);
@@ -18,6 +26,7 @@ interface Vm {
     function keyExistsJson(string calldata json, string calldata key) external view returns (bool);
     function parseUint(string calldata value) external pure returns (uint256);
     function toString(uint256 value) external pure returns (string memory);
+    function lastFrameGas() external view returns (Gas memory gas);
 }
 
 Vm constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));

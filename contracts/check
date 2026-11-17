@@ -18,7 +18,8 @@ python3 - <<'EOF'
 import json, subprocess, sys
 
 PAIRS = [("Controller", "IController"), ("Registry", "IRegistryV2"), ("RoundClock", "IRoundClock"),
-         ("Broker", "ITicketBroker"), ("MockUSDC", "IMockUSDC")]
+         ("Broker", "ITicketBroker"), ("MockUSDC", "IMockUSDC"), ("StakeLedger", "IStakeLedger"),
+         ("TestLPT", "ITestLPT")]
 
 def params(ps):
     return [[p["type"], p.get("internalType"), p.get("indexed"), params(p.get("components", []))] for p in ps]
