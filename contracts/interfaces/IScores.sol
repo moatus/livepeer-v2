@@ -11,8 +11,9 @@ import {IScoreSource} from "./IScoreSource.sol";
 /// a member for the next round or with stake, and opting out without having
 /// opted in change nothing and are not refused.
 interface IScores is IScoreSource {
-    /// Refused with NOT_REGISTERED when `node` is not a registered node, then
-    /// NOT_AUTHORIZED. Sets the flag, then seats `node` if it can.
+    /// Refused with NOT_AUTHORIZED unless mayActFor(caller, node), then with
+    /// NOT_REGISTERED when `node` is not a registered node (D-39). Sets the
+    /// flag, then seats `node` if it can.
     function optIn(address node) external;
 
     /// Clears the flag; a member leaves from the next round.
