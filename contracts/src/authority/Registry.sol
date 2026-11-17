@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {IRegistry} from "../../interfaces/IRegistry.sol";
+import {IRegistryV2} from "../../interfaces/IRegistry.sol";
 import {IRoundClock} from "../../interfaces/IRoundClock.sol";
 
 /// Who is a node, and where its USDC half is paid (rulebook R-01). Anyone
 /// registers, at any time, free; registration is permanent and registering
 /// again changes nothing. The node finds it under the name "BondingManager".
-contract Registry is IRegistry {
+/// It also answers the one authority check, mayActFor, which StakeLedger and
+/// Claims read at the moment they execute.
+contract Registry is IRegistryV2 {
     IRoundClock private immutable clock;
     /// The Broker's address, fixed at deployment. A payout there would keep
     /// the node's half inside the Broker, so it is refused. The Broker is
@@ -55,5 +57,12 @@ contract Registry is IRegistry {
     function payoutOf(address node) public view returns (address) {
         address p = payout[node];
         return p == address(0) ? node : p;
+    }
+
+    /// Whether `caller` may act for `node` (S-09 section 3.2). Until stage 4
+    /// adds key rotation: the node itself, while registered. Read at
+    /// execution by every call that acts for a node.
+    function mayActFor(address caller, address node) external view returns (bool) {
+        return caller == node && registered[node];
     }
 }
