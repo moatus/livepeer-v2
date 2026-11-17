@@ -791,7 +791,10 @@ D-39, D-40), the general order of the units section; `claim-order`
 combines two.
 
 **Example.** Every `claim` case is a claim by node A of its
-`round-roadmap` reward, earned in round 0. `claim-early`, in round 6:
+`round-roadmap` reward, earned at emission index r = 0, which is on-chain
+round 1. A `claim` case counts its rounds as r (the units section), so
+its round 7 is on-chain round 8, seven rounds after the round earned; none
+names on-chain round 0. `claim-early`, in round 6:
 `CLAIM_TOO_EARLY`. `claim-open`, in round 7: pays
 188,000,000,000,000,000,000 wei.
 `claim-rescored`, in round 7 at score 500,000: pays
