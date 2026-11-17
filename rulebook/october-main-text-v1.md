@@ -129,7 +129,8 @@ Removing every `expected` leaves the inputs alone.
     `face_micro_usdc`, is redeemed (R-04, R-22). Redeeming the same id
     again redeems the same ticket.
   - `observe`: what `node` is shown of `payer`'s account: the deposit and
-    its claimable earmark (R-21).
+    its claimable earmark (R-21), stated as `deposit_micro_usdc` and
+    `claimable_micro_usdc`.
 
   A step is either refused with one code, and then changes nothing, or
   takes effect. `expected` states the balances after the last step:
