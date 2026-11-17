@@ -7,6 +7,7 @@ import {Stage3} from "./Stage3.sol";
 import {StakeLedger} from "../src/money/StakeLedger.sol";
 import {Claims} from "../src/money/Claims.sol";
 import {IClaims} from "../interfaces/IClaims.sol";
+import {RewardMath} from "../src/math/RewardMath.sol";
 
 /// Runs a v2 `ledger` case on a stage 3 deployment: v1's steps, the LPT
 /// steps of rulebook v2 and the claim, withdrawal and share steps. After
@@ -16,14 +17,20 @@ import {IClaims} from "../interfaces/IClaims.sol";
 ///
 /// - StakeLedger's LPT is every bond staying, in transfer or arriving, plus
 ///   the unbonded LPT not withdrawn;
-/// - Claims' LPT is the pots of the claims made less the parts withdrawn,
-///   and no claim's withdrawn parts exceed its pot;
+/// - Claims' LPT is the pots of the claims made and of the validator
+///   shares minted, less the parts of each withdrawn, and no claim's or
+///   (round, member) validator pot's withdrawn parts exceed it;
 /// - the LPT minted for each earning round R is at most C(R - 1), read
 ///   from the examples' ceiling cases;
 /// - the supply is the genesis supply plus what was minted for each round.
 ///
-/// Only a claim or a share mint may change the supply, and a withdrawal
-/// moves LPT out of Claims to the holder by transfer, never by a mint.
+/// Only a claim or a share mint may change the supply, and a withdrawal of
+/// either kind of part moves LPT out of Claims to the holder by transfer,
+/// never by a mint.
+///
+/// Each step also has an address form (doClaim, doWithdraw,
+/// doWithdrawValidator, doMintShares), so a test can take steps no case
+/// lists and hold the same checks after each with holdsEverything.
 abstract contract LedgerRunnerV2 is LedgerRunner, Stage3 {
     /// Names an LPT step gave, as holders and as nodes.
     string[] internal holders;
@@ -43,8 +50,19 @@ abstract contract LedgerRunnerV2 is LedgerRunner, Stage3 {
     uint256[] internal sharesRound;
     uint256[] internal sharesValidators;
     uint256[] internal sharesTreasury;
-    /// LPT that withdrawals moved out of Claims, as the holders' balances rose.
+    /// LPT that withdrawals moved out of Claims, as the holders' balances
+    /// rose: of claims' pots, and of validator pots.
     uint256 internal withdrawnTotal;
+    uint256 internal validatorWithdrawnTotal;
+    /// Each (round, member) validator pay a share mint made, as its
+    /// ValidatorPaid event gave it.
+    uint256[] internal paidRound;
+    address[] internal paidMember;
+    /// Set by a test that takes its own steps in rounds no ceiling case
+    /// covers: the issuance bound then reads C(R - 1) from RewardMath, which
+    /// contracts/check holds to R-05's exact inequality for every residue.
+    /// A shared case never sets it.
+    bool internal ceilingFromMath;
 
     // --- the steps ------------------------------------------------------
 
@@ -93,14 +111,18 @@ abstract contract LedgerRunnerV2 is LedgerRunner, Stage3 {
     /// reads `score`. What it mints is the supply's rise, the pot is Claims'
     /// rise and the cut the payout's, each equal to what Claims recorded.
     function claimStep(string memory s) internal returns (bytes memory refused) {
-        address n = node(s, ".node");
-        uint256 r = num(s, ".earned_round");
-        scores.set(n, num(s, ".score"));
+        return doClaim(who(str(s, ".caller")), node(s, ".node"), num(s, ".earned_round"), num(s, ".score"));
+    }
+
+    function doClaim(address caller, address n, uint256 r, uint256 score) internal returns (bytes memory refused) {
+        // The stub is told the case's score; the real Scores must give it.
+        if (address(scores) != address(0)) scores.set(n, score);
+        else expectEq(validatorSet.scoreOf(n), score, "claim: the score Scores gives");
         address payout = registry.payoutOf(n);
         uint256 supply = lpt.totalSupply();
         uint256 held = lpt.balanceOf(address(claims));
         uint256 paidBefore = lpt.balanceOf(payout);
-        refused = as_(who(str(s, ".caller")), address(claims), abi.encodeCall(Claims.claim, (n, r)));
+        refused = as_(caller, address(claims), abi.encodeCall(Claims.claim, (n, r)));
         stepGas.push(vm.lastFrameGas().gasTotalUsed);
         if (refused.length > 0) {
             expectEq(lpt.totalSupply(), supply, "a refused claim minted");
@@ -119,9 +141,10 @@ abstract contract LedgerRunnerV2 is LedgerRunner, Stage3 {
     /// `holder` withdraws its parts of `node`'s claims for `rounds`. Claims
     /// falls by exactly what the holder gains, and the supply does not move.
     function withdrawStep(string memory s) internal returns (bytes memory refused) {
-        address h = holder(s);
-        address n = node(s, ".node");
-        uint256[] memory rounds = numList(s, ".rounds");
+        return doWithdraw(holder(s), node(s, ".node"), numList(s, ".rounds"));
+    }
+
+    function doWithdraw(address h, address n, uint256[] memory rounds) internal returns (bytes memory refused) {
         uint256 supply = lpt.totalSupply();
         uint256 held = lpt.balanceOf(address(claims));
         uint256 mine = lpt.balanceOf(h);
@@ -135,30 +158,51 @@ abstract contract LedgerRunnerV2 is LedgerRunner, Stage3 {
     }
 
     /// `holder` withdraws its parts of `node`'s validator pots for `rounds`.
-    /// With no members until S-06's phase 4 there is no validator pot, so
-    /// nothing moves and the supply does not change, taken or refused.
+    /// Claims falls by exactly what the holder gains, and the supply does
+    /// not move.
     function withdrawValidatorStep(string memory s) internal returns (bytes memory refused) {
-        address h = holder(s);
-        address n = node(s, ".node");
+        return doWithdrawValidator(holder(s), node(s, ".node"), numList(s, ".rounds"));
+    }
+
+    function doWithdrawValidator(address h, address n, uint256[] memory rounds)
+        internal
+        returns (bytes memory refused)
+    {
         uint256 supply = lpt.totalSupply();
         uint256 held = lpt.balanceOf(address(claims));
         uint256 mine = lpt.balanceOf(h);
-        refused = as_(h, address(claims), abi.encodeCall(Claims.withdrawValidatorParts, (n, numList(s, ".rounds"))));
+        refused = as_(h, address(claims), abi.encodeCall(Claims.withdrawValidatorParts, (n, rounds)));
         stepGas.push(vm.lastFrameGas().gasTotalUsed);
         expectEq(lpt.totalSupply(), supply, "a validator withdrawal minted");
-        expectEq(lpt.balanceOf(address(claims)), held, "a validator withdrawal moved Claims' LPT");
-        expectEq(lpt.balanceOf(h), mine, "a validator withdrawal paid the holder");
+        uint256 gained = lpt.balanceOf(h) - mine;
+        expectEq(
+            held - lpt.balanceOf(address(claims)), gained, "validator withdrawal: Claims paid other than the holder gained"
+        );
+        if (refused.length > 0) expectEq(gained, 0, "a refused validator withdrawal moved LPT");
+        validatorWithdrawnTotal += gained;
     }
 
-    /// `caller` mints `earned_round`'s validator and treasury amounts. With
-    /// no members (S-06's phase 4 adds them) both go to the treasury.
+    /// `caller` mints `earned_round`'s validator and treasury amounts. The
+    /// supply rises by exactly R-10's two amounts. One ValidatorPaid comes
+    /// for each member the validator set gives for the round, in its order,
+    /// each agreeing with Claims' view; each payout rises by the cuts paid
+    /// to it, Claims by the pots, and the treasury by the treasury amount
+    /// and whatever the members' pay leaves of the validator amount.
     function mintSharesStep(string memory s) internal returns (bytes memory refused) {
-        string memory c = str(s, ".caller");
-        uint256 r = num(s, ".earned_round");
+        return doMintShares(who(str(s, ".caller")), num(s, ".earned_round"));
+    }
+
+    function doMintShares(address caller, uint256 r) internal returns (bytes memory refused) {
+        address[] memory members = claimsMembersAt(r);
+        uint256[] memory before = new uint256[](members.length);
+        for (uint256 i = 0; i < members.length; i++) {
+            before[i] = lpt.balanceOf(registry.payoutOf(members[i]));
+        }
         uint256 supply = lpt.totalSupply();
         uint256 kept = lpt.balanceOf(treasuryAddress());
+        uint256 held = lpt.balanceOf(address(claims));
         vm.recordLogs();
-        refused = as_(who(c), address(claims), abi.encodeCall(Claims.mintRoundShares, (r)));
+        refused = as_(caller, address(claims), abi.encodeCall(Claims.mintRoundShares, (r)));
         stepGas.push(vm.lastFrameGas().gasTotalUsed);
         Vm.Log[] memory logs = vm.getRecordedLogs();
         if (refused.length > 0) {
@@ -166,23 +210,79 @@ abstract contract LedgerRunnerV2 is LedgerRunner, Stage3 {
             return refused;
         }
         require(claims.sharesMinted(r), "shares minted but not recorded");
-        uint256 v;
-        uint256 t;
-        uint256 seen = 0;
-        for (uint256 i = 0; i < logs.length; i++) {
-            if (logs[i].emitter == address(claims) && logs[i].topics[0] == IClaims.RoundSharesMinted.selector) {
-                expectEq(uint256(logs[i].topics[1]), r, "RoundSharesMinted round");
-                (v, t) = abi.decode(logs[i].data, (uint256, uint256));
-                seen++;
-            }
-        }
-        expectEq(seen, 1, "RoundSharesMinted events");
+        (uint256 v, uint256 t, uint256 paid, uint256 pots) = sharesFromLogs(logs, r, members);
         expectEq(lpt.totalSupply() - supply, v + t, "shares: minted");
-        expectEq(lpt.balanceOf(treasuryAddress()) - kept, v + t, "shares: to the treasury");
+        require(paid <= v, "shares: members paid above the validator amount");
+        expectEq(lpt.balanceOf(treasuryAddress()) - kept, t + v - paid, "shares: to the treasury");
+        expectEq(lpt.balanceOf(address(claims)) - held, pots, "shares: pots to Claims");
+        holdsCuts(members, before, r);
         sharesRound.push(r);
         sharesValidators.push(v);
         sharesTreasury.push(t);
         addMinted(r, v + t);
+    }
+
+    /// Each member's payout rose by the cuts the mint paid to it.
+    function holdsCuts(address[] memory members, uint256[] memory before, uint256 r) internal view {
+        for (uint256 i = 0; i < members.length; i++) {
+            address payout = registry.payoutOf(members[i]);
+            uint256 cuts = 0;
+            for (uint256 j = 0; j < members.length; j++) {
+                if (registry.payoutOf(members[j]) != payout) continue;
+                (, uint256 cut,) = claims.validatorPayOf(members[j], r);
+                cuts += cut;
+            }
+            expectEq(lpt.balanceOf(payout) - before[i], cuts, "shares: cuts to the payout");
+        }
+    }
+
+    /// R-10's two amounts from the one RoundSharesMinted, and the members'
+    /// pay and pots from one ValidatorPaid per member, in the order the
+    /// validator set gives them, each equal to Claims' view and splitting
+    /// its pay into the cut and the pot.
+    function sharesFromLogs(Vm.Log[] memory logs, uint256 r, address[] memory members)
+        internal
+        returns (uint256 v, uint256 t, uint256 paid, uint256 pots)
+    {
+        uint256 seen = 0;
+        uint256 k = 0;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter != address(claims)) continue;
+            if (logs[i].topics[0] == IClaims.RoundSharesMinted.selector) {
+                expectEq(uint256(logs[i].topics[1]), r, "RoundSharesMinted round");
+                (v, t) = abi.decode(logs[i].data, (uint256, uint256));
+                seen++;
+            } else if (logs[i].topics[0] == IClaims.ValidatorPaid.selector) {
+                require(k < members.length, "ValidatorPaid for more than the members");
+                (uint256 p, uint256 pot) = paidFromLog(logs[i], r, members[k]);
+                paid += p;
+                pots += pot;
+                paidRound.push(r);
+                paidMember.push(members[k]);
+                k++;
+            }
+        }
+        expectEq(seen, 1, "RoundSharesMinted events");
+        expectEq(k, members.length, "ValidatorPaid events, one per member");
+    }
+
+    /// One ValidatorPaid, for member `m` of round `r`: its payout, and its
+    /// cut and pot making its pay, each as Claims' view gives them.
+    function paidFromLog(Vm.Log memory log, uint256 r, address m) internal view returns (uint256 p, uint256 pot) {
+        expectEq(uint256(log.topics[1]), r, "ValidatorPaid round");
+        require(address(uint160(uint256(log.topics[2]))) == m, "ValidatorPaid member");
+        address payout;
+        uint256 cut;
+        (payout, p, cut, pot) = abi.decode(log.data, (address, uint256, uint256, uint256));
+        require(payout == registry.payoutOf(m), "ValidatorPaid payout");
+        expectEq(cut + pot, p, "ValidatorPaid: cut and pot make the pay");
+        (uint256 vp, uint256 vc, uint256 vpot) = claims.validatorPayOf(m, r);
+        require(vp == p && vc == cut && vpot == pot, "ValidatorPaid against validatorPayOf");
+    }
+
+    /// The members Claims' validator set gives for round `r`.
+    function claimsMembersAt(uint256 r) internal view returns (address[] memory) {
+        return validatorSet.membersAt(r);
     }
 
     /// `caller` calls `target`, and the gas of that call is kept, whether
@@ -219,10 +319,24 @@ abstract contract LedgerRunnerV2 is LedgerRunner, Stage3 {
         return as_(holder(s), address(ledger), data);
     }
 
-    /// A case that names validator members needs S-06's phase 4.
+    /// Runs a v2 ledger case. Its `members`, for each earning round it
+    /// names, are given to the stand-in validator set first; a round it does
+    /// not name has none.
     function stepsV2(string memory id) internal {
         string memory at = string.concat(".cases[", vm.toString(caseIndex(id)), "].inputs.members");
-        require(!vm.keyExistsJson(vectors, at), string.concat(id, ": members need S-06 phase 4"));
+        if (vm.keyExistsJson(vectors, at)) {
+            string[] memory rounds = vm.parseJsonKeys(vectors, at);
+            for (uint256 i = 0; i < rounds.length; i++) {
+                string[] memory names =
+                    abi.decode(vm.parseJson(vectors, string.concat(at, ".", rounds[i])), (string[]));
+                address[] memory list = new address[](names.length);
+                for (uint256 j = 0; j < names.length; j++) {
+                    list[j] = who(names[j]);
+                    remember(lptNodes, names[j]);
+                }
+                scores.setMembers(vm.parseUint(rounds[i]), list);
+            }
+        }
         steps(id);
     }
 
@@ -253,9 +367,11 @@ abstract contract LedgerRunnerV2 is LedgerRunner, Stage3 {
         expectEq(lpt.balanceOf(address(ledger)), sum, string.concat(where, ": StakeLedger LPT"));
     }
 
-    /// Claims' LPT is the pots of the claims made less what withdrawals
-    /// moved out. For each claim, the parts marked withdrawn never exceed its
-    /// pot, and all of them together are what the withdrawals moved.
+    /// Claims' LPT is the pots of the claims made and of the validator
+    /// shares minted, less what withdrawals of each kind moved out. For each
+    /// claim and each (round, member) validator pot, the parts marked
+    /// withdrawn never exceed it, and those of each kind together are what
+    /// that kind's withdrawals moved.
     function holdsPots(string memory where) internal view {
         uint256 pots = 0;
         uint256 parts = 0;
@@ -274,7 +390,31 @@ abstract contract LedgerRunnerV2 is LedgerRunner, Stage3 {
             parts += taken;
         }
         expectEq(parts, withdrawnTotal, string.concat(where, ": parts marked withdrawn, against LPT moved"));
-        expectEq(lpt.balanceOf(address(claims)), pots - withdrawnTotal, string.concat(where, ": Claims LPT"));
+        uint256 vpots = 0;
+        uint256 vparts = 0;
+        for (uint256 i = 0; i < paidRound.length; i++) {
+            (,, uint256 pot) = claims.validatorPayOf(paidMember[i], paidRound[i]);
+            vpots += pot;
+            uint256 taken = 0;
+            for (uint256 j = 0; j < holders.length; j++) {
+                (uint256 amount, bool withdrawn) =
+                    claims.validatorPartOf(who(holders[j]), paidMember[i], paidRound[i]);
+                if (withdrawn) taken += amount;
+            }
+            require(
+                taken <= pot,
+                string.concat(where, ": validator parts withdrawn above the pot of round ", vm.toString(paidRound[i]))
+            );
+            vparts += taken;
+        }
+        expectEq(
+            vparts, validatorWithdrawnTotal, string.concat(where, ": validator parts marked withdrawn, against LPT moved")
+        );
+        expectEq(
+            lpt.balanceOf(address(claims)),
+            pots + vpots - withdrawnTotal - validatorWithdrawnTotal,
+            string.concat(where, ": Claims LPT")
+        );
     }
 
     /// Each earning round's issuance is at most its ceiling, and the supply
@@ -295,6 +435,7 @@ abstract contract LedgerRunnerV2 is LedgerRunner, Stage3 {
     /// C(R - 1) for earning round R, from the examples' ceiling case for
     /// emission index R - 1. A round with none fails the test.
     function ceilingOf(uint256 round) internal view returns (uint256) {
+        if (ceilingFromMath) return RewardMath.ceiling(round - 1);
         string[] memory kinds = abi.decode(vm.parseJson(vectors, ".cases[*].kind"), (string[]));
         for (uint256 i = 0; i < kinds.length; i++) {
             if (!eq(kinds[i], "ceiling")) continue;
@@ -390,6 +531,9 @@ abstract contract LedgerRunnerV2 is LedgerRunner, Stage3 {
         delete sharesRound;
         delete sharesValidators;
         delete sharesTreasury;
+        delete paidRound;
+        delete paidMember;
         withdrawnTotal = 0;
+        validatorWithdrawnTotal = 0;
     }
 }

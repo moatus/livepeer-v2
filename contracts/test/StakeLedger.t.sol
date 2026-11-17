@@ -34,9 +34,9 @@ contract StakeLedgerTest is LedgerRunnerV2 {
         stepsV2(id);
     }
 
-    /// Every v2 ledger case is run here or in Claims.t.sol, or waits for
-    /// S-06's phase 4. A new case fails this until someone runs it.
-    function test_every_v2_ledger_case_is_run_or_waits_for_s06() external view {
+    /// Every v2 ledger case is run here or in Claims.t.sol. A new case fails
+    /// this until someone runs it.
+    function test_every_v2_ledger_case_is_run() external view {
         string[] memory ran = new string[](18);
         ran[0] = "ledger-demo";
         ran[1] = "ledger-reserve";
@@ -55,7 +55,7 @@ contract StakeLedgerTest is LedgerRunnerV2 {
         ran[13] = "ledger-round-zero";
         ran[14] = "ledger-same-node";
         ran[15] = "refusal-order";
-        // They name validator members: S-06's phase 4 runs them.
+        // They name validator members (S-06 phase 4).
         ran[16] = "ledger-validator-pot";
         ran[17] = "ledger-mid-round";
         string memory missing = ledgerCasesNotIn(ran);

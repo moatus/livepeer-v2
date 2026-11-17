@@ -72,11 +72,7 @@ PAIRS = [("Controller", "IController"), ("Registry", "IRegistryV2"), ("RoundCloc
 
 # Declared in an interface but built by a later phase, which removes its
 # line here when it builds them. Nothing else may be missing.
-LATER = {
-    # S-05 phase 4 builds Claims without the validator pot; S-06's phase 4
-    # adds it.
-    "IClaims": {"validatorPayOf", "validatorPartOf", "ValidatorPaid"},
-}
+LATER = {}
 
 def params(ps):
     return [[p["type"], p.get("internalType"), p.get("indexed"), params(p.get("components", []))] for p in ps]

@@ -4,7 +4,7 @@ pragma solidity 0.8.30;
 import {vm} from "./Vm.sol";
 import {RewardMath} from "../src/math/RewardMath.sol";
 
-/// Runs every `ceiling`, `round` and `split` case of
+/// Runs every `ceiling`, `round`, `split` and `validator-pay` case of
 /// vectors/october-main-text-v2.json through RewardMath. Every input and
 /// every expected number is read from that file.
 ///
@@ -119,6 +119,60 @@ contract RewardMathTest {
             ran++;
         }
         require(ran > 0, "no split case");
+    }
+
+    /// A validator-pay case: each member's pay, one division from the
+    /// round's ceiling with the totals over the members listed, and what the
+    /// division leaves of the validator amount, which goes to the treasury
+    /// (R-10, R-14). The splits shown use cutOf and partOf as a split case
+    /// does; Claims runs the same cases in ValidatorPay.t.sol.
+    function test_validator_pay_cases() external view {
+        uint256 ran = 0;
+        string[] memory ids = caseIds();
+        for (uint256 i = 0; i < ids.length; i++) {
+            if (!isKind(i, "validator-pay")) continue;
+            string memory at = caseAt(i);
+            uint256 c = RewardMath.ceiling(num(at, ".inputs.round"));
+            uint256 n = 0;
+            uint256 total = 0;
+            while (has(at, memberAt(n))) total += num(string.concat(at, memberAt(n++)), ".stake_wei");
+            uint256 paid = 0;
+            for (uint256 m = 0; m < n; m++) {
+                string memory member = string.concat(at, memberAt(m));
+                string memory name = vm.parseJsonString(vectors, string.concat(member, ".node"));
+                uint256 p = RewardMath.validatorPayOf(c, num(member, ".stake_wei"), total);
+                expectEq(p, num(at, string.concat(".expected.paid_wei.", name)), string.concat(ids[i], " ", name));
+                paid += p;
+                if (has(at, string.concat(".inputs.splits.", name))) validatorSplit(ids[i], at, name, p);
+            }
+            expectEq(
+                RewardMath.validatorsOf(c) - paid, num(at, ".expected.to_treasury_wei"), string.concat(ids[i], " to treasury")
+            );
+            ran++;
+        }
+        require(ran > 0, "no validator-pay case");
+    }
+
+    function validatorSplit(string memory id, string memory at, string memory name, uint256 p) private view {
+        string memory s = string.concat(at, ".inputs.splits.", name);
+        string memory e = string.concat(at, ".expected.splits.", name);
+        uint256 cut = RewardMath.cutOf(p, num(s, ".cut_millionths"));
+        expectEq(cut, num(e, ".cut_wei"), string.concat(id, " ", name, " cut"));
+        expectEq(p - cut, num(e, ".pot_wei"), string.concat(id, " ", name, " pot"));
+        string[] memory hs = vm.parseJsonKeys(vectors, string.concat(s, ".bonds_wei"));
+        uint256 stake = 0;
+        for (uint256 h = 0; h < hs.length; h++) stake += num(s, string.concat(".bonds_wei.", hs[h]));
+        uint256 parts = 0;
+        for (uint256 h = 0; h < hs.length; h++) {
+            uint256 part = RewardMath.partOf(p - cut, num(s, string.concat(".bonds_wei.", hs[h])), stake);
+            expectEq(part, num(e, string.concat(".parts_wei.", hs[h])), string.concat(id, " ", name, " ", hs[h]));
+            parts += part;
+        }
+        expectEq(p - cut - parts, num(e, ".dust_wei"), string.concat(id, " ", name, " dust"));
+    }
+
+    function memberAt(uint256 m) private pure returns (string memory) {
+        return string.concat(".inputs.members[", vm.toString(m), "]");
     }
 
     /// Prints C(r) for r = 0 to 839 and r = 840, 841 and 1,680, as

@@ -6,28 +6,46 @@ import {Stage2} from "./Stage2.sol";
 import {TestLPT} from "../src/money/TestLPT.sol";
 import {StakeLedger} from "../src/money/StakeLedger.sol";
 import {Claims} from "../src/money/Claims.sol";
+import {Scores} from "../src/scores/Scores.sol";
 import {IScoreSource} from "../interfaces/IScoreSource.sol";
+import {IScores} from "../interfaces/IScores.sol";
 
-/// The score a claim reads, set by the test: the stand-in for S-06's
-/// Scores until its phase 2 lands (spec S-05, phase 4). Unset reads 10^6,
-/// as a node nobody voted on does.
+/// The score a claim reads and a round's validator members, set by the
+/// test: the stand-in for Scores where a shared case states them. A
+/// `ledger` case states a claim's score and, under `members`, an earning
+/// round's members, "a stand-in for the validator set" (rulebook, the
+/// shared examples). Unset, a score reads 10^6, as a node nobody voted on
+/// does, and a round has no members. Claims reads it through the two
+/// views it calls, scoreOf and membersAt.
 contract ScoreStub is IScoreSource {
     mapping(address => bool) private given;
     mapping(address => uint256) private score;
+    mapping(uint256 => address[]) private members;
 
     function set(address node, uint256 s) external {
         given[node] = true;
         score[node] = s;
     }
 
+    function setMembers(uint256 round, address[] calldata list) external {
+        members[round] = list;
+    }
+
     function scoreOf(address node) external view returns (uint256) {
         return given[node] ? score[node] : 1_000_000;
+    }
+
+    function membersAt(uint256 round) external view returns (address[] memory) {
+        return members[round];
     }
 }
 
 /// A fresh stage 2 deployment plus test LPT, StakeLedger and Claims, and
 /// the steps a holder takes. Claims is created at the address the token
-/// was given at deployment, as the Broker is at the Registry's.
+/// was given at deployment, as the Broker is at the Registry's. Claims
+/// reads scores and members from the stub, or, deployed with
+/// deployStage3WithScores, from the real Scores, as stage 3 deploys it:
+/// one contract as both the score source and the validator set.
 abstract contract Stage3 is Stage2 {
     /// Test LPT's genesis supply, a test value outside every round's
     /// issuance. The test contract deploys the token, so it holds it.
@@ -35,7 +53,10 @@ abstract contract Stage3 is Stage2 {
 
     TestLPT internal lpt;
     StakeLedger internal ledger;
+    /// The stub, or address(0) when Claims reads the real Scores.
     ScoreStub internal scores;
+    /// What Claims reads membersAt from: the stub or the real Scores.
+    IScores internal validatorSet;
     Claims internal claims;
 
     function deployStage3() internal {
@@ -50,7 +71,22 @@ abstract contract Stage3 is Stage2 {
         lpt = new TestLPT(next, genesis);
         ledger = new StakeLedger(lpt, registry, clock);
         scores = new ScoreStub();
-        claims = new Claims(lpt, registry, clock, broker, ledger, scores, treasuryAddress());
+        validatorSet = IScores(address(scores));
+        claims = new Claims(lpt, registry, clock, broker, ledger, scores, validatorSet, treasuryAddress());
+        require(address(claims) == next, "Claims at the address the token was given");
+    }
+
+    /// As deployStage3, with the real Scores as Claims' score source and
+    /// validator set.
+    function deployStage3WithScores() internal {
+        deploy();
+        address next = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 3);
+        lpt = new TestLPT(next, GENESIS);
+        ledger = new StakeLedger(lpt, registry, clock);
+        Scores real = new Scores(registry, clock, ledger);
+        scores = ScoreStub(address(0));
+        validatorSet = real;
+        claims = new Claims(lpt, registry, clock, broker, ledger, real, real, treasuryAddress());
         require(address(claims) == next, "Claims at the address the token was given");
     }
 
