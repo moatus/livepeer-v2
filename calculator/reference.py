@@ -391,6 +391,13 @@ def validators(inputs: dict, parameters: Parameters) -> dict:
                 stakes.update({n: integer(v) for n, v in entry["stake_wei"].items()})
         node, action = step.get("node"), step["action"]
         code = None
+        # Units / D-39: identity precedes node status and amount.
+        if action in ("opt_in", "opt_out", "vote") and step.get("caller", node) != node:
+            refused.append({"step": step["step"], "code": "NOT_AUTHORIZED"})
+            continue
+        if action == "opt_in" and node in inputs.get("unregistered", []):
+            refused.append({"step": step["step"], "code": "NOT_REGISTERED"})
+            continue
         if action in ("seat", "opt_in"):
             repeated = node in opted
             if action == "opt_in":
@@ -488,8 +495,11 @@ class LptReplay:
         if a == 'grant_lpt':
             self.bal[s['to']] += amount
         elif a == 'set_cut':
+            # R-24 and Units: who, then registration, then cut.
+            if s.get('caller', n) != n:
+                return 'NOT_AUTHORIZED'
             if n not in payouts:
-                raise ValueError('ledger input error: R-24 gives no rule for an unregistered set_cut')
+                return 'NOT_REGISTERED'
             cut = integer(s['cut_millionths'])
             if cut > MILLION:
                 return 'CUT_OUT_OF_RANGE'
@@ -499,13 +509,11 @@ class LptReplay:
             observed.append({'step': s['step'], 'stake_wei': sum(v for (holder, node), v in b.items() if node == n), 'total_stake_wei': sum(b.values())})
         elif a in ('bond', 'transfer', 'unbond', 'unbond_transfer', 'rebond'):
             old, new = s.get('from', n), s.get('to', n)
-            if a in ('transfer', 'rebond') and new not in payouts:
-                available = (self.staying[h, old] if a == 'transfer' else
-                             sum(t[-1] for t in self.unbonded if t[:2] == [h, n] and t[-2] > r))
-                if amount > available:
-                    raise ValueError('ledger input error: R-15 does not order simultaneous NOT_REGISTERED and AMOUNT_TOO_LARGE refusals')
             if a in ('bond', 'transfer', 'rebond') and new not in payouts:
                 return 'NOT_REGISTERED'
+            # R-15 / D-38: same-node refusal precedes amount checks.
+            if a in ('transfer', 'unbond_transfer') and old == new:
+                return 'SAME_NODE'
             if a == 'bond':
                 if amount > self.bal[h]:
                     raise ValueError('bond exceeds holder LPT')
@@ -543,12 +551,13 @@ class LptReplay:
             self.bal['StakeLedger'] -= value
         elif a in ('claim', 'mint_shares'):
             earned = integer(s['earned_round'])
-            if earned == 0:
-                raise ValueError('earning rounds start at one')
             if a == 'claim' and s['caller'] != n:
                 return 'NOT_AUTHORIZED'
+            # R-18 / D-40 and R-12: round zero follows authorization.
+            if earned == 0:
+                return 'NO_SUCH_ROUND'
             if a == 'claim' and n not in payouts:
-                raise ValueError('ledger input error: R-12 gives no rule for an unregistered self-claim')
+                return 'NOT_REGISTERED'
             if a == 'mint_shares':
                 if earned >= r:
                     return 'CLAIM_TOO_EARLY'
@@ -575,6 +584,9 @@ class LptReplay:
         elif a in ('withdraw_parts', 'withdraw_validator_parts'):
             category = 'node' if a == 'withdraw_parts' else 'validator'
             rounds = [integer(v) for v in s['rounds']]
+            # R-24: zero anywhere refuses the entire list before other checks.
+            if 0 in rounds:
+                return 'NO_SUCH_ROUND'
             keys = [(category, e, n, h) for e in rounds]
             already = len(set(keys)) != len(keys) or any(k in self.drawn for k in keys)
             missing = any((category, e, n) not in self.pots and (category == 'node' or str(e) not in self.shares) for e in rounds)

@@ -54,34 +54,12 @@ class LedgerInputs(unittest.TestCase):
                 dict(step='2', round='1', action='bond', node='N', holder='H', amount_wei='1')
             ]}, self.parameters)
 
-    def test_earning_round_starts_at_one(self):
-        with self.assertRaisesRegex(ValueError, 'earning rounds start at one'):
-            ledger({'steps': [dict(step='1', round='1', action='mint_shares', caller='K', earned_round='0')]}, self.parameters)
-
-    def test_unordered_rebond(self):
-        self.reject({'steps': [dict(step='1', round='1', action='rebond',
-                     holder='H', node='X', amount_wei='1')]}, 'R-15 does not order')
-
-    def test_unordered_transfer(self):
-        self.reject({'steps': [dict(step='1', round='1', action='transfer',
-                     holder='H', **{'from': 'N', 'to': 'X'}, amount_wei='1')]},
-                    'R-15 does not order')
-
     def test_unordered_withdrawal(self):
         for action in ('withdraw_parts', 'withdraw_validator_parts'):
             with self.subTest(action=action):
                 self.reject({'steps': [dict(step='1', round='3', action=action,
                              holder='H', node='N', rounds=['1', '1'])]},
                             'R-24 does not order')
-
-    def test_unregistered_self_claim(self):
-        self.reject({'steps': [dict(step='1', round='9', action='claim',
-                     node='X', caller='X', earned_round='1', score='1000000')]},
-                    'R-12 gives no rule')
-
-    def test_unregistered_cut(self):
-        self.reject({'steps': [dict(step='1', round='1', action='set_cut',
-                     node='X', cut_millionths='0')]}, 'R-24 gives no rule')
 
     def test_zero_claim_has_no_minted_round(self):
         result = ledger({'steps': [
