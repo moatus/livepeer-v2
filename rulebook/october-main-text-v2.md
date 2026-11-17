@@ -20,10 +20,10 @@ against this text.
 Where the paper is silent or unclear, the choice is ours and is labelled
 "Ours". Each entry names what it rests on. The council rulings it names
 (D-03, D-04, D-05, D-07, D-08, D-09, D-10, D-11, D-18, D-21, D-22, D-23,
-D-24, D-25, D-26, D-27, D-28, D-29, D-30, D-31, D-32, D-35) were made in
-the owner's absence, and the owner keeps or changes each later. A council
-ruling is not an owner decision. D-16 is a proposed answer in the
-decision register, not a ruling, and D-12 is open.
+D-24, D-25, D-26, D-27, D-28, D-29, D-30, D-31, D-32, D-35, D-36, D-37)
+were made in the owner's absence, and the owner keeps or changes each
+later. A council ruling is not an owner decision. D-16 is a proposed
+answer in the decision register, not a ruling, and D-12 is open.
 
 ## How to read an entry
 
@@ -103,8 +103,8 @@ members are those at the start of R (R-08, R-13, R-15, R-24).
 
 ## The shared examples
 
-`vectors/october-main-text-v2.json` holds the parameters above and 66
-cases: v1's 35, unchanged, and 31 new ones. Every number in it is a
+`vectors/october-main-text-v2.json` holds the parameters above and 70
+cases: v1's 35, unchanged, and 35 new ones. Every number in it is a
 decimal string. A case has an `id`, a `kind` (`settlement`, `ceiling`,
 `round`, `claim`, `ledger`, `split`, `score`, `validators` or
 `validator-pay`), its `inputs`, and `expected`: exact amounts, one `code`,
@@ -663,7 +663,7 @@ send to. Paper text sending what the division leaves elsewhere (D-10).
 ## R-11 Score
 
 Origin: `Interpretation`; ours for the refusal. Delivery: `Decide now`.
-Rests on: D-09, D-21, D-23.
+Rests on: D-09, D-21, D-23, D-36.
 
 **The paper says.** Each active validator scores each node from 0.0 to
 1.0; the median across active validators sets the fraction of the capped
@@ -682,8 +682,11 @@ count it is the floor of the mean of the two middle votes. Only a member
 of the current round may vote, and any other vote is refused with
 `NOT_VALIDATOR`. A vote above 10^6 is refused when cast with
 `SCORE_OUT_OF_RANGE`, and the earlier vote is kept. A vote stands until
-replaced and lapses when its validator leaves; a returning validator
-starts with none.
+replaced. A validator leaves when a round starts without it; its votes
+count for every claim in every round it is a member of, and lapse at the
+start of the first round it is not. A member whose exit for the next round
+is undone by a later call in the same round never left, and its votes
+stand.
 
 A claim applies the score inside R-08's one division. Ours: a claim that
 reads a score above 10^6 is refused with `SCORE_OUT_OF_RANGE`; the
@@ -707,6 +710,14 @@ cannot cut a node; `score-reduced`, two votes of 500,000, 500,000;
 refused with `NOT_VALIDATOR`, and A's vote of 1,000,001 with
 `SCORE_OUT_OF_RANGE`, A's vote of 0 standing; when B leaves and returns,
 its vote of 0 has lapsed and the score is 1,000,000 again.
+`validators-return-in-round`: A and B vote 0 in round 7 and B opts out in
+round 8. A claim later in round 8 still reads B's vote, since B is a member
+of round 8, and the score is 0. B opts in again in the same round, so it
+never leaves, and its vote stands: the score in round 9 is 0 too. In
+`validators-return-displaced` C's vote of 0 stands in the same way after C
+is displaced and seated again within round 8, and in
+`validators-return-seat-taken` B's after its opt-in displaces C; both
+score 0 in round 9.
 `ledger-cycle`: M's claim at 500,000 is paid 93,922,465,523,957,976,083 of
 its 187,844,931,047,915,952,166, and K's at 0 is paid 0.
 
@@ -786,7 +797,7 @@ rotation, which widens who may act for the node.
 
 Origin: `Paper`; ours for the seat and unseat rules and the timing.
 Delivery: `Decide now`; `Substitute` for N, 3 for the paper's 33.
-Rests on: D-11, D-35; R-23.
+Rests on: D-11, D-35, D-36, D-37; R-23.
 
 **The paper says.** Node operators and validators are one set (p. 3).
 Among nodes, the top N by total stake, their own and delegated, may
@@ -807,10 +818,11 @@ stake at the start of the current round is above 0, when a seat is free
 or its stake is above the smallest member's; that member leaves, and of
 equal smallest, the one seated last. Ties keep the incumbent. Anyone may
 unseat a member whose stake at the start of the current round is 0; its
-votes lapse. Every change counts from the next round, so a round's
-members are fixed when it starts. Stake is read only at these calls, so
-the members need not be the N largest opted-in nodes: one with more stake
-enters only when someone seats it. N = 3, for the paper's 33.
+votes lapse when it leaves (R-11). Every change counts from the next
+round, so a round's members are fixed when it starts. Stake is read only
+at these calls, so the members need not be the N largest opted-in nodes:
+one with more stake enters only when someone seats it. N = 3, for the
+paper's 33.
 
 Ours: an opt-in seats the node when it can, as a seat call would, and is
 not refused when it cannot. Seating a node that has not opted in is
@@ -819,11 +831,20 @@ seat taken, not above the smallest member's, with `STAKE_TOO_LOW`. An
 opt-in for an address that is not a registered node is refused with
 `NOT_REGISTERED`, and an opt-in, opt-out or vote from an address that may
 not act for the node with `NOT_AUTHORIZED`. A node that opts out leaves
-from the next round. Opting in again, seating a node that is already a
-member for the next round, unseating a node that is not a member for the
-next round or has stake, and opting out without having opted in change
-nothing and are not refused. Nothing done per round visits the opted-in
-nodes (R-23).
+from the next round. An opt-in by a node that has opted out in the same
+round is a fresh opt-in and seats it as a seat call would, so a round's
+members are those on the list when the round starts, however many calls
+changed it before then. A member seated again in the round in which its
+exit was recorded keeps its seating order, so for the tie rule a node is
+seated when its unbroken membership began, not at the call that undid its
+exit. Only a node that a round has started without is seated last when it
+returns. A return within the round never moves the returning node ahead
+of any member; a node that stays out of a round is seated behind every
+member when it comes back. Opting in again without having opted out,
+seating a node that is already a member for the next round, unseating a
+node that is not a member for the next round or has stake, and opting
+out without having opted in change nothing and are not refused. Nothing
+done per round visits the opted-in nodes (R-23).
 
 **Example.** `validators-seats`: stake from round 2 is A 4,000 LPT, B
 3,000, C 2,000, D 1,000 and E 0, and from round 4 D has 5,000. In round 2
@@ -842,6 +863,23 @@ C's stake is 0 from round 5 and it is still a member in round 5 until
 someone unseats it; then it leaves from round 6. E has 1,000 LPT from
 round 6 and is not a member in round 7 until someone seats it; then it is
 one from round 8.
+
+`validators-return-in-round`: stake from round 5 is A 4,000 LPT, B 3,000
+and C 2,000; they opt in in round 5 and are members from round 6. In round
+8 B opts out and then opts in again; its seat is still free, so the opt-in
+seats it, and the members of round 9 are A, B and C.
+`validators-return-displaced`, with D at 5,000: in round 8 D opts in and
+C, the smallest, leaves; A opts out, and seating C again puts it in A's
+freed seat, so the members of round 9 are B, C and D.
+`validators-return-seat-taken`: in round 8 B opts out, D opts in and takes
+the freed seat, and B's opt-in, a fresh one, displaces C, since 3,000 is
+above 2,000; the members of round 9 are A, B and D. Under D-36 (a) a free
+seat goes to the first call, so a node that means to return should opt
+back in at once. `validators-return-order`: A and B have 2,000 LPT, C
+3,000 and E 2,001; A, B and C opt in in round 5, in that order. In round 6
+A opts out and opts in again and keeps its place ahead of B. In round 7 E
+opts in, and of A and B, equal smallest, B, seated last, leaves: the
+members of round 8 are A, C and E.
 
 **Would change it.** Paper text that a declined slot stays empty. A run
 where seats stay empty because no one calls seat, which would add a
