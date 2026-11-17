@@ -20,10 +20,11 @@ against this text.
 Where the paper is silent or unclear, the choice is ours and is labelled
 "Ours". Each entry names what it rests on. The council rulings it names
 (D-03, D-04, D-05, D-07, D-08, D-09, D-10, D-11, D-18, D-21, D-22, D-23,
-D-24, D-25, D-26, D-27, D-28, D-29, D-30, D-31, D-32, D-35, D-36, D-37)
-were made in the owner's absence, and the owner keeps or changes each
-later. A council ruling is not an owner decision. D-16 is a proposed
-answer in the decision register, not a ruling, and D-12 is open.
+D-24, D-25, D-26, D-27, D-28, D-29, D-30, D-31, D-32, D-35, D-36, D-37,
+D-38, D-39, D-40) were made in the owner's absence, and the owner keeps
+or changes each later. A council ruling is not an owner decision. D-16
+is a proposed answer in the decision register, not a ruling, and D-12 is
+open.
 
 ## How to read an entry
 
@@ -74,7 +75,7 @@ to the contracts' public shape, not to a rule.
 
 | Code | When |
 |---|---|
-| `NOT_REGISTERED` | A payment is made to, an earmark is funded for, or a payout is set by, an address that is not a registered node (R-01); a bond, a transfer or a rebond to an address that is not a registered node (R-15); an opt-in for an address that is not a registered node (R-13) |
+| `NOT_REGISTERED` | A payment is made to, an earmark is funded for, or a payout is set by, an address that is not a registered node (R-01); a bond, a transfer or a rebond to an address that is not a registered node (R-15); an opt-in, a claim or a reward cut by an address that is not a registered node, acting for itself (R-13, R-12, R-24) |
 | `SCORE_OUT_OF_RANGE` | A claim reads a score above 10^6 (R-11); a vote above 10^6 is cast (R-11) |
 | `CLAIM_TOO_EARLY` | A claim is made before its round is claimable (R-12); a round's shares are minted before the round has ended (R-10) |
 | `ALREADY_CLAIMED` | An entitlement that has already paid is claimed again (R-12), or a holder's part, a holder's validator part or a round's shares taken again (R-24, R-10) |
@@ -93,6 +94,19 @@ to the contracts' public shape, not to a rule.
 | `NOT_VALIDATOR` | A vote by a node that is not a member of the current round (R-11, R-13) |
 | `STAKE_TOO_LOW` | Seating a node whose stake is 0, or, with every seat taken, not above the smallest member's (R-13) |
 | `NOT_OPTED_IN` | Seating a node that has not opted in (R-13) |
+| `NO_SUCH_ROUND` | A mint of shares, a claim or a withdrawal list that names round 0, which is no round (R-18, R-10, R-12, R-24) |
+| `SAME_NODE` | A transfer to the node the bond is leaving, or an unbond of such a transfer (R-15) |
+
+When two refusals apply to one call, the first in this order is given:
+who, `NOT_AUTHORIZED`; then the node or round named, `NO_SUCH_ROUND`,
+`NOT_REGISTERED`, `SAME_NODE`, `NOT_OPTED_IN`, `NOT_VALIDATOR`, and for a
+claim its `CLAIM_TOO_EARLY`, `CLAIM_EXPIRED` and `ALREADY_CLAIMED`; then
+the amount, `AMOUNT_TOO_LARGE`, `CUT_OUT_OF_RANGE`, `STAKE_TOO_LOW`,
+`SCORE_OUT_OF_RANGE` (D-26, D-38, D-39, D-40). `refusal-order` and
+`refusal-order-validators` combine two.
+
+Until stage 4 an address may act for a node only when it is the node's
+own address; that check reads nothing about the node (R-12, R-13, R-24).
 
 Four moments are kept apart. The earning round fixes the ceiling, the
 rules, and every registered node's recognized fees and stake; they are
@@ -103,8 +117,8 @@ members are those at the start of R (R-08, R-13, R-15, R-24).
 
 ## The shared examples
 
-`vectors/october-main-text-v2.json` holds the parameters above and 70
-cases: v1's 35, unchanged, and 35 new ones. Every number in it is a
+`vectors/october-main-text-v2.json` holds the parameters above and 74
+cases: v1's 35, unchanged, and 39 new ones. Every number in it is a
 decimal string. A case has an `id`, a `kind` (`settlement`, `ceiling`,
 `round`, `claim`, `ledger`, `split`, `score`, `validators` or
 `validator-pay`), its `inputs`, and `expected`: exact amounts, one `code`,
@@ -143,10 +157,12 @@ every `expected` leaves the inputs alone.
   gives, from its `from_round`, the stake of each node it names at the
   start of every round, until a later entry names that node again; a node
   no entry has yet named has 0. Every node a step names, and the target
-  `X`, is a registered node. Nothing has opted in when it starts, and
+  `X`, is a registered node, except a node the case lists under
+  `unregistered`. Nothing has opted in when it starts, and
   ValidatorSetSize is 3. Each step has a `step` number, its on-chain
   `round` and an `action`:
-  - `opt_in`, `opt_out`: `node` opts in or out (R-13).
+  - `opt_in`, `opt_out`: `caller` opts `node` in or out; a step that
+    names no `caller` is made by `node` itself (R-13).
   - `seat`, `unseat`: anyone seats or unseats `node` (R-13).
   - `vote`: `node` votes `score` on `target` (R-11).
   - `observe`: the members of the current round and `target`'s score as a
@@ -200,7 +216,8 @@ every `expected` leaves the inputs alone.
     (R-15).
   - `withdraw_unbonded`: `holder` withdraws all its withdrawable unbonded
     LPT (R-15).
-  - `set_cut`: `node` sets its reward cut to `cut_millionths` (R-24).
+  - `set_cut`: `caller` sets `node`'s reward cut to `cut_millionths`; a
+    step that names no `caller` is made by `node` itself (R-24).
   - `claim`: `caller` claims `node`'s reward for `earned_round`, and the
     claim reads `score` (R-12).
   - `withdraw_parts`, `withdraw_validator_parts`: `holder` withdraws its
@@ -612,8 +629,8 @@ the design for the owner, not about what the paper says.
 ## R-10 Validators and treasury
 
 Origin: `Paper`; ours for the trigger, the treasury address and the
-remainder. Delivery: `Decide now`. Rests on: D-10, D-29; no ruling for the
-trigger and the address.
+remainder. Delivery: `Decide now`. Rests on: D-10, D-29, D-40; no ruling
+for the trigger and the address.
 
 **The paper says.** The validator and treasury shares of each round's
 emission are minted in full (p. 8). The validator share is split among
@@ -633,7 +650,8 @@ fees, stake or scores.
 
 Ours: after round R has ended anyone may mint R's two amounts, once, and
 the call never expires. A call before R has ended is refused with
-`CLAIM_TOO_EARLY`, and a second call for R with `ALREADY_CLAIMED`.
+`CLAIM_TOO_EARLY`, and a second call for R with `ALREADY_CLAIMED`. A mint
+that names round 0 is refused with `NO_SUCH_ROUND` (R-18).
 Claims divides the validator amount among R's members as R-14 says and
 splits each member's pay as R-24 does: each cut to the member's payout
 address, read when the mint runs, and each pot to Claims. The treasury
@@ -654,7 +672,11 @@ treasury; a second mint of round 2's shares is refused with
 round 3 before round 1's, and a third call for round 2 in round 31 is
 refused with `ALREADY_CLAIMED`. `pay-thirds`: the division leaves 1 wei,
 which goes to the treasury; `pay-empty` and `pay-no-stake`: the whole
-10,000,000,000,000,000,000 wei does.
+10,000,000,000,000,000,000 wei does. `ledger-round-zero`: a mint of round
+0's shares is refused with `NO_SUCH_ROUND` in round 1 and again in round
+500; round 1, which has no members, mints its 10 LPT and 50 LPT to the
+treasury in round 2, and a second mint of it in round 500 is refused with
+`ALREADY_CLAIMED`.
 
 **Would change it.** Paper text that ties these shares to fees or to the
 node share. Paper text naming who mints them, or a treasury contract to
@@ -729,9 +751,9 @@ sending the withheld part somewhere (D-21).
 
 ## R-12 Claim
 
-Origin: `Paper`; ours for who, where, expiry and order. Delivery: `Decide
-now`. Rests on: roadmap section 7.2 for paying once; D-08, D-23, D-26,
-D-27.
+Origin: `Paper`; ours for who, where, expiry, order and a claim by an
+unregistered address. Delivery: `Decide now`. Rests on: roadmap section
+7.2 for paying once; D-08, D-23, D-26, D-27, D-39, D-40.
 
 **The paper says.** A round's rewards are not claimable at once: round n
 becomes claimable at round n + 7, and the score applied is the median
@@ -745,7 +767,8 @@ when two apply.
 **We build.** Round n is claimable in rounds n + 7 to n + 28: from the
 reward delay to the end of the claim window. Only an address that may act
 for the node claims its (round, node) entitlement, one round per call;
-until stage 4 that is the registered node itself, and a delegator may not.
+until stage 4 that is the node's own address (the units section), and a
+delegator may not.
 The claim pays R-08's amount using round n's ceiling, fees and stake, and
 the score read at claim: it mints the node's cut to its payout address and
 the rest, the pot, to Claims for the node's holders (R-24). The payout
@@ -753,14 +776,19 @@ address is read when the claim executes.
 
 A claim before round n + 7 is refused with `CLAIM_TOO_EARLY`, after round
 n + 28 with `CLAIM_EXPIRED`, and from any other address, a delegator's
-included, with `NOT_AUTHORIZED`; each leaves the entitlement as it was.
+included, with `NOT_AUTHORIZED`; each leaves the entitlement as it was. A
+claim of round 0 is refused with `NO_SUCH_ROUND` (R-18). Ours: a claim by
+an address that is not a registered node, acting for itself, is refused
+with `NOT_REGISTERED`, as R-01 refuses its payout.
 An entitlement not claimed by the end of round n + 28 closes and is never
 minted (R-09). Ours: each (round, node) entitlement pays once; claiming it
 again is refused with `ALREADY_CLAIMED` and nothing more is paid. A score
 of 0 pays 0 and closes the entitlement; a score above 10^6 is refused
 (R-11) and leaves it open. When two refusals apply, the first of
-`NOT_AUTHORIZED`, `CLAIM_TOO_EARLY`, `CLAIM_EXPIRED`, `ALREADY_CLAIMED`,
-`SCORE_OUT_OF_RANGE` is given (D-26); `claim-order` combines two.
+`NOT_AUTHORIZED`, `NO_SUCH_ROUND`, `NOT_REGISTERED`, `CLAIM_TOO_EARLY`,
+`CLAIM_EXPIRED`, `ALREADY_CLAIMED`, `SCORE_OUT_OF_RANGE` is given (D-26,
+D-39, D-40), the general order of the units section; `claim-order`
+combines two.
 
 **Example.** Every `claim` case is a claim by node A of its
 `round-roadmap` reward, earned in round 0. `claim-early`, in round 6:
@@ -786,6 +814,14 @@ own pays, and N's second with `ALREADY_CLAIMED`. `ledger-mint-order`: N
 claims round 2 again in round 31 and is refused with `CLAIM_EXPIRED`,
 when before once.
 
+`ledger-round-zero`: A's claim of round 0 is refused with `NO_SUCH_ROUND`
+in round 1 and in round 7, and H's claim of it for A in round 7 with
+`NOT_AUTHORIZED`, who before the round named. A's claim of round 1, which
+had no fees and no stake, pays 0 in round 8 and closes. `refusal-order`:
+X, which never registered, claims round 1 in round 3 and is refused with
+`NOT_REGISTERED`, not `CLAIM_TOO_EARLY`; its claim of round 0 with
+`NO_SUCH_ROUND`, not `NOT_REGISTERED`.
+
 **Would change it.** Paper text fixing the score per round or naming an
 unbounded claim window; a run where honest nodes lose rewards to mistaken
 zeros corrected only after the window (D-08). A run where honest nodes
@@ -797,7 +833,7 @@ rotation, which widens who may act for the node.
 
 Origin: `Paper`; ours for the seat and unseat rules and the timing.
 Delivery: `Decide now`; `Substitute` for N, 3 for the paper's 33.
-Rests on: D-11, D-35, D-36, D-37; R-23.
+Rests on: D-11, D-35, D-36, D-37, D-39; R-23.
 
 **The paper says.** Node operators and validators are one set (p. 3).
 Among nodes, the top N by total stake, their own and delegated, may
@@ -828,23 +864,23 @@ Ours: an opt-in seats the node when it can, as a seat call would, and is
 not refused when it cannot. Seating a node that has not opted in is
 refused with `NOT_OPTED_IN`; seating one whose stake is 0, or, with every
 seat taken, not above the smallest member's, with `STAKE_TOO_LOW`. An
-opt-in for an address that is not a registered node is refused with
-`NOT_REGISTERED`, and an opt-in, opt-out or vote from an address that may
-not act for the node with `NOT_AUTHORIZED`. A node that opts out leaves
-from the next round. An opt-in by a node that has opted out in the same
-round is a fresh opt-in and seats it as a seat call would, so a round's
-members are those on the list when the round starts, however many calls
-changed it before then. A member seated again in the round in which its
-exit was recorded keeps its seating order, so for the tie rule a node is
-seated when its unbroken membership began, not at the call that undid its
-exit. Only a node that a round has started without is seated last when it
-returns. A return within the round never moves the returning node ahead
-of any member; a node that stays out of a round is seated behind every
-member when it comes back. Opting in again without having opted out,
-seating a node that is already a member for the next round, unseating a
-node that is not a member for the next round or has stake, and opting
-out without having opted in change nothing and are not refused. Nothing
-done per round visits the opted-in nodes (R-23).
+opt-in by an address that is not a registered node is refused with
+`NOT_REGISTERED`; an opt-in, opt-out or vote for a node from any other
+address with `NOT_AUTHORIZED`, whatever else is wrong. A node that opts
+out leaves from the next round. An opt-in by a node that has opted out
+in the same round is a fresh opt-in and seats it as a seat call would, so
+a round's members are those on the list when the round starts, however
+many calls changed it before then. A member seated again in the round in
+which its exit was recorded keeps its seating order, so for the tie rule
+a node is seated when its unbroken membership began, not at the call that
+undid its exit. Only a node that a round has started without is seated
+last when it returns. A return within the round never moves the
+returning node ahead of any member; a node that stays out of a round is
+seated behind every member when it comes back. Opting in again without
+having opted out, seating a node that is already a member for the next
+round, unseating a node that is not a member for the next round or has
+stake, and opting out without having opted in change nothing and are not
+refused. Nothing done per round visits the opted-in nodes (R-23).
 
 **Example.** `validators-seats`: stake from round 2 is A 4,000 LPT, B
 3,000, C 2,000, D 1,000 and E 0, and from round 4 D has 5,000. In round 2
@@ -880,6 +916,14 @@ back in at once. `validators-return-order`: A and B have 2,000 LPT, C
 A opts out and opts in again and keeps its place ahead of B. In round 7 E
 opts in, and of A and B, equal smallest, B, seated last, leaves: the
 members of round 8 are A, C and E.
+
+`refusal-order-validators`: P and Q are registered and X is not; P has
+100 LPT from round 2 and Q none. In round 3 X's opt-in for itself is
+refused with `NOT_REGISTERED`, and Y's opt-in for X with
+`NOT_AUTHORIZED`, who before the node named; seating Q, which has not
+opted in and has no stake, with `NOT_OPTED_IN`, not `STAKE_TOO_LOW`; and
+Q's vote of 1,000,001 on P with `NOT_VALIDATOR`, not
+`SCORE_OUT_OF_RANGE`. Rounds 3 and 4 have no members.
 
 **Would change it.** Paper text that a declined slot stays empty. A run
 where seats stay empty because no one calls seat, which would add a
@@ -944,7 +988,7 @@ measure that is costly to fake (D-10).
 ## R-15 Stake
 
 Origin: `Interpretation`; ours for which record. Delivery: `Decide now`.
-Rests on: D-11, D-30, D-31, D-32.
+Rests on: D-11, D-30, D-31, D-32, D-38, D-39.
 
 **The paper says.** Delegators stake toward node operators with today's
 bonding, unbonding and reward-cut mechanics (p. 3). Unbonding takes 21
@@ -975,7 +1019,10 @@ first; what is rebonded is no longer withdrawable. An unbond, transfer,
 unbond of a transfer or rebond above what the named record holds is
 refused with `AMOUNT_TOO_LARGE`; a rebond to any other node is one of
 them. A bond, transfer or rebond to an address that is not a registered
-node is refused with `NOT_REGISTERED`.
+node is refused with `NOT_REGISTERED`. A transfer whose new node is its
+old node, and an unbond that names such a transfer, is refused with
+`SAME_NODE`; nothing is recorded. Both come before `AMOUNT_TOO_LARGE`
+(the units section).
 
 Ours: a holder's withdrawal takes all its withdrawable unbonded LPT at
 once, and with none withdrawable is refused with `UNBOND_NOT_READY`.
@@ -1019,6 +1066,18 @@ LPT from V to U and unbonds 1,000 from V in round 2, so V counts 5,000 in
 round 2 and 4,000 in round 3; H rebonds the 1,000 in round 3, and V counts
 5,000 from round 4.
 
+`ledger-same-node`: H bonds 100 LPT to P in round 1. In round 5 H's
+transfers of 60 and of 150 from P to P are both refused with `SAME_NODE`,
+the second not with `AMOUNT_TOO_LARGE`. In round 6 H unbonds 50 from P,
+and in round 7 its unbond of the P to P transfer is refused with
+`SAME_NODE`. P counts 100 in rounds 2 to 6 and 50 from round 7. H's
+withdrawal in round 26 is refused with `UNBOND_NOT_READY`, and in round
+27 it withdraws 50 LPT; StakeLedger holds 100 through round 26 and 50
+from round 27. `refusal-order`: with H's 100 LPT staying at P and nothing
+unbonded, H's transfer of 150 from P to X, which never registered, and
+its rebond of 10 to X are refused with `NOT_REGISTERED`, not
+`AMOUNT_TOO_LARGE`; P counts 100 in every round from 2.
+
 **Would change it.** Paper text eliminating the transfer, or making one
 irrevocable; a run showing stake in transfer exploited, such as holding
 validator rank at a node its operator has left, or showing the 21-round
@@ -1031,7 +1090,7 @@ bond's (D-32).
 ## R-18 Round clock
 
 Origin: `Placeholder`. Delivery: `Substitute` for the length, `Decide now`
-for the count. Rests on: D-11 (b1), D-16 (proposed), D-23, D-28.
+for the count. Rests on: D-11 (b1), D-16 (proposed), D-23, D-28, D-40.
 
 **The paper says.** Every delay is a number of rounds: rewards are
 claimable 7 rounds later and unbonding takes 21 rounds (pp. 5, 12). It
@@ -1043,7 +1102,7 @@ years (p. 7).
 the schedule and the delays count time or rounds actually started. The
 current protocol computes the round from the block number while the node
 signs against the last round started, so a late start expires tickets the
-node still holds.
+node still holds. What a call naming a round before the first does.
 
 **We build.** Round 1 starts at deployment. Anyone may start round R + 1
 once round R has lasted RoundLength blocks, 50, of the block number the
@@ -1051,6 +1110,10 @@ node reads; a start before that is refused with `ROUND_NOT_OVER`. Until
 someone starts it, a round just lasts longer, and no round number is ever
 skipped. The emission index of round R is r = R - 1, so a deployment's
 first round emits C(0) (R-05). RoundLength is a test value (D-16).
+
+There is no round 0. A call that names round 0 is refused with
+`NO_SUCH_ROUND`: a mint of its shares (R-10), a claim of it (R-12), and a
+withdrawal list that includes it (R-24), which moves nothing.
 
 Ours: the emission schedule and every delay (the reward delay, the ticket
 life and the release wait) advance by rounds started, so a late keeper
@@ -1064,7 +1127,11 @@ C(0) (`ceiling-0`). Starting round 2 at block 149 is refused with
 until block 400, round 2 has lasted 250 blocks and round 3 starts then;
 no round number is skipped. No shared case holds blocks: a `ledger` step
 takes its round as given, so the clock is checked by the contract tests,
-not by the calculator.
+not by the calculator. `ledger-round-zero`: every call that names round 0,
+in round 1, 7 or 500, is refused with `NO_SUCH_ROUND`, except a claim of
+it by an address that may not act for the node, which is
+`NOT_AUTHORIZED`; nothing is ever minted for round 0, and Claims ends
+holding 0.
 
 **Would change it.** Paper text fixing the schedule in calendar time, or a
 stage 3 run where a stalled clock lets a node hold its claim window open
@@ -1264,7 +1331,7 @@ registration cost (D-25).
 ## R-24 Delegation
 
 Origin: `Interpretation`; ours for the integer form and the timing.
-Delivery: `Decide now`. Rests on: D-10, D-18, D-27, D-29.
+Delivery: `Decide now`. Rests on: D-10, D-18, D-27, D-29, D-39, D-40.
 
 **The paper says.** Delegators stake toward node operators with today's
 bonding, unbonding and reward-cut mechanics, and an operator may stake to
@@ -1283,17 +1350,23 @@ Whether the USDC half is shared too.
 **We build.** A node sets its reward cut, 0 to 10^6, default 0; the cut
 for round R is the one set before R started. A cut above 10^6 is refused
 with `CUT_OUT_OF_RANGE`, and a cut set from an address that may not act
-for the node with `NOT_AUTHORIZED`. A node's claim of P (R-12) mints
-cut = floor(P x c / 10^6) to its payout address and the pot P - cut to
-Claims. Each holder's part is floor(pot x bond / S), with its bond and the
-node's stake S at the start of R (R-08, R-15).
+for the node with `NOT_AUTHORIZED`. Ours: a cut set by an address that is
+not a registered node, acting for itself, is refused with
+`NOT_REGISTERED`, as R-01 refuses its payout. A node's claim of P (R-12)
+mints cut = floor(P x c / 10^6) to its payout address and the pot P - cut
+to Claims. Each holder's part is floor(pot x bond / S), with its bond and
+the node's stake S at the start of R (R-08, R-15). A node whose stake at
+the start of R is 0 is paid 0 and its holders' parts are 0, without the
+division.
 
 The holder withdraws its parts from Claims, as LPT to itself, for any
 rounds it lists, once each, with no expiry. Bonding it is an ordinary bond
 (R-15). A list that names a round twice, or a round already withdrawn, is
 refused with `ALREADY_CLAIMED`, and a round its node has not claimed with
 `NOT_CLAIMED`; a refused list moves nothing, and no case combines two of
-these refusals in one list. A part of 0 withdraws as 0.
+these refusals in one list. A part of 0 withdraws as 0. A list that names
+round 0 is refused with `NO_SUCH_ROUND`, whatever else it holds, for a
+holder's parts and for validator parts alike.
 
 A validator's pay for round R (R-14) splits as a claim does, with the
 member's cut and bonds as at the start of R: the cut is minted to its
@@ -1355,6 +1428,22 @@ start of round 2, not its 3,000 when it withdraws, which would give
 never claimed, with `NOT_CLAIMED`. O withdraws 1,798,515,297,267,280,393
 and Claims ends holding 0. `pay-split` and `pay-split-dust` show the same
 split of a validator's pay, the second with 1 wei of dust.
+
+`ledger-round-zero`: H's lists [0], of A's node parts and of its
+validator parts, are refused with `NO_SUCH_ROUND` in round 1. A's claim
+of round 1 pays 0, A's stake at the start of round 1 being 0, so H's part
+is 0 without the division and its list [1] withdraws 0; its list [1, 0]
+is then refused with `NO_SUCH_ROUND`, not `ALREADY_CLAIMED`.
+`ledger-same-node`: P sets its cut to 100,000 in round 1, 300,000 in
+round 2 and 500,000 in round 3. Its claim of round 2 in round 9, the
+whole 939,224,655,239,579,760,830 wei of C(1)'s node share, reads the
+cut set before round 2 started: 93,922,465,523,957,976,083 wei to P and
+the pot, 845,302,189,715,621,784,747, to Claims. The cut set during round
+2 would give 281,767,396,571,873,928,249 and the one current at the
+claim 469,612,327,619,789,880,415. `refusal-order`: Q's cut of 1,000,001
+for P is refused with `NOT_AUTHORIZED`, not `CUT_OUT_OF_RANGE`, and X's
+cut of 1,000,001 for itself, X never having registered, with
+`NOT_REGISTERED`.
 
 **Would change it.** The owner placing USDC distribution in stage 3's
 exit, or finding that the fee cut cannot be added later without changing

@@ -24,7 +24,7 @@
     "default_reward_cut_millionths": "0",
     "validator_set_size": "3"
   },
-  "codes": ["NOT_REGISTERED", "SCORE_OUT_OF_RANGE", "CLAIM_TOO_EARLY", "ALREADY_CLAIMED", "ROUND_NOT_OVER", "PAYOUT_INVALID", "NOTHING_TO_PAY", "TICKET_USED", "TICKET_EXPIRED", "AMOUNT_TOO_LARGE", "RELEASE_NOT_READY", "CLAIM_EXPIRED", "NOT_AUTHORIZED", "NOT_CLAIMED", "UNBOND_NOT_READY", "CUT_OUT_OF_RANGE", "NOT_VALIDATOR", "STAKE_TOO_LOW", "NOT_OPTED_IN"],
+  "codes": ["NOT_REGISTERED", "SCORE_OUT_OF_RANGE", "CLAIM_TOO_EARLY", "ALREADY_CLAIMED", "ROUND_NOT_OVER", "PAYOUT_INVALID", "NOTHING_TO_PAY", "TICKET_USED", "TICKET_EXPIRED", "AMOUNT_TOO_LARGE", "RELEASE_NOT_READY", "CLAIM_EXPIRED", "NOT_AUTHORIZED", "NOT_CLAIMED", "UNBOND_NOT_READY", "CUT_OUT_OF_RANGE", "NOT_VALIDATOR", "STAKE_TOO_LOW", "NOT_OPTED_IN", "NO_SUCH_ROUND", "SAME_NODE"],
   "cases": [
     {
       "id": "settle-even",
@@ -1140,6 +1140,158 @@
       }
     },
     {
+      "id": "ledger-round-zero",
+      "kind": "ledger",
+      "inputs": {
+        "steps": [
+          {"step": "1", "round": "1", "action": "register", "node": "A"},
+          {"step": "2", "round": "1", "action": "grant_lpt", "to": "H", "amount_wei": "100000000000000000000"},
+          {"step": "3", "round": "1", "action": "bond", "holder": "H", "node": "A", "amount_wei": "100000000000000000000"},
+          {"step": "4", "round": "1", "action": "observe_stake", "node": "A"},
+          {"step": "5", "round": "1", "action": "mint_shares", "caller": "Keeper", "earned_round": "0"},
+          {"step": "6", "round": "1", "action": "claim", "caller": "A", "node": "A", "earned_round": "0", "score": "1000000"},
+          {"step": "7", "round": "1", "action": "withdraw_parts", "holder": "H", "node": "A", "rounds": ["0"]},
+          {"step": "8", "round": "1", "action": "withdraw_validator_parts", "holder": "H", "node": "A", "rounds": ["0"]},
+          {"step": "9", "round": "2", "action": "observe_stake", "node": "A"},
+          {"step": "10", "round": "2", "action": "mint_shares", "caller": "Keeper", "earned_round": "1"},
+          {"step": "11", "round": "7", "action": "claim", "caller": "A", "node": "A", "earned_round": "0", "score": "1000000"},
+          {"step": "12", "round": "7", "action": "claim", "caller": "H", "node": "A", "earned_round": "0", "score": "1000000"},
+          {"step": "13", "round": "8", "action": "claim", "caller": "A", "node": "A", "earned_round": "1", "score": "1000000"},
+          {"step": "14", "round": "8", "action": "withdraw_parts", "holder": "H", "node": "A", "rounds": ["1"]},
+          {"step": "15", "round": "8", "action": "withdraw_parts", "holder": "H", "node": "A", "rounds": ["1", "0"]},
+          {"step": "16", "round": "500", "action": "mint_shares", "caller": "Keeper", "earned_round": "0"},
+          {"step": "17", "round": "500", "action": "mint_shares", "caller": "Keeper", "earned_round": "1"}
+        ]
+      },
+      "expected": {
+        "deposits_micro_usdc": {},
+        "earmarks_micro_usdc": {},
+        "paid_micro_usdc": {"A": "0"},
+        "released_micro_usdc": {},
+        "network_micro_usdc": "0",
+        "fees_micro_usdc": {},
+        "total_fees_micro_usdc": {},
+        "lpt_wei": {"A": "0", "H": "0", "Keeper": "0", "Claims": "0", "StakeLedger": "100000000000000000000", "Treasury": "60000000000000000000"},
+        "shares_wei": {"1": {"validators_wei": "10000000000000000000", "treasury_wei": "50000000000000000000"}},
+        "minted_for_round_wei": {"1": "60000000000000000000"},
+        "lpt_minted_wei": "60000000000000000000",
+        "observed": [
+          {"step": "4", "stake_wei": "0", "total_stake_wei": "0"},
+          {"step": "9", "stake_wei": "100000000000000000000", "total_stake_wei": "100000000000000000000"}
+        ],
+        "refused": [
+          {"step": "5", "code": "NO_SUCH_ROUND"},
+          {"step": "6", "code": "NO_SUCH_ROUND"},
+          {"step": "7", "code": "NO_SUCH_ROUND"},
+          {"step": "8", "code": "NO_SUCH_ROUND"},
+          {"step": "11", "code": "NO_SUCH_ROUND"},
+          {"step": "12", "code": "NOT_AUTHORIZED"},
+          {"step": "15", "code": "NO_SUCH_ROUND"},
+          {"step": "16", "code": "NO_SUCH_ROUND"},
+          {"step": "17", "code": "ALREADY_CLAIMED"}
+        ]
+      }
+    },
+    {
+      "id": "ledger-same-node",
+      "kind": "ledger",
+      "inputs": {
+        "steps": [
+          {"step": "1", "round": "1", "action": "register", "node": "P"},
+          {"step": "2", "round": "1", "action": "grant_lpt", "to": "H", "amount_wei": "100000000000000000000"},
+          {"step": "3", "round": "1", "action": "bond", "holder": "H", "node": "P", "amount_wei": "100000000000000000000"},
+          {"step": "4", "round": "1", "action": "set_cut", "node": "P", "cut_millionths": "100000"},
+          {"step": "5", "round": "1", "action": "fund", "payer": "F", "deposit_micro_usdc": "1000000", "earmark_micro_usdc": "0"},
+          {"step": "6", "round": "2", "action": "observe_stake", "node": "P"},
+          {"step": "7", "round": "2", "action": "redeem", "ticket": "t1", "payer": "F", "node": "P", "created_round": "2", "face_micro_usdc": "1000000"},
+          {"step": "8", "round": "2", "action": "set_cut", "node": "P", "cut_millionths": "300000"},
+          {"step": "9", "round": "3", "action": "set_cut", "node": "P", "cut_millionths": "500000"},
+          {"step": "10", "round": "5", "action": "transfer", "holder": "H", "from": "P", "to": "P", "amount_wei": "60000000000000000000"},
+          {"step": "11", "round": "5", "action": "transfer", "holder": "H", "from": "P", "to": "P", "amount_wei": "150000000000000000000"},
+          {"step": "12", "round": "5", "action": "observe_stake", "node": "P"},
+          {"step": "13", "round": "6", "action": "observe_stake", "node": "P"},
+          {"step": "14", "round": "6", "action": "unbond", "holder": "H", "node": "P", "amount_wei": "50000000000000000000"},
+          {"step": "15", "round": "7", "action": "unbond_transfer", "holder": "H", "from": "P", "to": "P", "amount_wei": "60000000000000000000"},
+          {"step": "16", "round": "7", "action": "observe_stake", "node": "P"},
+          {"step": "17", "round": "9", "action": "claim", "caller": "P", "node": "P", "earned_round": "2", "score": "1000000"},
+          {"step": "18", "round": "26", "action": "withdraw_unbonded", "holder": "H"},
+          {"step": "19", "round": "27", "action": "withdraw_unbonded", "holder": "H"}
+        ]
+      },
+      "expected": {
+        "deposits_micro_usdc": {"F": "0"},
+        "earmarks_micro_usdc": {"F": {}},
+        "paid_micro_usdc": {"P": "500000"},
+        "released_micro_usdc": {"F": "0"},
+        "network_micro_usdc": "500000",
+        "fees_micro_usdc": {"2": {"P": "1000000"}},
+        "total_fees_micro_usdc": {"2": "1000000"},
+        "lpt_wei": {"P": "93922465523957976083", "H": "50000000000000000000", "Claims": "845302189715621784747", "StakeLedger": "50000000000000000000", "Treasury": "0"},
+        "shares_wei": {},
+        "minted_for_round_wei": {"2": "939224655239579760830"},
+        "lpt_minted_wei": "939224655239579760830",
+        "observed": [
+          {"step": "6", "stake_wei": "100000000000000000000", "total_stake_wei": "100000000000000000000"},
+          {"step": "12", "stake_wei": "100000000000000000000", "total_stake_wei": "100000000000000000000"},
+          {"step": "13", "stake_wei": "100000000000000000000", "total_stake_wei": "100000000000000000000"},
+          {"step": "16", "stake_wei": "50000000000000000000", "total_stake_wei": "50000000000000000000"}
+        ],
+        "refused": [
+          {"step": "10", "code": "SAME_NODE"},
+          {"step": "11", "code": "SAME_NODE"},
+          {"step": "15", "code": "SAME_NODE"},
+          {"step": "18", "code": "UNBOND_NOT_READY"}
+        ]
+      }
+    },
+    {
+      "id": "refusal-order",
+      "kind": "ledger",
+      "inputs": {
+        "steps": [
+          {"step": "1", "round": "1", "action": "register", "node": "P"},
+          {"step": "2", "round": "1", "action": "register", "node": "Q"},
+          {"step": "3", "round": "1", "action": "grant_lpt", "to": "H", "amount_wei": "100000000000000000000"},
+          {"step": "4", "round": "1", "action": "bond", "holder": "H", "node": "P", "amount_wei": "100000000000000000000"},
+          {"step": "5", "round": "2", "action": "observe_stake", "node": "P"},
+          {"step": "6", "round": "3", "action": "transfer", "holder": "H", "from": "P", "to": "X", "amount_wei": "150000000000000000000"},
+          {"step": "7", "round": "3", "action": "rebond", "holder": "H", "node": "X", "amount_wei": "10000000000000000000"},
+          {"step": "8", "round": "3", "action": "set_cut", "caller": "Q", "node": "P", "cut_millionths": "1000001"},
+          {"step": "9", "round": "3", "action": "set_cut", "caller": "X", "node": "X", "cut_millionths": "1000001"},
+          {"step": "10", "round": "3", "action": "claim", "caller": "X", "node": "X", "earned_round": "1", "score": "1000000"},
+          {"step": "11", "round": "3", "action": "claim", "caller": "X", "node": "X", "earned_round": "0", "score": "1000000"},
+          {"step": "12", "round": "3", "action": "observe_stake", "node": "P"},
+          {"step": "13", "round": "24", "action": "observe_stake", "node": "P"}
+        ]
+      },
+      "expected": {
+        "deposits_micro_usdc": {},
+        "earmarks_micro_usdc": {},
+        "paid_micro_usdc": {"P": "0", "Q": "0", "X": "0"},
+        "released_micro_usdc": {},
+        "network_micro_usdc": "0",
+        "fees_micro_usdc": {},
+        "total_fees_micro_usdc": {},
+        "lpt_wei": {"P": "0", "Q": "0", "X": "0", "H": "0", "Claims": "0", "StakeLedger": "100000000000000000000", "Treasury": "0"},
+        "shares_wei": {},
+        "minted_for_round_wei": {},
+        "lpt_minted_wei": "0",
+        "observed": [
+          {"step": "5", "stake_wei": "100000000000000000000", "total_stake_wei": "100000000000000000000"},
+          {"step": "12", "stake_wei": "100000000000000000000", "total_stake_wei": "100000000000000000000"},
+          {"step": "13", "stake_wei": "100000000000000000000", "total_stake_wei": "100000000000000000000"}
+        ],
+        "refused": [
+          {"step": "6", "code": "NOT_REGISTERED"},
+          {"step": "7", "code": "NOT_REGISTERED"},
+          {"step": "8", "code": "NOT_AUTHORIZED"},
+          {"step": "9", "code": "NOT_REGISTERED"},
+          {"step": "10", "code": "NOT_REGISTERED"},
+          {"step": "11", "code": "NO_SUCH_ROUND"}
+        ]
+      }
+    },
+    {
       "id": "validators-opt-out-vote",
       "kind": "validators",
       "inputs": {
@@ -1261,6 +1413,34 @@
           {"step": "8", "members": ["A", "C", "E"], "score": "1000000"}
         ],
         "refused": []
+      }
+    },
+    {
+      "id": "refusal-order-validators",
+      "kind": "validators",
+      "inputs": {
+        "unregistered": ["X"],
+        "stakes": [{"from_round": "2", "stake_wei": {"P": "100000000000000000000"}}],
+        "steps": [
+          {"step": "1", "round": "3", "action": "opt_in", "node": "X"},
+          {"step": "2", "round": "3", "action": "opt_in", "caller": "Y", "node": "X"},
+          {"step": "3", "round": "3", "action": "seat", "node": "Q"},
+          {"step": "4", "round": "3", "action": "vote", "node": "Q", "target": "P", "score": "1000001"},
+          {"step": "5", "round": "3", "action": "observe", "target": "P"},
+          {"step": "6", "round": "4", "action": "observe", "target": "P"}
+        ]
+      },
+      "expected": {
+        "observed": [
+          {"step": "5", "members": [], "score": "1000000"},
+          {"step": "6", "members": [], "score": "1000000"}
+        ],
+        "refused": [
+          {"step": "1", "code": "NOT_REGISTERED"},
+          {"step": "2", "code": "NOT_AUTHORIZED"},
+          {"step": "3", "code": "NOT_OPTED_IN"},
+          {"step": "4", "code": "NOT_VALIDATOR"}
+        ]
       }
     }
   ]
