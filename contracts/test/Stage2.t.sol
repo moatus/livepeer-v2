@@ -94,6 +94,21 @@ contract Stage2Test is Stage2 {
         refusedAndNothingMoved(t, sig, rand, "ticket creationRound does not have a block hash");
     }
 
+    /// R-03 for the largest amounts: a ticket worth more than
+    /// type(uint256).max / NODE_CUT is still paid, split by the same floor.
+    function test_largest_payment_is_split() external {
+        toRound(2);
+        register("N");
+        uint256 face = type(uint256).max / 2;
+        require(fund("P", face, who("N"), 0).length == 0, "fund");
+        (ITicketBroker.Ticket memory t, bytes memory sig, uint256 rand) = ticket("large", "P", who("N"), 2, face);
+        require(redeem(t, sig, rand).length == 0, "redeemed");
+        uint256 node = face / 2;
+        expectEq(usdc.balanceOf(who("N")), node, "node");
+        expectEq(broker.networkHeld(), face - node, "network");
+        expectEq(broker.totalFees(2), face, "fees");
+    }
+
     function funded() internal returns (ITicketBroker.Ticket memory, bytes memory, uint256) {
         toRound(2);
         register("N");

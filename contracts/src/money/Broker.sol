@@ -122,7 +122,9 @@ contract Broker {
         earmark[t.sender][t.recipient] -= fromEarmark;
         earmarkTotal[t.sender] -= fromEarmark;
 
-        uint256 nodeAmount = paid * NODE_CUT / ONE;
+        // floor(paid * NODE_CUT / ONE), split so that no product overflows
+        // for any amount a payer can fund.
+        uint256 nodeAmount = paid / ONE * NODE_CUT + paid % ONE * NODE_CUT / ONE;
         uint256 networkAmount = paid - nodeAmount;
         networkHeld += networkAmount;
         feesOf[round][t.recipient] += paid;
