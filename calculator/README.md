@@ -1,6 +1,6 @@
 # Independent calculator
 
-Implements `rulebook/october-main-text-v1.md` using Python 3.12 and its
+Implements `rulebook/october-main-text-v2.md` using Python 3.12 and its
 standard library. It was built from the rulebook and shared examples,
 without reading contract implementations. Python's arbitrary-size integers
 allow exact products and powers without dependencies or floating point.
@@ -34,8 +34,7 @@ divided once, as R-08 and R-19 require. Claims recompute from the earning
 round's inputs with the claim's score.
 
 Ledger cases replay registration, funding, redemption, payout, observation and
-release in fresh in-memory state. The default check covers all 35 v1 cases;
-an explicit v0 file remains supported. No state survives a calculation. The check also runs ledger input regressions.
+release in fresh in-memory state. The default check covers 64 v2, 35 v1 and 26 v0 cases. No state survives a calculation. The check also runs ledger input regressions.
 Decreasing rounds, conflicting details for one ticket ID (including refused
 attempts), and observations without a node raise `ValueError` with a
 `ledger input error` message, rather than returning a rule refusal code.
@@ -45,6 +44,11 @@ inputs rather than inventing a stable code or refusal precedence.
 
 This is a calculator, not a settlement or entitlement store.
 It does not decide where withheld rewards go (D-21), so rounds with any
-score below one million do not return `minted_wei`. It reports simultaneous
-claim refusals as unsupported instead of assigning the precedence R-12
-leaves open. These limitations do not affect any frozen example.
+score below one million do not return `minted_wei`. Claims follow R-12/D-26's refusal order.
+
+LPT replay covers bonds, transfers, unbonds, rebonds, round-start stake and
+cut snapshots, claims, share minting and holder withdrawals from per-round,
+per-node pots. Bonds exceeding holder LPT and earning round zero are invalid
+inputs. Unordered simultaneous rebond, transfer and withdrawal refusals are
+input errors. Unregistered self-claims and cut setters are unsupported inputs:
+R-12 and R-24 do not specify their outcomes.

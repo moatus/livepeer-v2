@@ -42,7 +42,7 @@ a row here.
 | interfaces | The public shape of every contract | `contracts/interfaces/` | owner | yes | in force |
 | money | Minting LPT, and holding or moving USDC | `contracts/src/money/` | owner | no | in force |
 | authority | Who may act for a node, and who may change a parameter | `contracts/src/authority/` | owner | no | in force |
-| maths | Reward calculation inside the contracts | `contracts/src/math/` | agent | no | proposed until the S-05 freeze |
+| maths | Reward calculation inside the contracts | `contracts/src/math/` | agent | no | in force |
 | node | Where the node meets the contracts, and every change we carry against upstream | `nodefork/` | owner | no | in force |
 | deployment | What one testnet version contains | `deployments/` | owner | no | in force |
 | factory | The checks, this map and the guides agents work from | `dev` `tools/` `SEAMS.md` `AGENTS.md` `CLAUDE.md` `.t3code/` `.github/` `.gitignore` | owner | no | in force |

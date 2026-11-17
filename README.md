@@ -51,12 +51,17 @@ What it does, in this order, printing each step:
    payment challenge (HTTP 502). N registers, for free and with no stake,
    and the same request gets a challenge (HTTP 402).
 3. P puts 10 USDC of mock USDC in its deposit and sets 0.02 USDC aside for
-   N (its earmark).
+   N (its earmark). The orchestrator checks each ticket alone against the
+   deposit and the earmark, not everything it already holds unredeemed, so
+   N may hold more in tickets than the earmark guarantees (D-24).
 4. **Six real jobs**, each paid with one ticket of 10,001 micro-USDC, which
    the node redeems itself. Every balance read from the chain is printed
    beside the calculator's figure for the same steps, and then checked
    against the stage's worked figures: P's deposit 9,939,994, the earmark
    20,000, N's wallet 30,000, the network share 30,006, N's fees 60,006.
+   The USDC the Broker actually holds is checked too: it must equal the
+   deposits, earmarks and network share, and all mock USDC in existence
+   must equal what the demo minted for the payers.
 5. **Refusal 3.** Ticket 1's redemption is sent again: the Broker refuses
    it with `TICKET_USED`.
 6. **Refusal 2.** P2 sets nothing aside for N: its signer will not sign,

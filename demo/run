@@ -681,12 +681,32 @@ def reconcile(title: str) -> tuple[list[dict], dict]:
             FAILURES.append(f"{title}: {label}: chain {got}, calculator {want}")
     if quiet:
         say(f"  {'wallets of ' + str(quiet) + ' junk nodes, each':<46}{'0':>14}{'0':>14}  equal")
+    custody(title, case_steps, calc, views["block"])
     diffs = ledgercase.differences(chain, calc)
     if diffs:
         say(f"  {len(diffs)} figure(s) differ")
     else:
         say(f"  every figure equal ({len(flat_chain)} figures)")
     return ordered, views
+
+
+def custody(title: str, case_steps: list[dict], calc: dict, block: int) -> None:
+    """The Broker's own USDC, beside what the calculator says it holds: every
+    deposit, earmark and network share. And all the USDC there is, beside
+    what the demo minted to payers to fund them, so no USDC was made or kept
+    anywhere the figures above do not look."""
+    broker, supply = calls([(C["MockUSDC"], "balanceOf(address)", (C["Broker"],)),
+                            (C["MockUSDC"], "totalSupply()", ())], block)
+    held = (sum(int(v) for v in calc["deposits_micro_usdc"].values())
+            + sum(int(v) for e in calc["earmarks_micro_usdc"].values() for v in e.values())
+            + int(calc["network_micro_usdc"]))
+    minted = sum(int(s["deposit_micro_usdc"]) + int(s["earmark_micro_usdc"]) for s in case_steps if s["action"] == "fund")
+    for label, got, want, source in (("USDC the Broker holds", broker, held, "calculator"),
+                                     ("all USDC in existence", supply, minted, "demo minted")):
+        mark = "equal" if got == want else "DIFFERS"
+        say(f"  {label:<46}{money(got):>14}{money(want):>14}  {mark} ({source})")
+        if got != want:
+            FAILURES.append(f"{title}: {label}: chain {got}, {source} {want}")
 
 
 def check(what: str, got, want) -> None:

@@ -28,3 +28,14 @@ interface IRegistry {
     error NOT_REGISTERED();
     error PAYOUT_INVALID();
 }
+
+/// The Registry as stage 3 reads it (rulebook october-main-text-v2):
+/// IRegistry and one view, the one authority check. It is declared beside
+/// IRegistry because the stage 2 Registry, which implements IRegistry, does
+/// not have it; S-05's phase 3 builds it into the Registry. StakeLedger,
+/// Claims and Scores read isRegistered, payoutOf and mayActFor at execution.
+interface IRegistryV2 is IRegistry {
+    /// Whether `caller` may act for `node`. Until stage 4: caller == node and
+    /// node is registered.
+    function mayActFor(address caller, address node) external view returns (bool);
+}
