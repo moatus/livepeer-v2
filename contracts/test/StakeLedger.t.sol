@@ -88,6 +88,75 @@ contract StakeLedgerTest is LedgerRunner, Stage3 {
         expectEq(ledger.rebondableOf(h, who("P")), 10e18, "nothing moved: rebondable");
     }
 
+    // --- amounts in the token's whole range ------------------------------
+
+    /// No rule caps a bond below what the token can hold (uint256), so the
+    /// ledger keeps every amount and count in that range. A test LPT whose
+    /// genesis exceeds 2**192 makes the boundary reachable.
+    function deployWithSupply(uint256 supply) internal {
+        deploy();
+        lpt = new TestLPT(claimsAddress(), supply);
+        ledger = new StakeLedger(lpt, registry, clock);
+    }
+
+    /// One holder bonds more than 2**192, then moves, unbonds, rebonds and
+    /// withdraws it; every count and view holds the whole amount.
+    function test_a_bond_above_2_192_is_kept_whole() external {
+        uint256 big = 2 ** 192 + 5;
+        deployWithSupply(2 ** 200);
+        address h = who("H");
+        address p = who("P");
+        address q = who("Q");
+        register("P");
+        register("Q");
+        lpt.transfer(h, big);
+        expectDone(bondAs(h, p, big), "bond above 2**192");
+        expectEq(ledger.stayingOf(h, p), big, "staying");
+        toRound(2);
+        expectEq(ledger.bondAt(h, p, 2), big, "bond in round 2");
+        expectEq(ledger.stakeAt(p, 2), big, "P in round 2");
+        expectEq(ledger.totalStakeAt(2), big, "total in round 2");
+        // Move it all, and unbond all of the move before it arrives.
+        expectDone(as_(h, address(ledger), abi.encodeCall(StakeLedger.transferBond, (p, q, big))), "transfer");
+        expectEq(ledger.inTransferOf(h, p, q), big, "in transfer");
+        toRound(3);
+        expectDone(as_(h, address(ledger), abi.encodeCall(StakeLedger.unbondTransfer, (p, q, big))), "unbond it");
+        (uint256 waiting,) = ledger.unbondedOf(h);
+        expectEq(waiting, big, "waiting");
+        expectEq(ledger.stakeAt(p, 3), big, "P in round 3");
+        expectEq(ledger.stakeAt(p, 4), 0, "P in round 4");
+        expectEq(ledger.stakeAt(q, 23), 0, "Q never");
+        // Rebond part of it, withdraw the rest when it is ready.
+        expectDone(as_(h, address(ledger), abi.encodeCall(StakeLedger.rebond, (p, big - 2 ** 191))), "rebond");
+        toRound(24);
+        expectEq(ledger.stakeAt(p, 24), big - 2 ** 191, "P after the rebond");
+        expectDone(as_(h, address(ledger), abi.encodeCall(StakeLedger.withdrawUnbonded, ())), "withdraw");
+        expectEq(lpt.balanceOf(h), 2 ** 191, "withdrawn");
+        expectEq(lpt.balanceOf(address(ledger)), big - 2 ** 191, "held");
+    }
+
+    /// Bonds each below 2**192 whose sum crosses it: the node's stake and
+    /// the total hold the sum.
+    function test_bonds_summing_across_2_192_are_counted_whole() external {
+        uint256 each = 2 ** 191 + 3;
+        deployWithSupply(2 ** 200);
+        address p = who("P");
+        register("P");
+        string[3] memory names = ["H1", "H2", "H3"];
+        for (uint256 i = 0; i < names.length; i++) {
+            address h = who(names[i]);
+            lpt.transfer(h, each);
+            expectDone(bondAs(h, p, each), string.concat("bond of ", names[i]));
+        }
+        toRound(2);
+        expectEq(ledger.stakeAt(p, 2), 3 * each, "P in round 2");
+        expectEq(ledger.totalStakeAt(2), 3 * each, "total in round 2");
+        expectEq(ledger.bondAt(who("H2"), p, 2), each, "H2 in round 2");
+        expectDone(as_(who("H1"), address(ledger), abi.encodeCall(StakeLedger.unbond, (p, each))), "unbond H1");
+        expectEq(ledger.stakeAt(p, 3), 2 * each, "P in round 3");
+        expectEq(ledger.totalStakeAt(3), 2 * each, "total in round 3");
+    }
+
     function test_reward_cut_needs_the_node_and_a_cut_in_range() external {
         deployStage3();
         address n = who("N");

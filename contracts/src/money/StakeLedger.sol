@@ -37,18 +37,14 @@ contract StakeLedger is IStakeLedger {
     IRegistryV2 private immutable registry;
     IRoundClock private immutable clock;
 
-    /// One point of a history: `value` holds from `round` on.
+    /// One point of a history: `value` holds from `round` on. Also one
+    /// entry of a list: a transfer of `value` arriving at `round`, or an
+    /// unbond of `value` withdrawable from `round`. Entries of one list are
+    /// appended in round order, and those made in one round are merged.
+    /// Amounts are kept in the token's whole range: no rule caps a bond.
     struct Point {
-        uint64 round;
-        uint192 value;
-    }
-
-    /// A transfer arriving at `round`, or an unbond withdrawable from
-    /// `round`. Entries of one list are appended in round order, and those
-    /// made in one round are merged.
-    struct Entry {
-        uint64 round;
-        uint192 amount;
+        uint256 round;
+        uint256 value;
     }
 
     // --- counts at the start of a round (written only for later rounds) ---
@@ -72,13 +68,11 @@ contract StakeLedger is IStakeLedger {
     mapping(address => Point[]) private readyPoints;
     /// holder => everything it has withdrawn.
     mapping(address => uint256) private withdrawn;
-    /// holder => unbonded LPT not withdrawn, waiting or ready.
-    mapping(address => uint256) private unbonded;
 
     /// holder => from => to => its transfers, by arrival round.
-    mapping(address => mapping(address => mapping(address => Entry[]))) private transfers;
+    mapping(address => mapping(address => mapping(address => Point[]))) private transfers;
     /// holder => node it was counting for => its unbonds, by ready round.
-    mapping(address => mapping(address => Entry[])) private unbonds;
+    mapping(address => mapping(address => Point[])) private unbonds;
 
     constructor(ITestLPT lpt_, IRegistryV2 registry_, IRoundClock clock_) {
         require(
@@ -132,18 +126,18 @@ contract StakeLedger is IStakeLedger {
 
     function unbondTransfer(address from, address to, uint256 amount) external {
         uint256 now_ = clock.currentRound();
-        Entry[] storage list = transfers[msg.sender][from][to];
+        Point[] storage list = transfers[msg.sender][from][to];
         if (amount > _pending(list, now_)) revert AMOUNT_TOO_LARGE();
         // The transfer arriving last first. For each part taken, its arrival
         // at round t is cancelled, at `to` and at `from` alike, so it keeps
         // counting for `from` until it is unbonded below.
         uint256 left = amount;
         while (left > 0) {
-            Entry storage last = list[list.length - 1];
+            Point storage last = list[list.length - 1];
             uint256 t = last.round;
-            uint256 part = last.amount < left ? last.amount : left;
-            if (part == last.amount) list.pop();
-            else last.amount -= uint192(part);
+            uint256 part = last.value < left ? last.value : left;
+            if (part == last.value) list.pop();
+            else last.value -= part;
             left -= part;
             _sub(stayingPoints[msg.sender][to], t, part);
             _countSub(now_, msg.sender, to, t, part);
@@ -159,21 +153,20 @@ contract StakeLedger is IStakeLedger {
     function rebond(address node, uint256 amount) external {
         if (!registry.isRegistered(node)) revert NOT_REGISTERED();
         uint256 now_ = clock.currentRound();
-        Entry[] storage list = unbonds[msg.sender][node];
+        Point[] storage list = unbonds[msg.sender][node];
         if (amount > _pending(list, now_)) revert AMOUNT_TOO_LARGE();
         // The latest unbond first; what is rebonded is no longer
         // withdrawable at its ready round.
         uint256 left = amount;
         while (left > 0) {
-            Entry storage last = list[list.length - 1];
+            Point storage last = list[list.length - 1];
             uint256 t = last.round;
-            uint256 part = last.amount < left ? last.amount : left;
-            if (part == last.amount) list.pop();
-            else last.amount -= uint192(part);
+            uint256 part = last.value < left ? last.value : left;
+            if (part == last.value) list.pop();
+            else last.value -= part;
             left -= part;
             _sub(readyPoints[msg.sender], t, part);
         }
-        unbonded[msg.sender] -= amount;
         _add(stayingPoints[msg.sender][node], now_, amount);
         _countAdd(now_, msg.sender, node, now_ + 1, amount);
         _totalAdd(now_, now_ + 1, amount);
@@ -184,7 +177,6 @@ contract StakeLedger is IStakeLedger {
         uint256 ready = _at(readyPoints[msg.sender], clock.currentRound()) - withdrawn[msg.sender];
         if (ready == 0) revert UNBOND_NOT_READY();
         withdrawn[msg.sender] += ready;
-        unbonded[msg.sender] -= ready;
         require(lpt.transfer(msg.sender, ready), "transfer failed");
         emit UnbondedWithdrawn(msg.sender, ready);
     }
@@ -198,8 +190,8 @@ contract StakeLedger is IStakeLedger {
         // either that round's, set again, or earlier.
         Point[] storage points = cutPoints[node];
         uint256 n = points.length;
-        if (n > 0 && points[n - 1].round == from) points[n - 1].value = uint192(cut);
-        else points.push(Point(uint64(from), uint192(cut)));
+        if (n > 0 && points[n - 1].round == from) points[n - 1].value = cut;
+        else points.push(Point(from, cut));
         emit RewardCutSet(node, cut, from);
     }
 
@@ -232,8 +224,11 @@ contract StakeLedger is IStakeLedger {
     }
 
     function unbondedOf(address holder) external view returns (uint256 waiting, uint256 ready) {
-        ready = _at(readyPoints[holder], clock.currentRound()) - withdrawn[holder];
-        waiting = unbonded[holder] - ready;
+        // The last point holds every unbond less what was rebonded.
+        Point[] storage points = readyPoints[holder];
+        uint256 due = _at(points, clock.currentRound());
+        ready = due - withdrawn[holder];
+        waiting = points.length == 0 ? 0 : points[points.length - 1].value - due;
     }
 
     function rebondableOf(address holder, address node) external view returns (uint256) {
@@ -270,24 +265,23 @@ contract StakeLedger is IStakeLedger {
     function _lock(address holder, address node, uint256 ready, uint256 amount) private {
         _append(unbonds[holder][node], ready, amount);
         _add(readyPoints[holder], ready, amount);
-        unbonded[holder] += amount;
     }
 
     // --- lists ----------------------------------------------------------------
 
-    function _append(Entry[] storage list, uint256 round, uint256 amount) private {
+    function _append(Point[] storage list, uint256 round, uint256 amount) private {
         if (amount == 0) return;
         uint256 n = list.length;
-        if (n > 0 && list[n - 1].round == round) list[n - 1].amount += _u192(amount);
-        else list.push(Entry(uint64(round), _u192(amount)));
+        if (n > 0 && list[n - 1].round == round) list[n - 1].value += amount;
+        else list.push(Point(round, amount));
     }
 
     /// What the entries after `now_` hold: transfers not yet arrived, or
     /// unbonds not yet withdrawable. They are the last entries of the list,
     /// at most one per round of the next 21.
-    function _pending(Entry[] storage list, uint256 now_) private view returns (uint256 sum) {
+    function _pending(Point[] storage list, uint256 now_) private view returns (uint256 sum) {
         for (uint256 i = list.length; i > 0 && list[i - 1].round > now_; i--) {
-            sum += list[i - 1].amount;
+            sum += list[i - 1].value;
         }
     }
 
@@ -310,9 +304,8 @@ contract StakeLedger is IStakeLedger {
     /// Adds `amount` to the value from `round` on.
     function _add(Point[] storage points, uint256 round, uint256 amount) private {
         if (amount == 0) return;
-        uint192 a = _u192(amount);
         for (uint256 i = _open(points, round); i < points.length; i++) {
-            points[i].value += a;
+            points[i].value += amount;
         }
     }
 
@@ -320,9 +313,8 @@ contract StakeLedger is IStakeLedger {
     /// shortfall reverts.
     function _sub(Point[] storage points, uint256 round, uint256 amount) private {
         if (amount == 0) return;
-        uint192 a = _u192(amount);
         for (uint256 i = _open(points, round); i < points.length; i++) {
-            points[i].value -= a;
+            points[i].value -= amount;
         }
     }
 
@@ -334,16 +326,11 @@ contract StakeLedger is IStakeLedger {
         i = n;
         while (i > 0 && points[i - 1].round > round) i--;
         if (i > 0 && points[i - 1].round == round) return i - 1;
-        uint192 before = i == 0 ? 0 : points[i - 1].value;
+        uint256 before = i == 0 ? 0 : points[i - 1].value;
         points.push();
         for (uint256 k = n; k > i; k--) {
             points[k] = points[k - 1];
         }
-        points[i] = Point(uint64(round), before);
-    }
-
-    function _u192(uint256 v) private pure returns (uint192) {
-        require(v <= type(uint192).max, "amount out of range");
-        return uint192(v);
+        points[i] = Point(round, before);
     }
 }
