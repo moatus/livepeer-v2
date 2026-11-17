@@ -1,4 +1,4 @@
-"""Independent integer implementation of rulebook october-main-text-v0.
+"""Independent integer implementation of rulebook october-main-text-v1.
 
 Only parameters and inputs enter these functions; expected vector outputs do not.
 Amounts returned by calculate() are Python integers in the rulebook's units.
@@ -33,6 +33,10 @@ class Parameters:
     node_emission_share_millionths: int
     validator_emission_share_millionths: int
     treasury_emission_share_millionths: int
+
+    round_length_blocks: int = 50
+    ticket_validity_rounds: int = 2
+    release_wait_rounds: int = 3
 
     @classmethod
     def from_strings(cls, values: dict) -> "Parameters":
@@ -116,6 +120,9 @@ def calculate(kind: str, inputs: dict, parameters: Parameters,
     minting only when all scores are full: D-21 leaves withheld rewards open.
     A claim is a stateless calculation against the supplied already-paid flag.
     """
+    if kind == "ledger":
+        return ledger(inputs, parameters)
+
     if kind == "settlement":
         gross = integer(inputs["gross_micro_usdc"])
         if not boolean(inputs["payee_registered"]):
@@ -167,3 +174,119 @@ def calculate(kind: str, inputs: dict, parameters: Parameters,
                                    sum(n.stake for n in nodes), score)}
 
     raise ValueError(f"unknown case kind: {kind!r}")
+
+
+def ledger(inputs: dict, parameters: Parameters) -> dict:
+    """R-01/03/04/21/22: replay a fresh account ledger from inputs alone."""
+    steps = inputs["steps"]
+    payers = {s["payer"] for s in steps if "payer" in s}
+    deposits = dict.fromkeys(payers, 0)
+    earmarks = {p: {} for p in payers}
+    paid = {s[key]: 0 for s in steps for key in ("node", "payout") if key in s}
+    fees = {}
+    for s in steps:
+        if s["action"] == "fund" and "node" in s:
+            earmarks[s["payer"]][s["node"]] = 0
+        if s["action"] == "redeem":
+            fees.setdefault(s["round"], {})[s["node"]] = 0
+    released = dict.fromkeys(payers, 0)
+    payouts, pending = {}, {}
+    used = set()
+    observed, refused = [], []
+    network = 0
+
+    def balance(payer, node):
+        return deposits[payer] if node is None else earmarks[payer].get(node, 0)
+
+    def debit(payer, node, amount):
+        if node is None:
+            deposits[payer] -= amount
+        elif amount:
+            earmarks[payer][node] -= amount
+        key = (payer, node)
+        if key in pending:
+            requested, ready = pending[key]
+            remaining = min(requested, balance(payer, node))
+            if remaining:
+                pending[key] = (remaining, ready)
+            else:
+                del pending[key]
+
+    for s in steps:
+        action = s["action"]
+        round_number = integer(s["round"])
+        node, payer = s.get("node"), s.get("payer")
+        key = (payer, node)
+        code = None
+        if action == "register":
+            payouts.setdefault(node, node)
+        elif action == "set_payout":
+            if node not in payouts:
+                code = "NOT_REGISTERED"
+            else:
+                payouts[node] = s["payout"]
+        elif action == "fund":
+            deposit = integer(s["deposit_micro_usdc"])
+            earmark = integer(s["earmark_micro_usdc"])
+            if earmark and node not in payouts:
+                code = "NOT_REGISTERED"
+            else:
+                deposits[payer] += deposit
+                if earmark:
+                    earmarks[payer][node] += earmark
+        elif action == "request_release":
+            amount = integer(s["amount_micro_usdc"])
+            if amount > balance(payer, node):
+                code = "AMOUNT_TOO_LARGE"
+            elif amount:
+                pending[key] = (amount, round_number + parameters.release_wait_rounds)
+            else:
+                pending.pop(key, None)
+        elif action == "release":
+            amount, ready = pending.get(key, (0, 0))
+            if not amount or round_number < ready:
+                code = "RELEASE_NOT_READY"
+            else:
+                del pending[key]
+                debit(payer, node, amount)
+                released[payer] += amount
+        elif action == "observe":
+            observed.append({"step": s["step"],
+                             "deposit_micro_usdc": max(0, deposits[payer] - pending.get((payer, None), (0, 0))[0]),
+                             "claimable_micro_usdc": max(0, balance(payer, node) - pending.get(key, (0, 0))[0])})
+        elif action == "redeem":
+            created = integer(s["created_round"])
+            if created > round_number:
+                raise ValueError("R-22 gives no stable code for a future ticket")
+            gross = min(integer(s["face_micro_usdc"]), deposits[payer] + balance(payer, node))
+            reasons = []
+            if node not in payouts:
+                reasons.append("NOT_REGISTERED")
+            if s["ticket"] in used:
+                reasons.append("TICKET_USED")
+            if round_number > created + parameters.ticket_validity_rounds:
+                reasons.append("TICKET_EXPIRED")
+            if not gross:
+                reasons.append("NOTHING_TO_PAY")
+            if len(reasons) > 1:
+                raise ValueError("rulebook does not order simultaneous ledger refusals")
+            if reasons:
+                code = reasons[0]
+            else:
+                from_deposit = min(gross, deposits[payer])
+                debit(payer, None, from_deposit)
+                debit(payer, node, gross - from_deposit)
+                cut = gross * parameters.node_cut_millionths // MILLION
+                paid[payouts[node]] += cut
+                network += gross - cut
+                fees[s["round"]][node] += gross
+                used.add(s["ticket"])
+        else:
+            raise ValueError(f"unknown ledger action: {action!r}")
+        if code:
+            refused.append({"step": s["step"], "code": code})
+    return {"deposits_micro_usdc": deposits, "earmarks_micro_usdc": earmarks,
+            "paid_micro_usdc": paid, "released_micro_usdc": released,
+            "network_micro_usdc": network, "fees_micro_usdc": fees,
+            "total_fees_micro_usdc": {r: sum(nodes.values()) for r, nodes in fees.items()},
+            "observed": observed, "refused": refused}

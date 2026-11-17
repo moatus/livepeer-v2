@@ -7,12 +7,14 @@ from pathlib import Path
 from reference import Parameters, calculate
 
 
-DEFAULT_VECTORS = Path(__file__).resolve().parent.parent / "vectors/october-main-text-v0.json"
+DEFAULT_VECTORS = Path(__file__).resolve().parent.parent / "vectors/october-main-text-v1.json"
 
 
 def decimal_strings(value):
     if isinstance(value, dict):
         return {key: decimal_strings(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [decimal_strings(item) for item in value]
     if type(value) is int:
         return str(value)
     return value
@@ -29,7 +31,7 @@ def check(path: Path) -> int:
         return 1
 
     try:
-        if document["profile"] != "october-main-text-v0":
+        if document["profile"] not in ("october-main-text-v0", "october-main-text-v1"):
             raise ValueError("unknown rulebook profile")
         parameters = Parameters.from_strings(document["parameters"])
         cases = document["cases"]
