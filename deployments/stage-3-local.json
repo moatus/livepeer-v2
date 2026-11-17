@@ -1,7 +1,7 @@
 {
   "testnet": "stage-3-local",
   "about": "What the stage 3 testnet contains and every stand-in it uses. It is deployed fresh on a local chain by ./dev demo at every run, so no address is fixed here: the demo prints the addresses of its run and writes them to .cache/demo/run/addresses.json. The demo reads the node, model, chain, flag and LPT values below from this file, so what runs is what this file says. Stage 2's testnet, stage-2-local.json, still runs with ./dev demo stage-2.",
-  "spec": "S-05",
+  "spec": "S-05 and S-06",
   "rulebook": "rulebook/october-main-text-v2.md",
   "vectors": "vectors/october-main-text-v2.json",
   "contracts": [
@@ -153,7 +153,12 @@
     {
       "stand_in": "Scripted validators",
       "for": "Validators who judge work (R-11, R-13)",
-      "value": "V1, V2 and V3, registered nodes with 5,000, 3,000 and 2,000 test LPT bonded to themselves and a reward cut of 100 %, run by programs/validators from demo/validators.script: they opt in and vote what the script says, not what they judged. ValidatorSetSize is 3, for the paper's 33"
+      "value": "V1, V2 and V3, registered nodes with 5,000 (1,000 its own and 4,000 from holder H, with a reward cut of 10 %), 3,000 and 2,000 test LPT, and V4 with 6,000, run by programs/validators from demo/validators.script: they opt in and vote what the script says, not what they judged"
+    },
+    {
+      "stand_in": "ValidatorSetSize 3",
+      "for": "The paper's 33 seats (p. 4; D-35)",
+      "value": "Scores seats at most 3 members, a constant fixed at deployment, so that four validators make a seat change hands: V4 takes the seat of V3, the smallest member"
     },
     {
       "stand_in": "Keeper",
