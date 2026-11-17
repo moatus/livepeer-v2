@@ -408,6 +408,10 @@ def validators(inputs: dict, parameters: Parameters) -> dict:
                     if len(pending) >= parameters.validator_set_size:
                         pending.remove(smallest)
                     pending.append(node)
+                    # R-13 / D-37: undoing an exit preserves current tenure.
+                    # Newcomers stay after current members, in call order.
+                    pending.sort(key=lambda n: current.index(n)
+                                 if n in current else len(current))
             if action == "opt_in":
                 code = None
         elif action in ("opt_out", "unseat"):
