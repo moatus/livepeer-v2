@@ -124,6 +124,26 @@ def calculate(kind: str, inputs: dict, parameters: Parameters,
     minting only when all scores are full: D-21 leaves withheld rewards open.
     A claim is a stateless calculation against the supplied already-paid flag.
     """
+    if kind == "split":
+        return split(integer(inputs["paid_wei"]), inputs)
+
+    if kind == "validator-pay":
+        stakes = {m["node"]: integer(m["stake_wei"]) for m in inputs["members"]}
+        if len(stakes) != len(inputs["members"]):
+            raise ValueError("duplicate member")
+        total = sum(stakes.values())
+        cap = emission(parameters, integer(inputs["round"]))
+        paid = {m: cap * parameters.validator_emission_share_millionths * stake
+                // (MILLION * total) if total else 0 for m, stake in stakes.items()}
+        result = {"paid_wei": paid,
+                  "to_treasury_wei": fixed_shares(parameters, cap)["validators_wei"] - sum(paid.values())}
+        if "splits" in inputs:
+            for m, details in inputs["splits"].items():
+                if sum(integer(b) for b in details["bonds_wei"].values()) != stakes[m]:
+                    raise ValueError("bonds must sum to member stake")
+            result["splits"] = {m: split(paid[m], details) for m, details in inputs["splits"].items()}
+        return result
+
     if kind == "score":
         return {"score": median_score(inputs["members"], inputs["votes"])}
 
@@ -326,3 +346,17 @@ def median_score(members: list, votes: dict) -> int:
         return MILLION
     n = len(values)
     return (values[(n - 1) // 2] + values[n // 2]) // 2
+
+
+def split(paid: int, inputs: dict) -> dict:
+    """R-24: cut first, holder floors second; dust stays in Claims."""
+    cut_rate = integer(inputs["cut_millionths"])
+    if cut_rate > MILLION:
+        raise ValueError("cut out of range")
+    bonds = {h: integer(b) for h, b in inputs["bonds_wei"].items()}
+    total = sum(bonds.values())
+    cut = paid * cut_rate // MILLION
+    pot = paid - cut
+    parts = {h: pot * b // total if total else 0 for h, b in bonds.items()}
+    return {"cut_wei": cut, "pot_wei": pot, "parts_wei": parts,
+            "dust_wei": pot - sum(parts.values())}
