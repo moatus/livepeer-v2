@@ -22,6 +22,7 @@ import os, pathlib, re, shutil, signal, subprocess, sys, tempfile, time
 
 B, R, C = "src/money/Broker.sol", "src/authority/Registry.sol", "src/clock/RoundClock.sol"
 S = "src/scores/Scores.sol"
+CL, RM, SL = "src/money/Claims.sol", "src/math/RewardMath.sol", "src/money/StakeLedger.sol"
 V2 = "../vectors/october-main-text-v2.json"
 
 # name, [(file, old, new)], catching check[, fast_green]
@@ -113,6 +114,38 @@ M = [
     (S, "    uint64 private lastSeated;", "    uint64 private lastSeated;\n    address[] private everyOptedIn;"),
     (S, "        nodes[node].optedIn = true;\n", "        nodes[node].optedIn = true;\n        everyOptedIn.push(node);\n"),
     (S, "        if (k == 0) return MAX_SCORE;", "        for (uint256 q = 0; q < everyOptedIn.length; q++) {\n            if (everyOptedIn[q] == node) return MAX_SCORE;\n        }\n        if (k == 0) return MAX_SCORE;")], "test_gas_does_not_grow"),
+
+ # Validator pay (spec S-06 phase 4): R-10, R-14 and B1 to B5 in Claims.
+ ("pay: members read when the mint runs, not as the round started", [(CL, "validators.membersAt(round)", "validators.membersAt(clock.currentRound())")], "test_a_node_seated_after_the_round"),
+ ("pay: stake read when the mint runs", [(CL, "stakes[i] = ledger.stakeAt(members[i], round);", "stakes[i] = ledger.stakeAt(members[i], clock.currentRound());")], "test_ledger_mid_round"),
+ ("pay: cut read when the mint runs", [(CL, "RewardMath.cutOf(paid, ledger.cutAt(m, round))", "RewardMath.cutOf(paid, ledger.cutAt(m, clock.currentRound()))")], "test_ledger_mid_round"),
+ ("pay: cut minted to the member, not its payout", [(CL, "        if (cut > 0) lpt.mint(payout, cut);\n    }", "        if (cut > 0) lpt.mint(m, cut);\n    }")], "test_ledger_validator_pot"),
+ ("pay: two divisions, from the validator amount", [(RM, "return (c * VALIDATOR_SHARE * stake) / (ONE * totalStake);", "return (c * VALIDATOR_SHARE / ONE) * stake / totalStake;")], "test_ledger_mid_round"),
+ ("pay: equal shares, not by stake", [(CL, "_payMember(members[i], round, c, stakes[i], totalStake)", "_payMember(members[i], round, c, totalStake == 0 ? 0 : 1, members.length)")], "test_pay_weighted"),
+ ("pay: the division's remainder lost", [(CL, "lpt.mint(treasury, toTreasury + (validatorAmount - paidOut));", "lpt.mint(treasury, toTreasury);")], "test_pay_thirds"),
+ ("pay: validator amount also minted whole to the treasury", [(CL, "lpt.mint(treasury, toTreasury + (validatorAmount - paidOut));", "lpt.mint(treasury, toTreasury + validatorAmount);")], "test_pay_weighted"),
+ ("pay: no stake among the members divides by 0", [(RM, "        if (totalStake == 0) return 0;\n", "")], "test_pay_no_stake"),
+ ("pay: pots not minted to Claims", [(CL, "        if (pots > 0) lpt.mint(address(this), pots);\n", "")], "test_pay_weighted"),
+ ("pay: pot recorded as the whole pay", [(CL, "(v.paid, v.pot) = (paid, pot);", "(v.paid, v.pot) = (paid, paid);")], "test_pay_split"),
+ ("pay: no ValidatorPaid for a member paid 0", [(CL, "        emit IClaims.ValidatorPaid(round, m, payout, paid, cut, pot);", "        if (paid > 0) emit IClaims.ValidatorPaid(round, m, payout, paid, cut, pot);")], "test_pay_no_stake"),
+ ("pay: validatorPayOf gives the pot as the cut", [(CL, "return (v.paid, v.paid - v.pot, v.pot);", "return (v.paid, v.pot, v.pot);")], "test_pay_split"),
+ ("vparts: paid from the claim's pot", [(CL, "amount += _part(validatorPays[node][round].pot, msg.sender, node, round);", "amount += _part(entitlements[node][round].pot, msg.sender, node, round);")], "test_both_parts_of_a_round"),
+ ("vparts: one flag for both kinds of part", [(CL, "            if (validatorPartWithdrawn[msg.sender][node][round]) revert IClaims.ALREADY_CLAIMED();\n            validatorPartWithdrawn[msg.sender][node][round] = true;", "            if (partWithdrawn[msg.sender][node][round]) revert IClaims.ALREADY_CLAIMED();\n            partWithdrawn[msg.sender][node][round] = true;")], "test_both_parts_of_a_round"),
+ ("vparts: not marked withdrawn", [(CL, "            validatorPartWithdrawn[msg.sender][node][round] = true;\n", "")], "test_pay_split"),
+ ("vparts: today's bond and stake", [(CL, "amount += _part(validatorPays[node][round].pot, msg.sender, node, round);", "amount += _part(validatorPays[node][round].pot, msg.sender, node, clock.currentRound());")], "test_ledger_validator_pot"),
+ ("vparts: taken before the round's shares are minted", [(CL, "            if (!minted[round]) revert IClaims.NOT_CLAIMED();\n", "")], "test_ledger_validator_pot"),
+ ("vparts: a list naming round 0 accepted", [(CL, "    function withdrawValidatorParts(address node, uint256[] calldata rounds) external {\n        _noRoundZero(rounds);\n", "    function withdrawValidatorParts(address node, uint256[] calldata rounds) external {\n")], "test_ledger_round_zero"),
+ ("vparts: validatorPartOf shows 0", [(CL, "        amount = _part(validatorPays[node][round].pot, holder, node, round);", "        amount = 0;")], "test_pay_split"),
+ ("abi: Claims drops validatorPartOf (compiler)", [(CL, "    /// 0 until `round`'s shares are minted: the pot is fixed by the mint.\n    function validatorPartOf(address holder, address node, uint256 round)\n        external\n        view\n        returns (uint256 amount, bool withdrawn)\n    {\n        amount = _part(validatorPays[node][round].pot, holder, node, round);\n        withdrawn = validatorPartWithdrawn[holder][node][round];\n    }\n", "")], "check"),
+ ("abi: extra public function on Claims", [(CL, "    // --- views ----", "    function validatorsAddress() external view returns (address) {\n        return address(validators);\n    }\n\n    // --- views ----")], "check"),
+ ("pay: the mint walks every opted-in node (R-23)", [
+    (S, "    uint64 private lastSeated;", "    uint64 private lastSeated;\n    address[] private everyOptedIn;"),
+    (S, "        nodes[node].optedIn = true;\n", "        nodes[node].optedIn = true;\n        everyOptedIn.push(node);\n"),
+    (S, "        address[N] memory m = _at(round);\n", "        address[N] memory m = _at(round);\n        for (uint256 q = 0; q < everyOptedIn.length; q++) {\n            if (everyOptedIn[q] == address(1)) revert();\n        }\n")], "test_mint_gas_does_not_grow"),
+ ("pay: the mint reads one slot per holder (R-23)", [
+    (SL, "    Point[] private totalPoints;", "    Point[] private totalPoints;\n    address[] private everyHolder;"),
+    (SL, "        if (!registry.isRegistered(node)) revert NOT_REGISTERED();\n        uint256 now_ = clock.currentRound();\n        _add(stayingPoints[msg.sender][node], now_, amount);", "        if (!registry.isRegistered(node)) revert NOT_REGISTERED();\n        uint256 now_ = clock.currentRound();\n        everyHolder.push(msg.sender);\n        _add(stayingPoints[msg.sender][node], now_, amount);"),
+    (SL, "        return _at(stakePoints[node], round);", "        for (uint256 q = 0; q < everyHolder.length; q++) {\n            if (everyHolder[q] == address(1)) revert();\n        }\n        return _at(stakePoints[node], round);")], "test_mint_gas_does_not_grow"),
 ]
 
 ROOT = pathlib.Path(__file__).resolve().parent

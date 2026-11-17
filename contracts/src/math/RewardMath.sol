@@ -2,8 +2,9 @@
 pragma solidity 0.8.30;
 
 /// The reward maths of rulebook `october-main-text-v2`: the emission
-/// ceiling (R-05), its three shares (R-07, R-10), a node's reward (R-08)
-/// and the split of a reward between a node and its holders (R-24).
+/// ceiling (R-05), its three shares (R-07, R-10), a node's reward (R-08), a
+/// validator's pay (R-14) and the split of a reward or a pay between a node
+/// and its holders (R-24).
 ///
 /// Every function is `pure`: it takes everything it needs as arguments, and
 /// the compiler refuses one that reads or changes state, so nothing here can
@@ -92,6 +93,17 @@ library RewardMath {
     function partOf(uint256 pot, uint256 bond, uint256 stake) internal pure returns (uint256) {
         if (stake == 0) return 0;
         return (pot * bond) / stake;
+    }
+
+    /// A member's validator pay, R-14: floor(c x 10,000 x stake / (10^6 x
+    /// totalStake)), with c the round's ceiling, stake the member's at the
+    /// start of the round and totalStake the sum over the round's members.
+    /// One division from c, so it is not the validator amount divided again.
+    /// With no stake among the members nobody is paid, and the whole
+    /// validator amount goes to the treasury (R-10).
+    function validatorPayOf(uint256 c, uint256 stake, uint256 totalStake) internal pure returns (uint256) {
+        if (totalStake == 0) return 0;
+        return (c * VALIDATOR_SHARE * stake) / (ONE * totalStake);
     }
 
     /// The validator amount of a round with ceiling c, R-10: floor(c x 10,000 / 10^6).
