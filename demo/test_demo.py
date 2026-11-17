@@ -4,15 +4,23 @@ The demo writes its run as a `ledger` case. These checks feed the case
 writer each frozen ledger case's own steps, with its expected figures as
 the "chain views", and require the frozen case back exactly: the same steps,
 the same figures, the same shape. So the case the demo writes says what the
-chain showed, in the form the calculator reads. They also check that the
+chain showed, in the form the calculator reads. They also check that each
 manifest the demo reads its flags from names every stand-in and gives the
-shared examples' ticket.
+shared examples' ticket, and that the node's programs start safely: nothing
+they read is rewritten after they start, and one that exits at startup is
+named with its log.
 """
 import copy
 import json
+import shutil
+import socket
+import tempfile
+import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
+import common
 import ledgercase
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -101,15 +109,45 @@ class CaseWriter(unittest.TestCase):
         self.assertEqual(ledgercase.differences(frozen["expected"], copy.deepcopy(frozen["expected"])), [])
 
 
+STAGE2_STAND_INS = (["local chain"], ["mockusdc"], ["--wei-per-usd 1000000"], ["2^256 - 2", "price + 1"],
+                    ["--max-ticket-ev", "--max-batch-ev", "micro-usdc"], ["50-block rounds"], ["tiny model"],
+                    ["no governance"], ["no buyback"])
+
+# S-05 phase 6: the stand-ins stage 3 adds. Each is its own entry, found by
+# the start of its name, with the words its value must hold. They are
+# checked entry by entry because the names overlap ("test LPT" is also in
+# the genesis supply's name).
+STAGE3_STAND_INS = {"test lpt": ["testlpt.sol", "only claims"],
+                    "genesis supply of 10,000,000 test lpt": ["outside every round's issuance"],
+                    "treasury address": ["nobody holds"],
+                    "scripted validators": ["programs/validators", "v1, v2 and v3"]}
+
+
 class Manifest(unittest.TestCase):
     def test_every_stand_in_is_named(self):
-        # S-09 section 6, phase 5: the stand-ins the manifest must name.
-        text = " ".join(f"{s['stand_in']} {s['value']}" for s in MANIFEST["stand_ins"]).lower()
-        for words in (["local chain"], ["mockusdc"], ["--wei-per-usd 1000000"], ["2^256 - 2", "price + 1"],
-                      ["--max-ticket-ev", "--max-batch-ev", "micro-usdc"], ["50-block rounds"], ["tiny model"],
-                      ["no governance"], ["no buyback"]):
-            for w in words:
-                self.assertIn(w, text)
+        # S-09 section 6, phase 5: the stand-ins the manifest must name, in
+        # stage 2's manifest and, as stage 3 keeps them, in stage 3's.
+        for manifest in (MANIFEST, MANIFEST3):
+            text = " ".join(f"{s['stand_in']} {s['value']}" for s in manifest["stand_ins"]).lower()
+            for words in STAGE2_STAND_INS:
+                for w in words:
+                    with self.subTest(manifest=manifest["testnet"], word=w):
+                        self.assertIn(w, text)
+
+    def test_every_stage_3_stand_in_is_named(self):
+        entries = [(s["stand_in"].lower(), s["value"].lower()) for s in MANIFEST3["stand_ins"]]
+        for name, words in STAGE3_STAND_INS.items():
+            with self.subTest(stand_in=name):
+                found = [value for n, value in entries if n.startswith(name)]
+                self.assertEqual(len(found), 1, f"no stand-in named {name!r} in stage-3-local.json")
+                for w in words:
+                    self.assertIn(w, found[0])
+
+    def test_the_genesis_supply_named_is_the_one_deployed(self):
+        named = next(s["stand_in"] for s in MANIFEST3["stand_ins"] if s["stand_in"].lower().startswith("genesis supply"))
+        supply = int(MANIFEST3["lpt"]["genesis_supply_wei"])
+        self.assertIn(f"{supply // 10**MANIFEST3['lpt']['decimals']:,}", named)
+        self.assertEqual(supply % 10**MANIFEST3["lpt"]["decimals"], 0)
 
     def test_the_manifest_gives_the_shared_examples_ticket(self):
         price = MANIFEST["price"]
@@ -120,6 +158,86 @@ class Manifest(unittest.TestCase):
         self.assertEqual(price["wei_per_usd"], "1000000")
         self.assertEqual(MANIFEST["chain"]["round_length_blocks"], int(VECTORS["parameters"]["round_length_blocks"]))
         self.assertEqual(MANIFEST["rulebook"], VECTORS["rulebook"])
+
+
+
+def free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+class Startup(unittest.TestCase):
+    """The node reads its chain URL from a file once, as it starts; an empty
+    file leaves the URL unset and it exits with 'on-chain payment requires
+    ...'. The demo once rewrote that file before starting each orchestrator,
+    so an orchestrator already starting could read it between the truncate
+    and the write: N and M exited, and the run failed at its first job."""
+
+    def setUp(self):
+        self.run_dir = Path(tempfile.mkdtemp())
+        (self.run_dir / "logs").mkdir()
+        self.addCleanup(shutil.rmtree, self.run_dir, True)
+        self.addCleanup(common.PROCS.clear)
+
+    def test_no_file_a_node_reads_is_written_after_it_starts(self):
+        events, waited = [], []
+        real_write = Path.write_text
+
+        def write_text(path, *args, **kwargs):
+            events.append(("write", str(path)))
+            return real_write(path, *args, **kwargs)
+
+        def start(name, argv, cwd=None):
+            events.append(("start", name, argv))
+
+        common.use("stage-3-local.json")
+        run = self.run_dir
+        with mock.patch.object(Path, "write_text", write_text), mock.patch.object(common, "RUN", run), \
+                mock.patch.object(common, "RPC_FILE", run / "rpc-url"), mock.patch.object(common, "start", start), \
+                mock.patch.object(common, "wait_up", lambda name, metrics: waited.append(name)), \
+                mock.patch.object(common, "block_number", lambda: 1), \
+                mock.patch.dict(common.C, {"Controller": "0x" + "11" * 20}):
+            common.start_chain()
+            for i, n in enumerate("NMK"):
+                common.start_orchestrator(f"orchestrator-{n}", n, run, run / "key", run / "pw", 100 + 2 * i, 101 + 2 * i)
+            common.start_signer("P", run, run / "key", run / "pw", 200, 201, [100, 102, 104])
+
+        read_by: dict[str, str] = {}
+        rewritten = []
+        for e in events:
+            if e[0] == "start":
+                for arg in e[2]:
+                    for part in arg.split("="):
+                        if part.startswith(str(run)):
+                            read_by.setdefault(part, e[1])
+            elif e[1] in read_by:
+                rewritten.append((e[1], read_by[e[1]]))
+        self.assertEqual(rewritten, [], "a file was written after a process that reads it started")
+        self.assertIn(str(run / "rpc-url"), read_by)
+        self.assertEqual((run / "rpc-url").read_text(), common.RPC)
+        self.assertEqual(waited, ["orchestrator-N", "orchestrator-M", "orchestrator-K", "signer-P"])
+
+    def wait_on(self, script: str, seconds: float = 60):
+        with mock.patch.object(common, "RUN", self.run_dir):
+            common.start("orchestrator-N", ["sh", "-c", script])
+            self.addCleanup(common.stop, "orchestrator-N")
+            with self.assertRaises(common.Failed) as e:
+                common.wait_up("orchestrator-N", free_port(), seconds)
+        return str(e.exception)
+
+    def test_a_node_that_exits_at_startup_is_named_with_its_log(self):
+        began = time.time()
+        said = self.wait_on("echo starting; echo 'on-chain payment requires --redeemer-db'; exit 1", seconds=30)
+        self.assertLess(time.time() - began, 10, "an exit is reported at once, not after the wait runs out")
+        self.assertIn("orchestrator-N exited with status 1 at startup", said)
+        self.assertIn("on-chain payment requires --redeemer-db", said)
+        self.assertIn(str(self.run_dir / "logs" / "orchestrator-N.log"), said)
+
+    def test_a_node_that_never_answers_is_named_with_its_log(self):
+        said = self.wait_on("echo still starting; exec sleep 30", seconds=1)
+        self.assertIn("orchestrator-N did not answer /healthz within 1 s", said)
+        self.assertIn("still starting", said)
 
 
 if __name__ == "__main__":

@@ -42,8 +42,10 @@ sha256) and the model server's image (pinned by digest). These are kept in
 
 It uses twelve local ports from 47700 (`LP2_DEMO_PORT_BASE=48000 ./dev demo`
 moves them) and stops everything it started when it ends, including on
-Ctrl-C. It never touches a public chain: everything runs on a local chain
-with throwaway keys made by the run.
+Ctrl-C. Two runs at once need separate checkouts as well as separate ports,
+since each run starts by clearing `.cache/demo/run/`. It never touches a
+public chain: everything runs on a local chain with throwaway keys made by
+the run.
 
 ### Stage 3: one reward cycle
 
@@ -66,14 +68,19 @@ with throwaway keys made by the run.
    both count from round 3, so round 2's stake is N 400, M 600, K 250.
 4. **The keeper stopped.** It is stopped while round 2 ends: the round
    lasts two round lengths, and its validator and treasury amounts cannot
-   be minted yet (`CLAIM_TOO_EARLY`). Then another account starts round 3,
-   as anyone may: round 2's amounts are due and nobody has minted them. Run
-   again, the keeper finds them unminted and mints them in full, so a
+   be minted yet (`CLAIM_TOO_EARLY`). Then another account, printed as
+   `Anyone` (a throwaway key that is neither a node nor a holder), starts
+   round 3, as anyone may: round 2's amounts are due and nobody has minted
+   them. Run again, the keeper finds them unminted and mints them in full, so a
    stopped keeper delays them and loses nothing; a second mint is refused
    (`ALREADY_CLAIMED`). From then on the keeper starts every round.
 5. **The validators** (`programs/validators`, run from
    `demo/validators.script`) opt in in round 3 and, as members from round 4,
    vote M 500,000 and K 0. Nobody votes on N, so it reads as 1,000,000.
+   Members are paid in test LPT: when a round's shares are minted, its
+   validator amount is split among that round's members by stake, and with
+   a 100 % cut V1 to V3 keep all of it. Rounds 1 to 3 have no members, so
+   their validator amounts go to the treasury.
 6. **Round 8.** N's claim for round 2 is refused as too early
    (`CLAIM_TOO_EARLY`), and M's claim for N as not M's (`NOT_AUTHORIZED`).
 7. **Round 9.** A rival's and a delegator's claims for N are refused
@@ -153,9 +160,12 @@ for example the 40 blocks before the node redeems a ticket.
 Each ends with `DEMO PASSED` and exit 0 when every figure is equal and every
 behaviour was seen, `DEMO FAILED` and exit 1 naming each figure or
 behaviour that was not, or `DEMO NOT RUN` and exit 2 when a tool, a
-download or a port was missing. The log, the contract addresses, each
-process's output and the case are in `.cache/demo/run/`; check the case
-again with `./calculator/check .cache/demo/run/ledger-case.json`.
+download or a port was missing. If a node's orchestrator or signer exits
+or does not answer as it starts, the run stops there, naming it, the last
+line it wrote and its log. The run's log (`demo.log`), the contract
+addresses, the case and, in `logs/`, one file of output for each process it
+started (`orchestrator-N.log`, `keeper.log`, ...) are in `.cache/demo/run/`;
+check the case again with `./calculator/check .cache/demo/run/ledger-case.json`.
 
 Every stand-in a demo uses (the local chain, mock USDC, the fixed price,
 every ticket winning, 50-block rounds, the tiny model, no governance and no

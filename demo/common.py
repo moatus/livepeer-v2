@@ -92,6 +92,29 @@ def start(name: str, argv: list[str], cwd: Path | None = None) -> None:
                                    stdin=subprocess.DEVNULL, start_new_session=True)
 
 
+def wait_up(name: str, metrics: int, seconds: float = 60) -> None:
+    """Wait until the node process `name` answers /healthz on its metrics
+    port. If it exits first or never answers, fail naming it, its log and
+    the log's last line, rather than at the first job sent to it."""
+    log = RUN / "logs" / f"{name}.log"
+    end = time.time() + seconds
+    while time.time() < end:
+        code = PROCS[name].poll()
+        if code is not None:
+            break
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{metrics}/healthz", timeout=2) as r:
+                if r.status == 200:
+                    return
+        except (urllib.error.URLError, ConnectionError, OSError):
+            pass
+        time.sleep(0.2)
+    lines = log.read_text(errors="replace").strip().splitlines() if log.is_file() else []
+    how = f"exited with status {code} at startup" if code is not None else f"did not answer /healthz within {seconds:.0f} s"
+    shown = log.relative_to(ROOT) if log.is_relative_to(ROOT) else log
+    raise Failed(f"{name} {how}: {lines[-1] if lines else '(its log is empty)'}; its log is {shown}")
+
+
 def stop(name: str) -> None:
     p = PROCS.pop(name, None)
     if p and p.poll() is None:
@@ -235,6 +258,7 @@ def start_chain() -> None:
     for _ in range(100):
         try:
             block_number()
+            RPC_FILE.write_text(RPC)
             return
         except (urllib.error.URLError, ConnectionError, OSError):
             time.sleep(0.1)
@@ -263,9 +287,8 @@ def start_orchestrator(name: str, node: str, node_bin: Path, keyfile: Path, pw: 
     """The unmodified node's orchestrator for `node`, serving the tiny model
     at the manifest's price."""
     price, chain = MANIFEST["price"], MANIFEST["chain"]
-    d, rpc_file = RUN / name, RUN / "rpc-url"
+    d = RUN / name
     d.mkdir()
-    rpc_file.write_text(RPC)
     (d / "runners.toml").write_text(f"""[[Runners]]
 ID = "llm"
 RunnerURL = "http://127.0.0.1:{PORT['model']}"
@@ -286,10 +309,11 @@ Unit = "{price['unit']}"
                  "--runner-config", str(d / "runners.toml"), "--runner-grants", "127.0.0.1",
                  "--health-grants", f"127.0.0.1:{PORT['model']}",
                  "--keystore-file", str(keyfile), "--keystore-password-file", str(pw),
-                 "--rpc-url-file", str(rpc_file), "--chain-id", str(chain["chain_id"]),
+                 "--rpc-url-file", str(RPC_FILE), "--chain-id", str(chain["chain_id"]),
                  "--controller-address", C["Controller"], "--redeemer-db", str(d / "payments.sqlite"),
                  "--wei-per-usd", price["wei_per_usd"], "--ticket-face-value", str(ticket_face()),
                  "--ticket-win-prob", price["ticket_win_prob"]], cwd=d)
+    wait_up(name, metrics)
 
 
 def start_signer(payer: str, node_bin: Path, keyfile: Path, pw: Path, port: int, metrics: int, orchs: list[int]) -> None:
@@ -300,12 +324,13 @@ def start_signer(payer: str, node_bin: Path, keyfile: Path, pw: Path, port: int,
     start(f"signer-{payer}", [str(node_bin / "livepeer-signer"), "--config=", "--network", "lp2-demo", "--data-dir", str(d),
                               "--listen", f"127.0.0.1:{port}", "--metrics-listen", f"127.0.0.1:{metrics}",
                               "--keystore-file", str(keyfile), "--keystore-password-file", str(pw),
-                              "--rpc-url-file", str(RUN / "rpc-url"), "--chain-id", str(chain["chain_id"]),
+                              "--rpc-url-file", str(RPC_FILE), "--chain-id", str(chain["chain_id"]),
                               "--controller-address", C["Controller"], "--wei-per-usd", price["wei_per_usd"],
                               "--max-hourly-price", lim["max_hourly_price_usd"], "--max-fixed-price", lim["max_fixed_price_usd"],
                               "--max-ticket-ev", lim["max_ticket_ev"], "--max-batch-ev", lim["max_batch_ev"],
                               "--orchestrators", ",".join(f"http://127.0.0.1:{p}" for p in orchs),
                               "--discovery-grants", ",".join(f"127.0.0.1:{p}" for p in orchs)], cwd=d)
+    wait_up(f"signer-{payer}", metrics)
 
 
 def ticket_face() -> int:
@@ -317,6 +342,10 @@ def ticket_face() -> int:
 # --- the chain ----------------------------------------------------------------
 
 RPC = f"http://127.0.0.1:{PORT['chain']}"
+# The chain's URL for the node's programs, which take it only from a file.
+# Written once, by start_chain: rewriting it while a node starts let the node
+# read it empty and exit (an empty file leaves the URL unset).
+RPC_FILE = RUN / "rpc-url"
 SELECTORS: dict[str, str] = {}
 
 
