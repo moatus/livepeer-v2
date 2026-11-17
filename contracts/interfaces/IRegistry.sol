@@ -35,7 +35,8 @@ interface IRegistry {
 /// not have it; S-05's phase 3 builds it into the Registry. StakeLedger,
 /// Claims and Scores read isRegistered, payoutOf and mayActFor at execution.
 interface IRegistryV2 is IRegistry {
-    /// Whether `caller` may act for `node`. Until stage 4: caller == node and
-    /// node is registered.
+    /// Whether `caller` may act for `node`. Until stage 4: caller == node. It
+    /// reads nothing about the node; whether `node` is registered is checked
+    /// after it (D-39).
     function mayActFor(address caller, address node) external view returns (bool);
 }

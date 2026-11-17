@@ -11,12 +11,14 @@ interface IClaims {
     /// round + 7 to round + 28. Reads the score source's scoreOf(node) and
     /// mints the node's cut to payoutOf(node), read now, and the pot to
     /// Claims. A score of 0 pays 0 and closes the entitlement. Refused, the
-    /// first that applies, with NOT_AUTHORIZED, CLAIM_TOO_EARLY,
+    /// first that applies, with NOT_AUTHORIZED, NO_SUCH_ROUND for round 0,
+    /// NOT_REGISTERED when `node` is not a registered node, CLAIM_TOO_EARLY,
     /// CLAIM_EXPIRED, ALREADY_CLAIMED or SCORE_OUT_OF_RANGE.
     function claim(address node, uint256 round) external;
 
     /// Transfers the caller's parts of `node`'s claims for `rounds` from
-    /// Claims to the caller. Refused with NOT_CLAIMED when a round is not
+    /// Claims to the caller. Refused with NO_SUCH_ROUND when the list names
+    /// round 0, whatever else it holds; with NOT_CLAIMED when a round is not
     /// claimed, and with ALREADY_CLAIMED when a round is withdrawn already
     /// or named twice; a refused list moves nothing.
     function withdrawParts(address node, uint256[] calldata rounds) external;
@@ -24,12 +26,14 @@ interface IClaims {
     /// Anyone, once `round` has ended, once. For each of membersAt(round),
     /// at most N: R-14's pay, its cut to payoutOf(member), read now, and its
     /// pot to Claims; the treasury amount and what the division leaves to
-    /// the treasury. Refused with CLAIM_TOO_EARLY before `round` has ended,
-    /// and with ALREADY_CLAIMED the second time.
+    /// the treasury. Refused with NO_SUCH_ROUND for round 0, with
+    /// CLAIM_TOO_EARLY before `round` has ended, and with ALREADY_CLAIMED
+    /// the second time.
     function mintRoundShares(uint256 round) external;
 
     /// Transfers the caller's parts of `node`'s validator pots for `rounds`
-    /// from Claims to the caller. Refused with NOT_CLAIMED when a round's
+    /// from Claims to the caller. Refused with NO_SUCH_ROUND when the list
+    /// names round 0, whatever else it holds; with NOT_CLAIMED when a round's
     /// shares are not minted, and with ALREADY_CLAIMED when a round is
     /// withdrawn already or named twice; a refused list moves nothing. A
     /// round in which `node` was no member withdraws as 0.
@@ -75,4 +79,6 @@ interface IClaims {
     error ALREADY_CLAIMED();
     error SCORE_OUT_OF_RANGE();
     error NOT_CLAIMED();
+    error NO_SUCH_ROUND();
+    error NOT_REGISTERED();
 }

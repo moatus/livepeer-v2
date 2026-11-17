@@ -60,9 +60,10 @@ contract Registry is IRegistryV2 {
     }
 
     /// Whether `caller` may act for `node` (S-09 section 3.2). Until stage 4
-    /// adds key rotation: the node itself, while registered. Read at
-    /// execution by every call that acts for a node.
-    function mayActFor(address caller, address node) external view returns (bool) {
-        return caller == node && registered[node];
+    /// adds key rotation: the node's own address. It reads nothing about the
+    /// node, so the caller that checks it gives NOT_REGISTERED itself, after
+    /// it (D-39). Read at execution by every call that acts for a node.
+    function mayActFor(address caller, address node) external pure returns (bool) {
+        return caller == node;
     }
 }

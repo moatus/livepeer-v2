@@ -107,8 +107,11 @@ contract StakeLedger is IStakeLedger {
         emit Unbonded(msg.sender, node, amount, now_ + UNBONDING_PERIOD);
     }
 
+    /// Who, then the node named, then the amount (D-39): NOT_REGISTERED,
+    /// SAME_NODE (D-38), AMOUNT_TOO_LARGE.
     function transferBond(address from, address to, uint256 amount) external {
         if (!registry.isRegistered(to)) revert NOT_REGISTERED();
+        if (from == to) revert SAME_NODE();
         uint256 now_ = clock.currentRound();
         Point[] storage staying = stayingPoints[msg.sender][from];
         if (amount > _at(staying, now_)) revert AMOUNT_TOO_LARGE();
@@ -125,6 +128,7 @@ contract StakeLedger is IStakeLedger {
     }
 
     function unbondTransfer(address from, address to, uint256 amount) external {
+        if (from == to) revert SAME_NODE();
         uint256 now_ = clock.currentRound();
         Point[] storage list = transfers[msg.sender][from][to];
         if (amount > _pending(list, now_)) revert AMOUNT_TOO_LARGE();
@@ -181,9 +185,11 @@ contract StakeLedger is IStakeLedger {
         emit UnbondedWithdrawn(msg.sender, ready);
     }
 
-    /// Authority is read from the Registry at execution.
+    /// Authority is read from the Registry at execution. Who, then the node
+    /// named, then the amount (D-39).
     function setRewardCut(address node, uint256 cut) external {
         if (!registry.mayActFor(msg.sender, node)) revert NOT_AUTHORIZED();
+        if (!registry.isRegistered(node)) revert NOT_REGISTERED();
         if (cut > MAX_CUT) revert CUT_OUT_OF_RANGE();
         uint256 from = clock.currentRound() + 1;
         // Every cut is written for the next round, so the last point is

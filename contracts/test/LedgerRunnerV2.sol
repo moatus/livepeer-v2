@@ -52,7 +52,7 @@ abstract contract LedgerRunnerV2 is LedgerRunner, Stage3 {
         if (eq(action, "claim")) return claimStep(s);
         if (eq(action, "withdraw_parts")) return withdrawStep(s);
         if (eq(action, "mint_shares")) return mintSharesStep(s);
-        if (eq(action, "withdraw_validator_parts")) revert("withdraw_validator_parts needs S-06 phase 4");
+        if (eq(action, "withdraw_validator_parts")) return withdrawValidatorStep(s);
         if (eq(action, "grant_lpt")) {
             // A transfer from the genesis supply, which the deployer holds.
             remember(holders, str(s, ".to"));
@@ -75,9 +75,11 @@ abstract contract LedgerRunnerV2 is LedgerRunner, Stage3 {
         } else if (eq(action, "withdraw_unbonded")) {
             refused = holderCall(s, abi.encodeCall(StakeLedger.withdrawUnbonded, ()));
         } else if (eq(action, "set_cut")) {
+            // `caller` sets `node`'s cut; with no `caller`, the node itself.
             address n = node(s, ".node");
+            address c = vm.keyExistsJson(vectors, string.concat(s, ".caller")) ? who(str(s, ".caller")) : n;
             refused =
-                as_(n, address(ledger), abi.encodeCall(StakeLedger.setRewardCut, (n, num(s, ".cut_millionths"))));
+                as_(c, address(ledger), abi.encodeCall(StakeLedger.setRewardCut, (n, num(s, ".cut_millionths"))));
         } else if (eq(action, "observe_stake")) {
             uint256 r = clock.currentRound();
             observed(s, ".stake_wei", ledger.stakeAt(node(s, ".node"), r), ".total_stake_wei", ledger.totalStakeAt(r));
@@ -130,6 +132,22 @@ abstract contract LedgerRunnerV2 is LedgerRunner, Stage3 {
         expectEq(held - lpt.balanceOf(address(claims)), gained, "withdrawal: Claims paid other than the holder gained");
         if (refused.length > 0) expectEq(gained, 0, "a refused withdrawal moved LPT");
         withdrawnTotal += gained;
+    }
+
+    /// `holder` withdraws its parts of `node`'s validator pots for `rounds`.
+    /// With no members until S-06's phase 4 there is no validator pot, so
+    /// nothing moves and the supply does not change, taken or refused.
+    function withdrawValidatorStep(string memory s) internal returns (bytes memory refused) {
+        address h = holder(s);
+        address n = node(s, ".node");
+        uint256 supply = lpt.totalSupply();
+        uint256 held = lpt.balanceOf(address(claims));
+        uint256 mine = lpt.balanceOf(h);
+        refused = as_(h, address(claims), abi.encodeCall(Claims.withdrawValidatorParts, (n, numList(s, ".rounds"))));
+        stepGas.push(vm.lastFrameGas().gasTotalUsed);
+        expectEq(lpt.totalSupply(), supply, "a validator withdrawal minted");
+        expectEq(lpt.balanceOf(address(claims)), held, "a validator withdrawal moved Claims' LPT");
+        expectEq(lpt.balanceOf(h), mine, "a validator withdrawal paid the holder");
     }
 
     /// `caller` mints `earned_round`'s validator and treasury amounts. With

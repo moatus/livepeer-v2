@@ -167,7 +167,7 @@ abstract contract Stage2 {
     /// The stable code a call was refused with: a custom error's name, or
     /// the kept revert text.
     function code(bytes memory ret) internal pure returns (string memory) {
-        string[17] memory codes = [
+        string[19] memory codes = [
             "NOT_REGISTERED",
             "TICKET_EXPIRED",
             "TICKET_USED",
@@ -184,7 +184,9 @@ abstract contract Stage2 {
             "CLAIM_EXPIRED",
             "ALREADY_CLAIMED",
             "SCORE_OUT_OF_RANGE",
-            "NOT_CLAIMED"
+            "NOT_CLAIMED",
+            "NO_SUCH_ROUND",
+            "SAME_NODE"
         ];
         if (ret.length == 4) {
             for (uint256 i = 0; i < codes.length; i++) {

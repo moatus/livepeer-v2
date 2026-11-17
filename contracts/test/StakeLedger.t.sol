@@ -37,7 +37,7 @@ contract StakeLedgerTest is LedgerRunnerV2 {
     /// Every v2 ledger case is run here or in Claims.t.sol, or waits for
     /// S-06's phase 4. A new case fails this until someone runs it.
     function test_every_v2_ledger_case_is_run_or_waits_for_s06() external view {
-        string[] memory ran = new string[](15);
+        string[] memory ran = new string[](18);
         ran[0] = "ledger-demo";
         ran[1] = "ledger-reserve";
         ran[2] = "ledger-partial";
@@ -52,9 +52,12 @@ contract StakeLedgerTest is LedgerRunnerV2 {
         ran[10] = "ledger-cycle";
         ran[11] = "ledger-window";
         ran[12] = "ledger-mint-order";
+        ran[13] = "ledger-round-zero";
+        ran[14] = "ledger-same-node";
+        ran[15] = "refusal-order";
         // They name validator members: S-06's phase 4 runs them.
-        ran[13] = "ledger-validator-pot";
-        ran[14] = "ledger-mid-round";
+        ran[16] = "ledger-validator-pot";
+        ran[17] = "ledger-mid-round";
         string memory missing = ledgerCasesNotIn(ran);
         require(bytes(missing).length == 0, string.concat("ledger case not run:", missing));
     }
@@ -154,14 +157,20 @@ contract StakeLedgerTest is LedgerRunnerV2 {
         address n = who("N");
         register("N");
         expectEq(ledger.cutAt(n, 1), 0, "default cut");
-        // Neither a holder nor an unregistered node may set N's cut, or its own.
+        // A holder may not set N's cut. An unregistered address setting its
+        // own is refused for the node it names, after who (D-39).
         expectRefused(
             as_(who("H"), address(ledger), abi.encodeCall(StakeLedger.setRewardCut, (n, 1))), "NOT_AUTHORIZED", "holder"
         );
         expectRefused(
             as_(who("X"), address(ledger), abi.encodeCall(StakeLedger.setRewardCut, (who("X"), 1))),
+            "NOT_REGISTERED",
+            "unregistered, its own"
+        );
+        expectRefused(
+            as_(who("H"), address(ledger), abi.encodeCall(StakeLedger.setRewardCut, (who("X"), 1))),
             "NOT_AUTHORIZED",
-            "unregistered"
+            "holder, for unregistered X"
         );
         expectRefused(
             as_(n, address(ledger), abi.encodeCall(StakeLedger.setRewardCut, (n, 1_000_001))),

@@ -74,8 +74,7 @@ PAIRS = [("Controller", "IController"), ("Registry", "IRegistryV2"), ("RoundCloc
 LATER = {
     # S-05 phase 4 builds Claims without the validator pot; S-06's phase 4
     # adds it.
-    "IClaims": {"withdrawValidatorParts", "validatorPayOf", "validatorPartOf",
-                "ValidatorPaid", "ValidatorPartsWithdrawn"},
+    "IClaims": {"validatorPayOf", "validatorPartOf", "ValidatorPaid"},
 }
 
 def params(ps):

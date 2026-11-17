@@ -299,6 +299,7 @@ contract StakeReplayTest is Stage3 {
     function transfer(uint256 h, uint256 from, uint256 to, uint256 amt) internal {
         bytes memory ret = call(h, abi.encodeCall(StakeLedger.transferBond, (nodeAt(from), nodeAt(to), amt)));
         if (to >= NODES) return refused(ret, "NOT_REGISTERED", "transfer");
+        if (to == from) return refused(ret, "SAME_NODE", "transfer");
         if (amt > (from < NODES ? staying[h][from] : 0)) return refused(ret, "AMOUNT_TOO_LARGE", "transfer");
         staying[h][from] -= amt;
         moves.push(Move(h, from, to, amt, clock.currentRound() + WAIT, false));
@@ -310,6 +311,7 @@ contract StakeReplayTest is Stage3 {
     /// `from`.
     function unbondTransfer(uint256 h, uint256 from, uint256 to, uint256 amt) internal {
         bytes memory ret = call(h, abi.encodeCall(StakeLedger.unbondTransfer, (nodeAt(from), nodeAt(to), amt)));
+        if (to == from) return refused(ret, "SAME_NODE", "unbond of a transfer");
         if (amt > inTransfer(h, from, to)) return refused(ret, "AMOUNT_TOO_LARGE", "unbond of a transfer");
         uint256 left = amt;
         uint256 pieces = 0;

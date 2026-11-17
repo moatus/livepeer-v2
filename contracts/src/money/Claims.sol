@@ -22,9 +22,13 @@ import {RewardMath} from "../math/RewardMath.sol";
 /// score from the score source at the claim; who may act for the node and
 /// its payout address from the Registry at execution.
 ///
-/// S-05 phase 4 builds IClaims less its validator-pot functions and events,
-/// which S-06's phase 4 adds: until then no round has validator members, so
-/// a round's whole validator amount goes to the treasury (R-10).
+/// S-05 phase 4 builds IClaims less its validator pots, which S-06's phase 4
+/// adds: until then no round has validator members, so a round's whole
+/// validator amount goes to the treasury (R-10), and every validator part
+/// withdraws as 0.
+///
+/// There is no round 0 (R-18): every call that names it is refused with
+/// NO_SUCH_ROUND, after who and before anything else (D-39, D-40).
 contract Claims {
     /// RewardDelay (R-12): round R is claimable from R + 7.
     uint256 private constant REWARD_DELAY = 7;
@@ -58,6 +62,9 @@ contract Claims {
     mapping(address => mapping(address => mapping(uint256 => bool))) private partWithdrawn;
     /// earning round => whether its validator and treasury amounts are minted.
     mapping(uint256 => bool) private minted;
+    /// holder => node => round => whether the holder has withdrawn its part
+    /// of the node's validator pot for that round.
+    mapping(address => mapping(address => mapping(uint256 => bool))) private validatorPartWithdrawn;
 
     constructor(
         ITestLPT lpt_,
@@ -85,9 +92,12 @@ contract Claims {
 
     // --- the node's claim (R-12, R-24) --------------------------------------
 
-    /// Refusals in D-26's order: who, then when, then once, then the score.
+    /// Refusals in the units section's order (D-26, D-39, D-40): who, then
+    /// the round and the node named, then when, then once, then the score.
     function claim(address node, uint256 round) external {
         if (!registry.mayActFor(msg.sender, node)) revert IClaims.NOT_AUTHORIZED();
+        if (round == 0) revert IClaims.NO_SUCH_ROUND();
+        if (!registry.isRegistered(node)) revert IClaims.NOT_REGISTERED();
         uint256 now_ = clock.currentRound();
         if (now_ < round || now_ - round < REWARD_DELAY) revert IClaims.CLAIM_TOO_EARLY();
         if (now_ - round > CLAIM_LAST) revert IClaims.CLAIM_EXPIRED();
@@ -98,8 +108,8 @@ contract Claims {
 
         // R-08 with the earning round's fees and stake, both fixed since it
         // ended, and its ceiling C(round - 1). A round with zero total fees
-        // or zero total stake pays its nodes 0 (round 0, which never ran,
-        // among them), and the claim closes at 0.
+        // or zero total stake pays its nodes 0, and the claim closes at 0.
+        // So does a node with no stake at the start of the round (R-24).
         uint256 paid = 0;
         uint256 totalFee = broker.totalFees(round);
         uint256 totalStake = ledger.totalStakeAt(round);
@@ -126,8 +136,10 @@ contract Claims {
 
     /// The caller's parts of `node`'s claims for `rounds`, transferred out of
     /// the pots held here. Any refusal reverts the whole list, so a refused
-    /// list moves nothing.
+    /// list moves nothing. A list naming round 0 is refused with
+    /// NO_SUCH_ROUND, whatever else it holds.
     function withdrawParts(address node, uint256[] calldata rounds) external {
+        _noRoundZero(rounds);
         uint256 amount = 0;
         for (uint256 i = 0; i < rounds.length; i++) {
             uint256 round = rounds[i];
@@ -145,9 +157,10 @@ contract Claims {
 
     /// Anyone, once `round` has ended, once. With no validator members until
     /// S-06's phase 4, the validator amount goes to the treasury with the
-    /// treasury amount. Round 0 never ran, so it never ends.
+    /// treasury amount.
     function mintRoundShares(uint256 round) external {
-        if (round == 0 || round >= clock.currentRound()) revert IClaims.CLAIM_TOO_EARLY();
+        if (round == 0) revert IClaims.NO_SUCH_ROUND();
+        if (round >= clock.currentRound()) revert IClaims.CLAIM_TOO_EARLY();
         if (minted[round]) revert IClaims.ALREADY_CLAIMED();
         minted[round] = true;
         uint256 c = RewardMath.ceiling(round - 1);
@@ -155,6 +168,23 @@ contract Claims {
         uint256 toTreasury = RewardMath.treasuryOf(c);
         emit IClaims.RoundSharesMinted(round, validators, toTreasury);
         lpt.mint(treasury, validators + toTreasury);
+    }
+
+    /// The caller's parts of `node`'s validator pots for `rounds`. Until
+    /// S-06's phase 4 seats members, no round has a validator pot, so each
+    /// part is 0; the refusals are those it will keep: NO_SUCH_ROUND for a
+    /// list naming round 0, whatever else it holds, NOT_CLAIMED for a round
+    /// whose shares are not minted, ALREADY_CLAIMED for a round withdrawn
+    /// already or named twice. A refused list moves nothing.
+    function withdrawValidatorParts(address node, uint256[] calldata rounds) external {
+        _noRoundZero(rounds);
+        for (uint256 i = 0; i < rounds.length; i++) {
+            uint256 round = rounds[i];
+            if (!minted[round]) revert IClaims.NOT_CLAIMED();
+            if (validatorPartWithdrawn[msg.sender][node][round]) revert IClaims.ALREADY_CLAIMED();
+            validatorPartWithdrawn[msg.sender][node][round] = true;
+        }
+        emit IClaims.ValidatorPartsWithdrawn(msg.sender, node, rounds, 0);
     }
 
     // --- views --------------------------------------------------------------
@@ -183,8 +213,16 @@ contract Claims {
         return minted[round];
     }
 
+    /// R-18: there is no round 0, and a list that names it is refused.
+    function _noRoundZero(uint256[] calldata rounds) private pure {
+        for (uint256 i = 0; i < rounds.length; i++) {
+            if (rounds[i] == 0) revert IClaims.NO_SUCH_ROUND();
+        }
+    }
+
     /// R-24: floor(pot x bond / S), with the holder's bond and the node's
     /// stake at the start of the earning round, so nothing done since moves it.
+    /// A node with no stake then has parts of 0, without the division.
     function _part(uint256 pot, address holder, address node, uint256 round) private view returns (uint256) {
         return RewardMath.partOf(pot, ledger.bondAt(holder, node, round), ledger.stakeAt(node, round));
     }

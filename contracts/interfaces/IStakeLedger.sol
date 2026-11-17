@@ -18,14 +18,15 @@ interface IStakeLedger {
 
     /// Moves `amount` of the caller's bond staying at `from` to `to`, where it
     /// counts 21 rounds on; it cannot be redirected. Refused with
-    /// NOT_REGISTERED when `to` is not a registered node, and with
-    /// AMOUNT_TOO_LARGE above the bond staying at `from`.
+    /// NOT_REGISTERED when `to` is not a registered node, with SAME_NODE
+    /// when `to` is `from`, and with AMOUNT_TOO_LARGE above the bond staying
+    /// at `from`, the first that applies; a refused transfer records nothing.
     function transferBond(address from, address to, uint256 amount) external;
 
     /// Unbonds stake the caller has in transfer from `from` to `to`, the
     /// transfer arriving last first. It stops counting for `from` next round
-    /// and never arrives. Refused with AMOUNT_TOO_LARGE above what is in
-    /// transfer.
+    /// and never arrives. Refused with SAME_NODE when `to` is `from`, and
+    /// with AMOUNT_TOO_LARGE above what is in transfer.
     function unbondTransfer(address from, address to, uint256 amount) external;
 
     /// Returns unbonded LPT that was counting for `node` and is not yet
@@ -38,9 +39,10 @@ interface IStakeLedger {
     /// UNBOND_NOT_READY when none is withdrawable.
     function withdrawUnbonded() external;
 
-    /// 0 to 10^6, counting from the next round. Refused with NOT_AUTHORIZED
-    /// unless the Registry's mayActFor(caller, node), and with
-    /// CUT_OUT_OF_RANGE above 10^6.
+    /// 0 to 10^6, counting from the next round. Refused, the first that
+    /// applies, with NOT_AUTHORIZED unless the Registry's mayActFor(caller,
+    /// node), with NOT_REGISTERED when `node` is not a registered node, and
+    /// with CUT_OUT_OF_RANGE above 10^6.
     function setRewardCut(address node, uint256 cut) external;
 
     /// At the start of `round`.
@@ -72,4 +74,5 @@ interface IStakeLedger {
     error AMOUNT_TOO_LARGE();
     error UNBOND_NOT_READY();
     error CUT_OUT_OF_RANGE();
+    error SAME_NODE();
 }

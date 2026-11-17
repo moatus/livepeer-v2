@@ -31,11 +31,13 @@ contract Stage2Test is Stage2 {
         require(registry.payoutOf(n) == n, "paid at its own address");
     }
 
-    /// S-09 3.2's one authority check, until stage 4: only the node itself,
-    /// and only once it is registered, may act for it; its payout may not.
-    function test_only_the_registered_node_may_act_for_itself() external {
+    /// S-09 3.2's one authority check, until stage 4: only the node's own
+    /// address may act for it; its payout may not. It reads nothing about
+    /// the node, so an address not yet registered may act for itself, and
+    /// the call it makes refuses it with NOT_REGISTERED after (D-39).
+    function test_only_the_node_itself_may_act_for_it() external {
         address n = who("N");
-        require(!registry.mayActFor(n, n), "not before it registers");
+        require(registry.mayActFor(n, n), "before it registers");
         register("N");
         require(setPayout("N", who("W")).length == 0, "payout set");
         require(registry.mayActFor(n, n), "the node itself");
