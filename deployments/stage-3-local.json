@@ -1,0 +1,164 @@
+{
+  "testnet": "stage-3-local",
+  "about": "What the stage 3 testnet contains and every stand-in it uses. It is deployed fresh on a local chain by ./dev demo at every run, so no address is fixed here: the demo prints the addresses of its run and writes them to .cache/demo/run/addresses.json. The demo reads the node, model, chain, flag and LPT values below from this file, so what runs is what this file says. Stage 2's testnet, stage-2-local.json, still runs with ./dev demo stage-2.",
+  "spec": "S-05",
+  "rulebook": "rulebook/october-main-text-v2.md",
+  "vectors": "vectors/october-main-text-v2.json",
+  "contracts": [
+    {
+      "contract": "Controller",
+      "source": "contracts/src/authority/Controller.sol",
+      "node_name": "the --controller-address"
+    },
+    {
+      "contract": "Registry",
+      "source": "contracts/src/authority/Registry.sol",
+      "node_name": "BondingManager"
+    },
+    {
+      "contract": "RoundClock",
+      "source": "contracts/src/clock/RoundClock.sol",
+      "node_name": "RoundsManager"
+    },
+    {
+      "contract": "Broker",
+      "source": "contracts/src/money/Broker.sol",
+      "node_name": "TicketBroker"
+    },
+    {
+      "contract": "MockUSDC",
+      "source": "contracts/src/money/MockUSDC.sol",
+      "node_name": "none"
+    },
+    {
+      "contract": "TestLPT",
+      "source": "contracts/src/money/TestLPT.sol",
+      "node_name": "none"
+    },
+    {
+      "contract": "StakeLedger",
+      "source": "contracts/src/money/StakeLedger.sol",
+      "node_name": "none"
+    },
+    {
+      "contract": "Scores",
+      "source": "contracts/src/scores/Scores.sol",
+      "node_name": "none: Claims reads it as both its score source and its validator set"
+    },
+    {
+      "contract": "Claims",
+      "source": "contracts/src/money/Claims.sol",
+      "node_name": "none"
+    }
+  ],
+  "node": {
+    "source": "https://github.com/livepeer/node",
+    "commit": "e2b331958a5704016310153a7d33b7a634758f38",
+    "changes": "none: the unmodified node, configured by flags alone",
+    "programs": [
+      "livepeer-orchestrator",
+      "livepeer-signer"
+    ]
+  },
+  "model": {
+    "name": "SmolLM2-135M-Instruct, Q8_0 GGUF",
+    "url": "https://huggingface.co/bartowski/SmolLM2-135M-Instruct-GGUF/resolve/09816acd5d99df7be770d85ea30822623dab342c/SmolLM2-135M-Instruct-Q8_0.gguf",
+    "sha256": "5a1395716f7913741cc51d98581b9b1228d80987a9f7d3664106742eb06bba83",
+    "server_image": "ghcr.io/ggml-org/llama.cpp@sha256:7751a6c0dc3d019c231d42678abbb0fac1a13a24c17c956109ed27533139f280"
+  },
+  "chain": {
+    "kind": "anvil, a local development chain",
+    "chain_id": 474747,
+    "block_time_seconds": 1,
+    "round_length_blocks": 50
+  },
+  "price": {
+    "job_price_usd": "0.999999",
+    "unit": "fixed",
+    "wei_per_usd": "1000000",
+    "ticket_win_prob": "115792089237316195423570985008687907853269984665640564039457584007913129639934",
+    "ticket_face": "the job price in micro-USDC plus 1: one ticket of 1 USDC a job"
+  },
+  "signer_limits": {
+    "max_ticket_ev": "2000000",
+    "max_batch_ev": "20000000",
+    "max_fixed_price_usd": "1",
+    "max_hourly_price_usd": "3600"
+  },
+  "lpt": {
+    "genesis_supply_wei": "10000000000000000000000000",
+    "decimals": 18
+  },
+  "stand_ins": [
+    {
+      "stand_in": "Local chain",
+      "for": "A public chain (D-14)",
+      "value": "anvil, chain id 474747, one block a second; every key is a throwaway key made by the run"
+    },
+    {
+      "stand_in": "MockUSDC",
+      "for": "USDC",
+      "value": "An ERC-20 with six decimals that anyone may mint (contracts/src/money/MockUSDC.sol)"
+    },
+    {
+      "stand_in": "Fixed rate --wei-per-usd 1000000",
+      "for": "A price feed",
+      "value": "The node prices in wei of the chain's native token. With 1,000,000 of its units to the dollar, one unit is one micro-USDC, so 1 USDC = 1 USD and the node's amounts are micro-USDC"
+    },
+    {
+      "stand_in": "Every ticket wins",
+      "for": "Probabilistic micropayments",
+      "value": "Win probability 2^256 - 2, the largest the node accepts, and a face of the job price + 1 micro-USDC (0.999999 USD = 999,999, so 1,000,000: one ticket of 1 USDC a job). Each job settles one ticket and overpays 1 micro-USDC (D-06)"
+    },
+    {
+      "stand_in": "The signer's ticket limits in micro-USDC",
+      "for": "Limits in wei of ETH",
+      "value": "--max-ticket-ev 2000000 and --max-batch-ev 20000000, read as micro-USDC because of the fixed rate above"
+    },
+    {
+      "stand_in": "50-block rounds",
+      "for": "The paper's round in time (p. 7)",
+      "value": "RoundLength = 50 blocks of the block number the node reads (R-18); a round lasts longer when nobody starts the next one"
+    },
+    {
+      "stand_in": "Tiny model",
+      "for": "Real AI work",
+      "value": "SmolLM2-135M-Instruct served by llama.cpp; its answers are not checked, and a settled ticket does not show the work was done"
+    },
+    {
+      "stand_in": "No governance",
+      "for": "Parameter changes under D-12",
+      "value": "No contract has an owner key; the Controller's names and every parameter are fixed at deployment"
+    },
+    {
+      "stand_in": "No buyback",
+      "for": "The buyback and burn of LPT (D-13, stage 4)",
+      "value": "The network half of each fee is held in the Broker (networkHeld) and nothing draws it; no LPT is bought or burned"
+    },
+    {
+      "stand_in": "Test LPT",
+      "for": "LPT",
+      "value": "An ERC-20 with 18 decimals (contracts/src/money/TestLPT.sol) that only Claims, fixed at deployment, may mint"
+    },
+    {
+      "stand_in": "Genesis supply of 10,000,000 test LPT",
+      "for": "Today's LPT supply",
+      "value": "Created once by the token's constructor for the deployer, outside every round's issuance (R-09); holders are given LPT from it by transfer (the ledger case's grant_lpt), never by a mint"
+    },
+    {
+      "stand_in": "Treasury address",
+      "for": "The treasury (R-10)",
+      "value": "An address the run makes up and whose key nobody holds, fixed in Claims at deployment; it receives each round's treasury amount and what the validator division leaves"
+    },
+    {
+      "stand_in": "Scripted validators",
+      "for": "Validators who judge work (R-11, R-13)",
+      "value": "V1, V2 and V3, registered nodes with 5,000, 3,000 and 2,000 test LPT bonded to themselves and a reward cut of 100 %, run by programs/validators from demo/validators.script: they opt in and vote what the script says, not what they judged. ValidatorSetSize is 3, for the paper's 33"
+    },
+    {
+      "stand_in": "Keeper",
+      "for": "Whoever starts rounds and mints each round's validator and treasury amounts",
+      "value": "lp2-keeper with a throwaway key; anyone may do either (R-10, R-18), so a stopped keeper delays them and loses nothing"
+    }
+  ]
+}
