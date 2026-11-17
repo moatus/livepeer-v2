@@ -101,6 +101,18 @@ def stop(name: str) -> None:
 
 
 def cleanup() -> None:
+    """Stop everything at once, then wait up to 10 s before killing what is left."""
+    for p in PROCS.values():
+        try:
+            os.killpg(p.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    end = time.time() + 10
+    for p in PROCS.values():
+        try:
+            p.wait(max(0.1, end - time.time()))
+        except subprocess.TimeoutExpired:
+            pass
     for name in list(PROCS):
         stop(name)
     for c in CONTAINERS:
@@ -967,7 +979,7 @@ Unit = "{price['unit']}"
     done = subprocess.run([str(ROOT / "calculator" / "check"), str(out)], capture_output=True, text=True)
     say(f"  wrote {out.relative_to(ROOT)}: {len(the_case['inputs']['steps'])} steps, as sent and as the chain shows them")
     for line in done.stdout.strip().splitlines()[-2:]:
-        say(f"  ./calculator/check {out.relative_to(ROOT)}: {line}")
+        say(f"  ./calculator/check {out.relative_to(ROOT)}: {line[:150]}{' ...' if len(line) > 150 else ''}")
     check("the calculator reproduces the run's case", done.returncode, 0)
 
     say(f"\nTook {time.time() - started:.0f} s. Logs, addresses and the case are in {RUN.relative_to(ROOT)}/.")
@@ -1007,5 +1019,6 @@ if __name__ == "__main__":
         say("DEMO interrupted")
         code = 2
     finally:
+        signal.signal(signal.SIGINT, signal.SIG_IGN)  # a second Ctrl-C must not stop the cleanup
         cleanup()
     sys.exit(code)
