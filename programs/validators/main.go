@@ -14,7 +14,9 @@
 // when it starts is done at once, late: a vote stands until replaced and
 // opting in again changes nothing, so running a script again from the top
 // leaves the same votes standing. A refused line is logged with its code
-// and not tried again.
+// and the block it was asked at, "refused CODE at block N", and not tried
+// again: nothing is sent, and the answer holds after every transaction of
+// that block.
 package main
 
 import (
@@ -229,13 +231,13 @@ func act(ctx context.Context, s *chain.Session, scores common.Address, names map
 	if l.round < current {
 		late = fmt.Sprintf(" (late: scripted for round %d)", l.round)
 	}
-	code, err := s.Try(ctx, scores, method, args...)
+	code, block, err := s.TryAt(ctx, scores, method, args...)
 	if err != nil {
 		log.Printf("round %d line %d: %s: %v", current, l.number, what, err)
 		return
 	}
 	if code != "" {
-		log.Printf("round %d line %d: %s: refused %s%s", current, l.number, what, code, late)
+		log.Printf("round %d line %d: %s: refused %s at block %d%s", current, l.number, what, code, block, late)
 		return
 	}
 	r, err := s.Send(ctx, scores, method, args...)

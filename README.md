@@ -38,34 +38,38 @@ older. `./dev doctor` checks all but Docker. The first run also
 needs the internet: it fetches the node's pinned commit from GitHub and
 builds it, its Go modules, the tiny model (about 145 MB, checked against its
 sha256) and the model server's image (pinned by digest). These are kept in
-`.cache/demo/`, so later runs start at once. A run takes about two and a half minutes.
+`.cache/demo/`, so later runs start at once. A run takes about three minutes.
 
-It uses twelve local ports from 47700 (`LP2_DEMO_PORT_BASE=48000 ./dev demo`
+It uses fourteen local ports from 47700 (`LP2_DEMO_PORT_BASE=48000 ./dev demo`
 moves them) and stops everything it started when it ends, including on
 Ctrl-C. Two runs at once need separate checkouts as well as separate ports,
 since each run starts by clearing `.cache/demo/run/`. It never touches a
 public chain: everything runs on a local chain with throwaway keys made by
 the run.
 
-### Stage 3: one reward cycle
+### Stage 3: one reward cycle and the scripted validators
 
 `./dev demo` runs one full reward cycle, the one the shared example
-`ledger-cycle` describes. What it does, in this order, printing each step:
+`ledger-cycle` describes, and around it the validator set and its pay. What
+it does, in this order, printing each step:
 
 1. Starts a fresh local chain and deploys the nine contracts, with a
    genesis supply of 10,000,000 test LPT held by the deployer. It starts
-   the tiny model, the node's orchestrator for each of three nodes, N, M
-   and K, and a signer for the payer P.
-2. **Round 1.** N, M and K register; N pays to its wallet W and takes a
+   the tiny model, the node's orchestrator for each of four nodes, N, M, K
+   and L, and a signer for the payer P.
+2. **Round 1.** N, M, K and L register; N pays to its wallet W and takes a
    20 % reward cut. Four holders are given test LPT and bond it: O 100 and
    D 300 to N, E 600 to M, F 250 to K. P deposits 5 USDC and sets 1 USDC
-   aside for each node. Three scripted validators, V1 to V3, register. The
+   aside for each node. Four scripted validators, V1 to V4, register. The
    keeper starts round 2 and mints round 1's validator and treasury
    amounts.
 3. **Round 2.** Five paid relays of 1 USDC each, three for N and one each
    for M and K, which the nodes redeem in round 2. O bonds a further 100
-   to N, and the validators bond 5,000, 3,000 and 2,000 to themselves;
-   both count from round 3, so round 2's stake is N 400, M 600, K 250.
+   to N. V1 bonds 1,000 to itself and a holder, H, 4,000 to V1, which takes
+   a 10 % reward cut; V2, V3 and V4 bond 3,000, 2,000 and 6,000 to
+   themselves (cut 0), and L 1,000 (cut 100 %). All of it counts from round
+   3, so round 2's stake is N 400, M 600, K 250 and its figures are
+   `ledger-cycle`'s.
 4. **The keeper stopped.** It is stopped while round 2 ends: the round
    lasts two round lengths, and its validator and treasury amounts cannot
    be minted yet (`CLAIM_TOO_EARLY`). Then another account, printed as
@@ -74,17 +78,30 @@ the run.
    them. Run again, the keeper finds them unminted and mints them in full, so a
    stopped keeper delays them and loses nothing; a second mint is refused
    (`ALREADY_CLAIMED`). From then on the keeper starts every round.
-5. **The validators** (`programs/validators`, run from
-   `demo/validators.script`) opt in in round 3 and, as members from round 4,
-   vote M 500,000 and K 0. Nobody votes on N, so it reads as 1,000,000.
-   Members are paid in test LPT: when a round's shares are minted, its
-   validator amount is split among that round's members by stake, and with
-   a 100 % cut V1 to V3 keep all of it. Rounds 1 to 3 have no members, so
-   their validator amounts go to the treasury.
-6. **Round 8.** N's claim for round 2 is refused as too early
+5. **Round 3.** The validators (`programs/validators`, run from
+   `demo/validators.script`) V1, V2 and V3 opt in and are members from
+   round 4.
+6. **Round 4.** V1 and V2 vote M 500,000 and K 0, and V1 alone votes L 0.
+   Nobody votes on N. V4 opts in: there are only three seats
+   (ValidatorSetSize 3, for the paper's 33), and with 6,000 LPT it takes
+   the seat of V3, the smallest member, from round 5. Its vote in round 4
+   is refused (`NOT_VALIDATOR`): a node votes only in a round it is a
+   member of. P deposits 1 USDC more, and L serves one paid relay. The
+   keeper is stopped meanwhile, so that round 4 lasts until L's node
+   redeems the ticket, 41 blocks after the relay.
+7. **Round 5.** Round 4's validator amount is divided among V1, V2 and V3
+   by their stake, 5,000, 3,000 and 2,000; what the division leaves goes
+   to the treasury. V1's 10 % cut goes to its payout address and the rest,
+   its pot, to Claims, from which V1 withdraws its part and H its part,
+   four fifths; H's second withdrawal is refused (`ALREADY_CLAIMED`). V2
+   and V3 leave their pay in Claims for themselves to withdraw. Every
+   later round pays V1, V2 and V4 the same way.
+8. **Round 8.** N's claim for round 2 is refused as too early
    (`CLAIM_TOO_EARLY`), and M's claim for N as not M's (`NOT_AUTHORIZED`).
-7. **Round 9.** A rival's and a delegator's claims for N are refused
-   (`NOT_AUTHORIZED`). N claims at score 1,000,000: W receives the cut,
+9. **Round 9.** A rival's and a delegator's claims for N are refused
+   (`NOT_AUTHORIZED`). Each claim is paid at the median of the members'
+   votes read at the claim, a member that has not voted counting as
+   1,000,000. N claims at 1,000,000: W receives the cut,
    60.110377935333104693 LPT, and Claims the pot, 240.441511741332418772,
    from which O and D withdraw their parts, 60.110377935333104693 and
    180.331133805999314079. N's second claim and D's second withdrawal are
@@ -92,26 +109,44 @@ the run.
    LPT goes to Claims as E's part, and as much again is never minted. K
    claims at 0, is paid 0 and its entitlement closes. F starts to move 100
    LPT from K to M, which would arrive in round 30.
-8. **Rounds 10 to 12.** F unbonds 40 of the move before it arrives, then
-   rebonds the 40: to M it is refused (`AMOUNT_TOO_LARGE`), to K it is
-   taken. K's stake reads 250, 210 and 250 LPT in rounds 10, 11 and 12.
-9. Prints every balance read from the chain beside the calculator's figure
-   for the same steps: the USDC of every wallet, the test LPT of every
-   address the run names, Claims (still holding E's part) and StakeLedger
-   among them, each round's validator and treasury amounts, the LPT minted
-   for each round (454.424865109532845983 for round 2) and in all, every
-   stake shown and every refusal. It checks them against the stage's
-   worked figures, and prints the 544.750300038956261284 LPT never minted
-   for round 2.
-10. Writes the whole run as a `ledger` case, built from what the demo sent,
-    what the keeper sent and what the chain's views show, and runs
-    `./calculator/check` on it.
+10. **Rounds 10 to 12.** F unbonds 40 of the move before it arrives, then
+    rebonds the 40: to M it is refused (`AMOUNT_TOO_LARGE`), to K it is
+    taken. K's stake reads 250, 210 and 250 LPT in rounds 10, 11 and 12. In
+    round 11 L claims its round 4 reward at 1,000,000: one vote of 0 cannot
+    cut a node.
+11. Prints every balance read from the chain beside the calculator's figure
+    for the same steps: the USDC of every wallet, the test LPT of every
+    address the run names, Claims and StakeLedger among them, each round's
+    validator and treasury amounts, the LPT minted for each round
+    (454.424865109532845983 for round 2) and in all, every stake shown and
+    every refusal. It checks them against `ledger-cycle`'s worked figures,
+    and prints the 544.750300038956261284 LPT never minted for round 2.
+    Claims holds `ledger-cycle`'s figure, E's part, plus the validator pots
+    not yet withdrawn, and the run checks exactly that.
+12. **What the validators show** (the stage's section on validators):
+    beside the calculator's figure, the four claims, each with the votes
+    cast on the node, the median read at the claim and what it was paid:
+    N with no votes, M with two of 500,000, L with V1's one 0, K with two
+    0s; the members of round 4 (V1, V2, V3) and of round 5 (V1, V2, V4);
+    and round 4's validator mint: each member's pay, V1's cut and pot, the
+    part of it V1 and H each withdrew, and the dust left in Claims.
+13. Writes the whole run as three files of cases, each built from what was
+    sent and what the chain's views show, and runs `./calculator/check` on
+    each: `ledger-case.json`, the run as a `ledger` case;
+    `validators-case.json`, every opt-in and vote the validators sent, the
+    refused one included, with each validator's stake in every round, and
+    what each claim read; and `validator-pay-cases.json`, one
+    `validator-pay` case for each round whose shares were minted.
 
 The node, the keeper, `lp2-fund`, `lp2-stake` (which sends the bonds,
 claims, withdrawals, transfers, unbonds and rebonds with each person's
 throwaway key) and the scripted validators are the only things that send
 transactions; the demo itself only registers nodes, gives out test LPT and
 mines empty blocks where it would otherwise wait for the chain.
+
+What it does not show: a validator's score is the script's choice, not a
+judgment of work, and the set changes only when someone calls Scores (here
+an opt-in), not whenever stake moves.
 
 ### Stage 2: paid jobs with no stake
 
@@ -163,14 +198,16 @@ behaviour that was not, or `DEMO NOT RUN` and exit 2 when a tool, a
 download or a port was missing. If a node's orchestrator or signer exits
 or does not answer as it starts, the run stops there, naming it, the last
 line it wrote and its log. The run's log (`demo.log`), the contract
-addresses, the case and, in `logs/`, one file of output for each process it
-started (`orchestrator-N.log`, `keeper.log`, ...) are in `.cache/demo/run/`;
-check the case again with `./calculator/check .cache/demo/run/ledger-case.json`.
+addresses, the cases and, in `logs/`, one file of output for each process it
+started (`orchestrator-N.log`, `keeper.log`, `validators.log`, ...) are in
+`.cache/demo/run/`; check a case file again with, for example,
+`./calculator/check .cache/demo/run/validators-case.json`.
 
 Every stand-in a demo uses (the local chain, mock USDC, the fixed price,
 every ticket winning, 50-block rounds, the tiny model, no governance and no
 buyback, and from stage 3 test LPT and its genesis supply, the treasury
-address, the scripted validators and the keeper) is named in its manifest,
+address, the scripted validators, three validator seats for the paper's 33
+and the keeper) is named in its manifest,
 `deployments/stage-3-local.json` or `deployments/stage-2-local.json`, which
 it reads its settings from.
 

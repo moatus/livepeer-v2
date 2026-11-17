@@ -160,7 +160,8 @@ def sh(argv: list[str], cwd: Path | None = None, check: bool = True, env: dict |
 BASE = int(os.environ.get("LP2_DEMO_PORT_BASE", "47700"))
 PORT = {"chain": BASE, "orch": BASE + 1, "orch_metrics": BASE + 2, "signer_p": BASE + 3,
         "signer_p_metrics": BASE + 4, "signer_p2": BASE + 5, "signer_p2_metrics": BASE + 6, "model": BASE + 7,
-        "orch_m": BASE + 8, "orch_m_metrics": BASE + 9, "orch_k": BASE + 10, "orch_k_metrics": BASE + 11}
+        "orch_m": BASE + 8, "orch_m_metrics": BASE + 9, "orch_k": BASE + 10, "orch_k_metrics": BASE + 11,
+        "orch_l": BASE + 12, "orch_l_metrics": BASE + 13}
 
 
 def preflight(ports: list[str]) -> None:

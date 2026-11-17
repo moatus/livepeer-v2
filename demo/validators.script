@@ -1,11 +1,13 @@
-# The scripted validators of the stage 3 demo (S-05 section 1), run by
-# programs/validators. Each line is one act in one on-chain round:
+# The scripted validators of the stage 3 demo (S-05 and S-06 section 1), run
+# by programs/validators. Each line is one act in one on-chain round:
 #   round validator target score   the validator votes score on target
 #   round validator opt-in         the validator opts itself in
-# V1 to V3 bond in round 2, so they have stake at the start of round 3 and
-# are seated from round 4 when they opt in. Their votes stand until replaced,
-# so the claims of round 9 read them: M 500,000 (V1 and V2 vote 500,000, V3
-# not at all), K 0 (V1 and V2 vote 0), N 1,000,000 (nobody votes on it).
+# V1 to V4 have stake from round 3: V1 5,000 LPT (1,000 its own, 4,000 H's),
+# V2 3,000, V3 2,000 and V4 6,000. V1 to V3 opt in in round 3 and are
+# members from round 4. Their votes stand until replaced, so the claims read
+# them: N 1,000,000 (nobody votes on it), M 500,000 (V1 and V2 vote 500,000),
+# L 1,000,000 (V1 alone votes 0: one vote cannot cut a node) and K 0 (V1 and
+# V2 vote 0).
 3 V1 opt-in
 3 V2 opt-in
 3 V3 opt-in
@@ -13,3 +15,9 @@
 4 V2 M 500000
 4 V1 K 0
 4 V2 K 0
+4 V1 L 0
+# V4 opts in in round 4 and takes the seat of V3, the smallest member, from
+# round 5 (ValidatorSetSize is 3). Its vote in round 4 is refused
+# NOT_VALIDATOR: it is not a member of round 4.
+4 V4 opt-in
+4 V4 K 0

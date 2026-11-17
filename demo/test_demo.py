@@ -22,6 +22,7 @@ from unittest import mock
 
 import common
 import ledgercase
+import validatorcases
 
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = json.loads((ROOT / "deployments" / "stage-2-local.json").read_text())
@@ -30,6 +31,8 @@ LEDGER = [c for c in VECTORS["cases"] if c["kind"] == "ledger"]
 MANIFEST3 = json.loads((ROOT / "deployments" / "stage-3-local.json").read_text())
 VECTORS3 = json.loads((ROOT / MANIFEST3["vectors"]).read_text())
 LEDGER3 = [c for c in VECTORS3["cases"] if c["kind"] == "ledger"]
+VALIDATORS3 = [c for c in VECTORS3["cases"] if c["kind"] == "validators"]
+PAY3 = [c for c in VECTORS3["cases"] if c["kind"] == "validator-pay"]
 
 
 def records_and_views(case):
@@ -109,6 +112,67 @@ class CaseWriter(unittest.TestCase):
         self.assertEqual(ledgercase.differences(frozen["expected"], copy.deepcopy(frozen["expected"])), [])
 
 
+def validators_records(case):
+    """A run that sent exactly the case's steps, one block each, whose
+    observe steps were shown the case's figures, and whose stake views read
+    the case's stakes in every round."""
+    shown = {o["step"]: (o["members"], int(o["score"])) for o in case["expected"]["observed"]}
+    refused = {r["step"]: r["code"] for r in case["expected"]["refused"]}
+    records = []
+    for seq, s in enumerate(reversed(case["inputs"]["steps"])):  # arrival order must not matter
+        r = {"fields": {k: v for k, v in s.items() if k not in ("step", "round")}, "block": int(s["step"]),
+             "round": int(s["round"]), "seq": seq, "index": None if s["action"] == "observe" else 0}
+        if s["step"] in shown:
+            r["shown"] = shown[s["step"]]
+        if s["step"] in refused:
+            r["code"] = refused[s["step"]]
+        records.append(r)
+    entries = case["inputs"]["stakes"]
+    stakes, now = {}, {}
+    for r in range(int(entries[0]["from_round"]), max(int(s["round"]) for s in case["inputs"]["steps"]) + 1):
+        for e in entries:
+            if int(e["from_round"]) == r:
+                now.update({n: int(v) for n, v in e["stake_wei"].items()})
+        stakes[r] = dict(now)
+    return records, stakes
+
+
+class ValidatorCaseWriter(unittest.TestCase):
+    """S-06 phase 5: the demo writes its run as `validators` and
+    `validator-pay` cases. Fed each frozen case's own steps and figures as
+    the chain's, the writers must give the frozen case back exactly."""
+
+    def test_every_frozen_validators_case_is_written_back_exactly(self):
+        self.assertEqual(len(VALIDATORS3), 9)
+        for frozen in VALIDATORS3:
+            with self.subTest(case=frozen["id"]):
+                records, stakes = validators_records(frozen)
+                written = validatorcases.validators_case(frozen["id"], ledgercase.order(records), stakes,
+                                                         frozen["inputs"].get("unregistered"))
+                self.assertEqual(json.dumps(written, sort_keys=True), json.dumps(frozen, sort_keys=True))
+
+    def test_every_frozen_validator_pay_case_is_written_back_exactly(self):
+        self.assertEqual(len(PAY3), 7)
+        for frozen in PAY3:
+            with self.subTest(case=frozen["id"]):
+                i, e = frozen["inputs"], frozen["expected"]
+                members = [(m["node"], int(m["stake_wei"])) for m in i["members"]]
+                splits = {n: (int(s["cut_millionths"]), {h: int(b) for h, b in s["bonds_wei"].items()})
+                          for n, s in i.get("splits", {}).items()}
+                shown = {n: (int(s["cut_wei"]), int(s["pot_wei"]), {h: int(p) for h, p in s["parts_wei"].items()})
+                         for n, s in e.get("splits", {}).items()}
+                written = validatorcases.validator_pay_case(
+                    frozen["id"], int(i["round"]) + 1, members, splits,
+                    {n: int(v) for n, v in e["paid_wei"].items()}, int(e["to_treasury_wei"]), shown)
+                self.assertEqual(json.dumps(written, sort_keys=True), json.dumps(frozen, sort_keys=True))
+
+    def test_a_stake_is_named_again_only_when_it_changes(self):
+        got = validatorcases.stake_entries({3: {"V1": 5, "V2": 0}, 4: {"V1": 5, "V2": 0}, 5: {"V1": 5, "V2": 3, "V4": 6},
+                                            6: {"V1": 5, "V2": 3, "V4": 6}})
+        self.assertEqual(got, [{"from_round": "3", "stake_wei": {"V1": "5", "V2": "0"}},
+                               {"from_round": "5", "stake_wei": {"V2": "3", "V4": "6"}}])
+
+
 STAGE2_STAND_INS = (["local chain"], ["mockusdc"], ["--wei-per-usd 1000000"], ["2^256 - 2", "price + 1"],
                     ["--max-ticket-ev", "--max-batch-ev", "micro-usdc"], ["50-block rounds"], ["tiny model"],
                     ["no governance"], ["no buyback"])
@@ -120,7 +184,9 @@ STAGE2_STAND_INS = (["local chain"], ["mockusdc"], ["--wei-per-usd 1000000"], ["
 STAGE3_STAND_INS = {"test lpt": ["testlpt.sol", "only claims"],
                     "genesis supply of 10,000,000 test lpt": ["outside every round's issuance"],
                     "treasury address": ["nobody holds"],
-                    "scripted validators": ["programs/validators", "v1, v2 and v3"]}
+                    "scripted validators": ["programs/validators", "v1, v2 and v3", "and v4 with 6,000", "holder h"],
+                    # S-06 phase 5: N = 3 is named as its own stand-in.
+                    "validatorsetsize 3": ["at most 3"]}
 
 
 class Manifest(unittest.TestCase):
