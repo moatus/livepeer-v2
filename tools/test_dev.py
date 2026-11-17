@@ -135,13 +135,14 @@ class Verify(Fixture):
 
 
 class Review(Fixture):
-    def test_a_rule_change_is_a_freeze_change_for_the_owner(self):
+    def test_a_rule_change_is_a_freeze_change_that_needs_a_ruling(self):
         self.add("rulebook/R-03.md", "# R-03 Emission\n")
         self.commit("Add R-03, closing D-03\n\nNeeds-owner: Confirm emission follows the main text, not the page 7 diagram.")
         code, out = self.dev("review", "--base", "HEAD~1")
         self.assertEqual(code, 0, out)
         self.assertIn("**Freeze change.**", out)
-        self.assertIn("OWNER REVIEW REQUIRED", out)
+        self.assertIn("COUNCIL RULING NEEDED", out)
+        self.assertNotIn("OWNER REVIEW REQUIRED", out)
         self.assertIn("D-03, R-03", out)
         self.assertIn("1. Confirm emission follows the main text", out)
         self.assertIn("`rulebook/R-03.md` (new, +1 / -0)", out)
@@ -155,25 +156,25 @@ class Review(Fixture):
         self.assertEqual(code, 0, out)
         self.assertIn("Decided by council ruling D-03. The owner keeps or changes it later.", out)
         self.assertIn("**Routing: council ruling D-03, then agent review.**", out)
-        self.assertNotIn("OWNER REVIEW REQUIRED", out)
+        self.assertNotIn("COUNCIL RULING NEEDED", out)
         self.assertIn("Nothing now.", out)
         self.assertIn("Not waiting for you: council ruling D-03 decided the change to rules.", out)
 
-    def test_a_rule_change_naming_no_council_ruling_is_the_owners(self):
+    def test_a_rule_change_naming_no_council_ruling_waits_for_one(self):
         self.add("rulebook/R-03.md", "# R-03 Emission\n")
         self.commit("Add R-03")
         _, out = self.dev("review", "--base", "HEAD~1")
-        self.assertIn("OWNER REVIEW REQUIRED** (rules (no council ruling named by the commits))", out)
-        self.assertIn("This is where the owner decides.", out)
+        self.assertIn("COUNCIL RULING NEEDED** (rules: no council ruling named by the commits)", out)
+        self.assertIn("It needs a council ruling before it lands.", out)
 
-    def test_a_council_ruling_with_no_record_is_the_owners(self):
+    def test_a_council_ruling_with_no_record_waits_for_one(self):
         self.add("rulebook/R-03.md", "# R-03 Emission\n")
         self.commit("Add R-03\n\nCouncil: D-03")
         _, out = self.dev("review", "--base", "HEAD~1")
-        self.assertIn("OWNER REVIEW REQUIRED** (rules (no council record found for D-03))", out)
-        self.assertIn("It waits for you because there is no council record found for D-03.", out)
+        self.assertIn("COUNCIL RULING NEEDED** (rules: no council record found for D-03)", out)
+        self.assertIn("It waits for a council ruling, not for you: there is no council record found for D-03.", out)
 
-    def test_a_council_ruling_does_not_cover_an_owner_seam_in_the_same_change(self):
+    def test_an_owner_seam_is_reported_and_does_not_wait(self):
         (self.research / "council").mkdir()
         (self.research / "council" / "D-03.md").write_text("# D-03\n")
         self.add("rulebook/R-03.md", "# R-03 Emission\n")
@@ -181,9 +182,10 @@ class Review(Fixture):
         self.add("contracts/interfaces/IEmission.sol", "interface IEmission {\n  function emission(uint256 round) external view returns (uint256);\n}\n")
         self.commit("Add R-03 and its interface\n\nCouncil: D-03")
         _, out = self.dev("review", "--base", "HEAD~1")
-        self.assertIn("OWNER REVIEW REQUIRED** (interfaces)", out)
-        self.assertIn("This is where the owner decides.", out)
-        self.assertIn("Confirm the change to **interfaces**", out)
+        self.assertIn("agent review, then reported to the owner** (interfaces)", out)
+        self.assertIn("It does not wait for the owner", out)
+        self.assertIn("The owner reads it afterwards and keeps or changes it.", out)
+        self.assertIn("The change to **interfaces**", out)
 
     def test_calculator_work_needs_no_owner(self):
         self.add("calculator/check", PASS, executable=True)
@@ -196,15 +198,15 @@ class Review(Fixture):
         self.assertIn("Nothing. No owner-routed seam changed", out)
         self.assertIn("Routing: agent review only", out)
 
-    def test_a_named_decision_routes_to_the_owner_even_on_agent_seams(self):
+    def test_a_named_decision_is_reported_to_the_owner_even_on_agent_seams(self):
         self.add("calculator/check", PASS, executable=True)
         self.add("calculator/calc.py", "print(1)\n")
         self.commit("Round down\n\nNeeds-owner: Confirm dust is left unminted (D-07).")
         _, out = self.dev("review", "--base", "HEAD~1")
-        self.assertIn("OWNER REVIEW REQUIRED** (a decision named by the commits)", out)
+        self.assertIn("reported to the owner** (a decision named by the commits)", out)
         self.assertIn("1. Confirm dust is left unminted (D-07).", out)
 
-    def test_a_change_cannot_route_itself_away_by_editing_the_seam_map(self):
+    def test_a_change_cannot_hide_itself_by_editing_the_seam_map(self):
         seams = self.repo / "SEAMS.md"
         row = "| factory | The checks, this map and the guides agents work from |"
         text = seams.read_text()
@@ -215,7 +217,7 @@ class Review(Fixture):
         seams.write_text(text[:start] + line.replace("| owner | no |", "| agent | no |") + text[end:])
         self.commit("Quietly make the factory agent-reviewed")
         _, out = self.dev("review", "--base", "HEAD~1")
-        self.assertIn("OWNER REVIEW REQUIRED** (factory (owner-routed at the base))", out)
+        self.assertIn("reported to the owner** (factory (owner-routed at the base))", out)
 
     def test_an_owner_seam_change_without_an_explanation_is_asked_for_one(self):
         self.add("deployments/local.json", "{}\n")
@@ -240,14 +242,15 @@ class Review(Fixture):
         _, out = self.dev("review", "--base", "HEAD~1")
         self.assertIn("should be separate changes", out)
 
-    def test_money_seam_work_is_routed_to_the_owner_without_being_a_freeze(self):
+    def test_money_seam_work_is_reported_to_the_owner_without_being_a_freeze(self):
         self.add("contracts/check", PASS, executable=True)
         self.add("contracts/src/money/Minter.sol", "contract Minter {}\n")
         self.commit("Start the minter")
         _, out = self.dev("review", "--base", "HEAD~1")
         self.assertIn("**Implements the frozen rules.**", out)
-        self.assertIn("OWNER REVIEW REQUIRED** (money)", out)
-        self.assertIn("Confirm the change to **money**", out)
+        self.assertIn("reported to the owner** (money)", out)
+        self.assertIn("**Checkpoint: `", out)
+        self.assertIn("The change to **money**", out)
 
     def test_interface_declarations_added_and_removed_are_listed(self):
         self.add("contracts/check", PASS, executable=True)
@@ -264,7 +267,7 @@ class Review(Fixture):
         self.add("deployments/local.json", "{}\n")
         _, out = self.dev("review")
         self.assertIn("plus uncommitted changes", out)
-        self.assertIn("OWNER REVIEW REQUIRED** (deployment)", out)
+        self.assertIn("reported to the owner** (deployment)", out)
 
     def test_heavy_checks_are_listed_as_not_run(self):
         self.add("calculator/check", PASS, executable=True)

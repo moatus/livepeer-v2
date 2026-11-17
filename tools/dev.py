@@ -332,8 +332,9 @@ def cmd_review(args) -> int:
     touched = [row for row in rows if row["seam"] in by_seam]
     frozen = [row["seam"] for row in touched if row["freeze"] == "yes"]
     owned = [row["seam"] for row in touched if row["review"] == "owner"]
-    # A council-routed seam proceeds without the owner only when the commits
-    # name a council ruling whose record exists. Otherwise it is the owner's.
+    # Nothing here waits for the owner. An owner-routed seam is reported to
+    # the owner, who reads it afterwards. A council-routed seam proceeds only
+    # when the commits name a council ruling whose record exists.
     council = [row["seam"] for row in touched if row["review"] == "council"]
     research = research_dir()
     missing = [d for d in rulings if not (research and (research / "council" / f"{d}.md").is_file())]
@@ -342,7 +343,6 @@ def cmd_review(args) -> int:
     if council and not ruled:
         unruled = (f"no council record found for {', '.join(missing)}" if rulings
                    else "no council ruling named by the commits")
-        owned += [f"{seam} ({unruled})" for seam in council]
     needs_owner = [row for row in touched if row["review"] == "owner" or (row["review"] == "council" and not ruled)]
     other = [row["seam"] for row in touched if row["freeze"] == "no" and row["seam"] != "factory"]
     # Route by the map as it was at the base too, so a change that edits
@@ -370,8 +370,10 @@ def cmd_review(args) -> int:
     if frozen:
         if ruled and set(frozen) <= set(council):
             who = f"Decided by council ruling {', '.join(rulings)}. The owner keeps or changes it later."
+        elif unruled:
+            who = "It needs a council ruling before it lands."
         else:
-            who = "This is where the owner decides."
+            who = "It follows its approved spec. The owner reads it afterwards and keeps or changes it."
         out(f"**Freeze change.** It alters what is being built: {', '.join(frozen)}. {who}")
         if other:
             out(f"It also changes {', '.join(other)}. A freeze and the code that implements it should be separate changes.")
@@ -379,9 +381,16 @@ def cmd_review(args) -> int:
         out("**Implements the frozen rules.** No rule, shared example or contract interface changed.")
     out(f"Rules and decisions named by the commits: {', '.join(rules) if rules else 'none'}."
         + (f" Spec: {'; '.join(specs)}." if specs else ""))
-    if owned or unowned or asks:
-        reasons = owned + (["a file no seam owns"] if unowned else []) + (["a decision named by the commits"] if asks else [])
-        out(f"**Routing: OWNER REVIEW REQUIRED** ({', '.join(reasons)}).")
+    reasons = owned + (["a file no seam owns"] if unowned else []) + (["a decision named by the commits"] if asks else [])
+    told = f" It is also reported to the owner ({', '.join(reasons)})." if reasons else ""
+    if unruled:
+        out(f"**Routing: COUNCIL RULING NEEDED** ({', '.join(council)}: {unruled}).{told}")
+    elif reasons:
+        out(f"**Routing: agent review, then reported to the owner** ({', '.join(reasons)})."
+            " It does not wait for the owner, who reads it afterwards.")
+    if reasons:
+        out(f"**Checkpoint: `{base[:10]}`**, the last commit before this change. To take another direction,"
+            f" revert `{base[:10]}..{head[:10]}` and build again from there.")
     elif ruled:
         out(f"**Routing: council ruling {', '.join(rulings)}, then agent review.** The owner is not waited for,"
             " and keeps or changes the ruling later.")
@@ -489,17 +498,17 @@ def cmd_review(args) -> int:
     out("| Demo reconciled against the calculator | `not_run` by this report | `./dev demo`, at landing when behaviour changed, and at stage close |")
     out()
 
-    out("## Needs you")
+    out("## For you to read")
     out()
     items = [f"{ask}" for ask in asks]
     for row in needs_owner:
-        items.append(f"Confirm the change to **{row['seam']}** ({row['what crosses it']}): {len(by_seam[row['seam']])} file(s), listed under Structure."
-                     + (f" It waits for you because there is {unruled}." if row["review"] == "council" else ""))
+        items.append(f"The change to **{row['seam']}** ({row['what crosses it']}): {len(by_seam[row['seam']])} file(s), listed under Structure."
+                     + (f" It waits for a council ruling, not for you: there is {unruled}." if row["review"] == "council" else ""))
     if needs_owner and not asks:
-        items.append("The commits do not say what this changes for a participant. Before this goes to the owner,"
+        items.append("The commits do not say what this changes for a participant. Before this lands,"
                      " the builder adds a `Needs-owner:` line that says so in one sentence, and the reviewer checks it.")
     if unowned:
-        items.append("Decide where the files no seam owns belong.")
+        items.append("Files no seam owns: the builder gives them a row in `SEAMS.md` or moves them.")
     if items:
         for number, item in enumerate(items, 1):
             out(f"{number}. {item}")
