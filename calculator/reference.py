@@ -1,8 +1,11 @@
 """Independent integer implementation of rulebook october-main-text-v2.
 
 LPT replay models round-start stake/cuts, bonding, transfers, unbonding,
-claims, minting and holder pots. It rejects overspending, earning round zero,
-unordered refusals and unregistered self-claims/cuts lacking a rule.
+claims, minting and holder pots. It rejects overspending as invalid input.
+Earning round zero gets NO_SUCH_ROUND; unregistered self-claims and self-cuts
+get NOT_REGISTERED. Simultaneous refusals follow the rulebook units section
+(D-26, D-38, D-39, D-40); only a withdrawal that is both ALREADY_CLAIMED and
+NOT_CLAIMED remains an input error among simultaneous LPT refusals.
 
 Only parameters and inputs enter these functions; expected vector outputs do not.
 Amounts returned by calculate() are Python integers in the rulebook's units.
@@ -392,7 +395,7 @@ def validators(inputs: dict, parameters: Parameters) -> dict:
         node, action = step.get("node"), step["action"]
         code = None
         # Units / D-39: identity precedes node status and amount.
-        if action in ("opt_in", "opt_out", "vote") and step.get("caller", node) != node:
+        if action in ("opt_in", "opt_out") and step.get("caller", node) != node:
             refused.append({"step": step["step"], "code": "NOT_AUTHORIZED"})
             continue
         if action == "opt_in" and node in inputs.get("unregistered", []):
