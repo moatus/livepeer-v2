@@ -67,3 +67,12 @@ def validator_pay_case(case_id: str, round_: int, members: list[tuple[str, int]]
 def document(vectors: dict, cases: list[dict]) -> dict:
     """A shared examples file holding these cases, which ./calculator/check reads."""
     return {**{k: v for k, v in vectors.items() if k != "cases"}, "cases": cases}
+
+
+def one_earning_round(claims: list[tuple[str, str, int]]) -> int | None:
+    """S-06 section 1's table is four nodes each earning a reward in one
+    round. `claims` gives each row, the node that claimed and the round its
+    claim was for; the answer is that round, or None unless there are four
+    rows, four different nodes and one earning round."""
+    nodes, rounds = {n for _, n, _ in claims}, {r for _, _, r in claims}
+    return next(iter(rounds)) if len(claims) == len(nodes) == 4 and len(rounds) == 1 else None

@@ -10,16 +10,18 @@ runs again, after somebody else has started round 3, it mints them.
 
 V1 to V3, with 5,000, 3,000 and 2,000 LPT (4,000 of V1's from holder H, and
 V1 a 10 % reward cut), opt in in round 3 and are members from round 4. In
-round 4 they vote M 0.5 and K 0, V1 alone votes L 0, and L serves one paid
-relay; V4, with 6,000 LPT, opts in and takes V3's seat from round 5, and its
-vote in round 4 is refused. Round 4's validator amount is divided among V1,
+round 4 they vote M 0.5 and K 0, V1 alone votes L 0, and N, M, K and L each
+serve one paid relay, so that four nodes earn in one round (S-06 section 1);
+V4, with 6,000 LPT, opts in and takes V3's seat from round 5, and its vote
+in round 4 is refused. Round 4's validator amount is divided among V1,
 V2 and V3 by stake; V1's cut goes to its payout and its pot to Claims, from
 which V1 and H withdraw their parts. In round 8 N's claim is refused as too
 early; in round 9 a rival's and a delegator's claims for N are refused, N
 claims at score 1, its holders withdraw their parts, N's second claim is
 refused, M claims at 0.5 and K at 0. F then moves 100 LPT from K toward M,
 unbonds 40 of the move and rebonds it, which can go back only to K. In round
-11 L claims at score 1: one vote cannot cut a node.
+11 N, M, L and K claim their round 4 rewards, S-06 section 1's four claims:
+at scores 1, 0.5, 1 (one vote cannot cut a node) and 0.
 
 Every figure read from the chain is printed beside the independent
 calculator's figure for the same steps, and checked against S-05 section
@@ -147,9 +149,10 @@ def claim(caller: str, node: str, earned: int, want: str | None = None) -> dict:
             "Claimed(address,uint256,address,uint256,uint256,uint256,uint256)")]
         d = claimed[0]["data"][2:]
         r["claimed"] = {"payout": name("0x" + d[24:64]), "score": int(d[64:128], 16), "paid": int(d[128:192], 16),
-                        "cut": int(d[192:256], 16), "pot": int(d[256:320], 16)}
+                        "cut": int(d[192:256], 16), "pot": int(d[256:320], 16),
+                        "node": name("0x" + claimed[0]["topics"][1][-40:]), "round": int(claimed[0]["topics"][2], 16)}
         check(f"{node}'s claim read the score scoreOf gives at its block", r["claimed"]["score"], r["fields"]["score"])
-        CLAIM_SEEN[node] = vobserve(node, r["block"])
+        CLAIM_SEEN[(node, earned)] = vobserve(node, r["block"])
     return r
 
 
@@ -204,7 +207,7 @@ def members() -> dict:
 # --- the validators -----------------------------------------------------------
 
 VRECORDS: list[dict] = []   # the observe steps of the validators case
-CLAIM_SEEN: dict[str, dict] = {}   # node -> the observe step taken at its claim's block
+CLAIM_SEEN: dict[tuple[str, int], dict] = {}   # (node, earned round) -> the observe step at its claim's block
 SENT = re.compile(r"line (\d+): .*\(block \d+, tx (0x[0-9a-fA-F]{64})\)")
 REFUSED = re.compile(r"line (\d+): .*: refused (\w+) at block (\d+)")
 
@@ -572,9 +575,9 @@ def main() -> int:
     check("V1 to V3 are seated from round 4", members_at(4), ["V1", "V2", "V3"])
     next_round()
 
-    say("\n6. Round 4: the votes, V4 takes V3's seat, and L earns")
+    say("\n6. Round 4: the votes, V4 takes V3's seat, and N, M, K and L each earn")
     stop("keeper")
-    say("  the keeper is stopped again, so round 4 lasts until L's node has redeemed its ticket, 41 blocks after the relay")
+    say("  the keeper is stopped again, so round 4 lasts until the nodes have redeemed their tickets, 41 blocks after the relays")
     wait_runner(4)
     for lg in logs(C["Scores"], "Voted(address,address,uint256,uint256)"):
         say(f"  {name('0x' + lg['topics'][1][-40:])} votes {int(lg['data'][2:66], 16):,} on {name('0x' + lg['topics'][2][-40:])} in round {int(lg['data'][66:130], 16)}")
@@ -587,12 +590,18 @@ def main() -> int:
     for f, code in refusals:
         say(f"  {f['node']}'s vote of {f['score']:,} on {f['target']} is refused {code}: a member only from round 5, it cannot vote in round 4")
     check("the scripted validators' refusals: V4's vote in round 4", [(f["node"], c) for f, c in refusals], [("V4", "NOT_VALIDATOR")])
-    fund("P", face, 0, None)
-    answer = job("P", PORT[ORCHS["L"][0]], PORT["signer_p"])
-    say(f"  P deposits {money(face)} micro-USDC more; relay 6, to L: paid, the model answered {answer[:50]!r}")
-    s6 = wait_settled(6, "the sixth relay")[-1]
-    say(f"  {name(s6['recipient'])} redeemed a ticket of {money(s6['face'])} in round {s6['round']}: its payout L +{money(s6['node_amount'])}")
-    check("L's relay was redeemed in round 4", (name(s6["recipient"]), s6["round"]), ("L", 4))
+    earners = ("N", "M", "K", "L")
+    fund("P", len(earners) * face, 0, None)
+    say(f"  P deposits {money(len(earners) * face)} micro-USDC more")
+    for i, n in enumerate(earners, 6):
+        answer = job("P", PORT[ORCHS[n][0]], PORT["signer_p"])
+        say(f"  relay {i}, to {n}: paid, the model answered {answer[:50]!r}")
+    settled4 = wait_settled(5 + len(earners), "round 4's relays")[5:]
+    for s in settled4:
+        payout = name(f"0x{call(C['Registry'], 'payoutOf(address)', s['recipient']):040x}")
+        say(f"  {name(s['recipient'])} redeemed a ticket of {money(s['face'])} in round {s['round']}: its payout {payout} +{money(s['node_amount'])}")
+    check("N's, M's, K's and L's relays were redeemed in round 4", sorted((name(s["recipient"]), s["round"]) for s in settled4),
+          sorted((n, 4) for n in earners))
     for n in ("N", "M", "L", "K"):
         vobserve(n)
     say(f"  members of round 4: {', '.join(members_at(4))}; of round 5, as they stand: {', '.join(members_at(5))}")
@@ -639,7 +648,7 @@ def main() -> int:
           "transfer", a("K"), a("M"), str(move))
     say(f"  F starts to leave K: it moves {lpt(move)} toward M, arriving in round 30")
 
-    say("\n10. Rounds 10 to 12: F unbonds part of the move and rebonds it, which can go back only to K; L claims")
+    say("\n10. Rounds 10 to 12: F unbonds part of the move and rebonds it, which can go back only to K; the round 4 claims")
     to_round(10)
     observe_stake("K")
     part = amount(action="unbond_transfer", holder="F")
@@ -653,9 +662,12 @@ def main() -> int:
           want="AMOUNT_TOO_LARGE")
     stake("F", {"action": "rebond", "holder": "F", "node": "K", "amount_wei": back}, "rebond", a("K"), str(back))
     say(f"  F rebonds {lpt(back)}: to M it is refused, to K, where it was counting, it is taken")
-    cl = claim("L", "L", 4)["claimed"]
-    say(f"  L claims round 4 at score {cl['score']:,}: paid {lpt(cl['paid'])}, all of it to L (cut 100 %); "
-        "V1 alone voted L 0, and one vote cannot cut a node")
+    c4 = {}
+    for n, why in (("N", "the cut to W, the pot to Claims"), ("M", "all of it to Claims as E's part (cut 0)"),
+                   ("L", "all of it to L (cut 100 %): V1 alone voted L 0, and one vote cannot cut a node"),
+                   ("K", "and its entitlement closes")):
+        c4[n] = claim(n, n, 4)["claimed"]
+        say(f"  {n} claims its round 4 reward at score {c4[n]['score']:,}: paid {lpt(c4[n]['paid'])}, {why}")
     to_round(12)
     observe_stake("K")
 
@@ -666,15 +678,20 @@ def main() -> int:
     ordered, views, calc = reconcile("At the end of the run", extra, m)
     say("  against S-05 section 1 (ledger-cycle in the shared examples):")
     want = CYCLE["expected"]
-    for who in ("W", "O", "D"):
+    check("W's LPT: ledger-cycle's (N's round 2 cut), plus N's round 4 cut", views["lpt"]["W"],
+          int(want["lpt_wei"]["W"]) + c4["N"]["cut"])
+    for who in ("O", "D"):
         check(f"{who}'s LPT", views["lpt"][who], int(want["lpt_wei"][who]))
     pots = sum(int(lg["data"][-64:], 16) for lg in logs(C["Claims"], "ValidatorPaid(uint256,address,address,uint256,uint256,uint256)"))
     taken = sum(int(lg["data"][66:130], 16) for lg in logs(C["Claims"], "ValidatorPartsWithdrawn(address,address,uint256[],uint256)"))
-    say(f"  Claims holds ledger-cycle's {lpt(int(want['lpt_wei']['Claims']))} (E's part), plus L's pot {lpt(cl['pot'])}, plus the validator")
-    say(f"  pots of rounds 4 to 11, {lpt(pots)}, less the validator parts withdrawn, {lpt(taken)} (R-14, R-24)")
-    check("Claims's LPT: ledger-cycle's, plus L's pot and the validator pots, less the validator parts withdrawn",
-          views["lpt"]["Claims"], int(want["lpt_wei"]["Claims"]) + cl["pot"] + pots - taken)
-    check("W's USDC (N's half of its three relays)", views["wallet"]["W"], int(want["paid_micro_usdc"]["W"]))
+    pots4 = sum(c["pot"] for c in c4.values())
+    say(f"  Claims holds ledger-cycle's {lpt(int(want['lpt_wei']['Claims']))} (E's part), plus the pots of the round 4 claims, {lpt(pots4)},")
+    say(f"  plus the validator pots of rounds 4 to 11, {lpt(pots)}, less the validator parts withdrawn, {lpt(taken)} (R-14, R-24)")
+    check("Claims's LPT: ledger-cycle's, plus the round 4 claims' pots and the validator pots, less the validator parts withdrawn",
+          views["lpt"]["Claims"], int(want["lpt_wei"]["Claims"]) + pots4 + pots - taken)
+    n4 = sum(s["node_amount"] for s in settled4 if name(s["recipient"]) == "N")
+    check("W's USDC: ledger-cycle's (N's half of its three round 2 relays), plus N's half of its round 4 relay",
+          views["wallet"]["W"], int(want["paid_micro_usdc"]["W"]) + n4)
     check("LPT minted for round 2", views["minted_for_round"].get(2), int(want["minted_for_round_wei"]["2"]))
     ceiling = int(CASES["ceiling-1"]["expected"]["ceiling_wei"])
     never = ceiling - views["minted_for_round"][2]
@@ -687,9 +704,11 @@ def main() -> int:
           [(2, 400 * LPT), (3, 500 * LPT)])
     check("K's stake in rounds 10, 11 and 12", [(r["round"], r["shown"][0]) for r in shown if r["fields"]["node"] == "K"],
           [(10, 250 * LPT), (11, 210 * LPT), (12, 250 * LPT)])
-    check("the scores the claims read: N, M, K",
+    check("the scores the round 2 claims read: N, M, K",
           [r["fields"]["score"] for r in ordered if r["fields"]["action"] == "claim" and not r.get("code")
-           and r["fields"]["node"] in ("N", "M", "K")], [1_000_000, 500_000, 0])
+           and r["fields"]["earned_round"] == 2], [1_000_000, 500_000, 0])
+    check("K's entitlement for round 2 is closed, paid 0 (entitlementOf)",
+          words(C["Claims"], "entitlementOf(address,uint256)", a("K"), 2)[:2], [1, 0])
     check("F's unbonded LPT waiting and ready: none (unbondedOf)", words(C["StakeLedger"], "unbondedOf(address)", a("F")), [0, 0])
 
     vcase, vordered = validators_run_case()
@@ -705,7 +724,8 @@ def main() -> int:
     return finish(started, "one reward cycle and the scripted validators, every refusal seen, every figure read from the chain equals the calculator's.")
 
 
-CLAIM_ROWS = (("A", "N", 2), ("B", "M", 2), ("C", "L", 4), ("D", "K", 2))
+# S-06 section 1's table: four nodes' claims of rewards earned in one round.
+CLAIM_ROWS = (("A", "N", 4), ("B", "M", 4), ("C", "L", 4), ("D", "K", 4))
 
 
 def described(votes: dict[str, int]) -> str:
@@ -723,20 +743,24 @@ def section_s06(ordered: list[dict], vcase: dict, pay_cases: list[dict], withdra
     say("\n12. S-06 section 1, read from the chain beside the calculator's")
     vcalc = calculate("validators", vcase["inputs"])
     seen = {o["step"]: o for o in vcalc["observed"]}
-    claims = {r["fields"]["node"]: r for r in ordered if r["fields"]["action"] == "claim" and not r.get("code")}
-    rounds = {e: calculate("round", round_inputs(e, {n: int(seen[CLAIM_SEEN[n]["step"]]["score"])
+    claims = {(r["fields"]["node"], r["fields"]["earned_round"]): r for r in ordered
+              if r["fields"]["action"] == "claim" and not r.get("code")}
+    rows = [(row, claims[(n, e)]["claimed"]["node"], claims[(n, e)]["claimed"]["round"]) for row, n, e in CLAIM_ROWS]
+    check("S-06 section 1's four claims are four nodes' rewards earned in one round (their Claimed events)",
+          validatorcases.one_earning_round(rows), 4)
+    rounds = {e: calculate("round", round_inputs(e, {n: int(seen[CLAIM_SEEN[(n, e)]["step"]]["score"])
                                                      for _, n, r in CLAIM_ROWS if r == e}))
               for e in sorted({r for _, _, r in CLAIM_ROWS})}
     say(f"  {'figure (score in millionths; LPT)':<52}{'chain':>26}{'calculator':>26}")
     for row, n, earned in CLAIM_ROWS:
-        cl = claims[n]
+        cl = claims[(n, earned)]
         votes = votes_on(n, cl["block"])
         side(f"{row}: {n}, votes {described(votes)}; median at claim", int(cl["claimed"]["score"]),
-             int(seen[CLAIM_SEEN[n]["step"]]["score"]), money)
+             int(seen[CLAIM_SEEN[(n, earned)]["step"]]["score"]), money)
         side(f"{row}: {n}'s reward for round {earned}, claimed in round {cl['round']}", int(cl["claimed"]["paid"]),
              int(rounds[earned]["paid_wei"][n]), lpt)
-    check("D: K's entitlement for round 2 is closed, paid 0 (entitlementOf)",
-          words(C["Claims"], "entitlementOf(address,uint256)", a("K"), 2)[:2], [1, 0])
+    check("D: K's entitlement for round 4 is closed, paid 0 (entitlementOf)",
+          words(C["Claims"], "entitlementOf(address,uint256)", a("K"), 4)[:2], [1, 0])
     obs = [r for r in VRECORDS if r["fields"]["target"] == "K" and current_round(r["block"]) == 5]
     for rnd in (4, 5):
         r = next(r for r in VRECORDS if current_round(r["block"]) == rnd)

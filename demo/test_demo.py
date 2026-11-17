@@ -10,6 +10,7 @@ shared examples' ticket, and that the node's programs start safely: nothing
 they read is rewritten after they start, and one that exits at startup is
 named with its log.
 """
+import ast
 import copy
 import json
 import shutil
@@ -171,6 +172,18 @@ class ValidatorCaseWriter(unittest.TestCase):
                                             6: {"V1": 5, "V2": 3, "V4": 6}})
         self.assertEqual(got, [{"from_round": "3", "stake_wei": {"V1": "5", "V2": "0"}},
                                {"from_round": "5", "stake_wei": {"V2": "3", "V4": "6"}}])
+
+    def test_section_one_claims_share_one_earning_round(self):
+        """S-06 section 1's four claims are four nodes' rewards earned in one
+        round. The demo's table rows, and the rule the run checks them by."""
+        tree = ast.parse((Path(common.__file__).parent / "stage3.py").read_text())
+        rows = next(ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign)
+                    and any(getattr(t, "id", None) == "CLAIM_ROWS" for t in n.targets))
+        self.assertEqual(validatorcases.one_earning_round(list(rows)), 4)
+        # Phase 5's first build: N, M and K from round 2, L from round 4.
+        self.assertIsNone(validatorcases.one_earning_round([("A", "N", 2), ("B", "M", 2), ("C", "L", 4), ("D", "K", 2)]))
+        self.assertIsNone(validatorcases.one_earning_round([("A", "N", 4), ("B", "M", 4), ("C", "N", 4), ("D", "K", 4)]))
+        self.assertIsNone(validatorcases.one_earning_round([("A", "N", 4), ("B", "M", 4), ("C", "L", 4)]))
 
 
 STAGE2_STAND_INS = (["local chain"], ["mockusdc"], ["--wei-per-usd 1000000"], ["2^256 - 2", "price + 1"],

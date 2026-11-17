@@ -62,7 +62,8 @@ it does, in this order, printing each step:
    D 300 to N, E 600 to M, F 250 to K. P deposits 5 USDC and sets 1 USDC
    aside for each node. Four scripted validators, V1 to V4, register. The
    keeper starts round 2 and mints round 1's validator and treasury
-   amounts.
+   amounts. Until round 4 there are no validators, so the whole validator
+   amount of rounds 1 to 3 goes to the treasury.
 3. **Round 2.** Five paid relays of 1 USDC each, three for N and one each
    for M and K, which the nodes redeem in round 2. O bonds a further 100
    to N. V1 bonds 1,000 to itself and a holder, H, 4,000 to V1, which takes
@@ -86,16 +87,21 @@ it does, in this order, printing each step:
    (ValidatorSetSize 3, for the paper's 33), and with 6,000 LPT it takes
    the seat of V3, the smallest member, from round 5. Its vote in round 4
    is refused (`NOT_VALIDATOR`): a node votes only in a round it is a
-   member of. P deposits 1 USDC more, and L serves one paid relay. The
-   keeper is stopped meanwhile, so that round 4 lasts until L's node
-   redeems the ticket, 41 blocks after the relay.
+   member of. A vote is on a node, not on a round: it stands in later
+   rounds until the validator changes it or leaves. P deposits 4 USDC more,
+   and N, M, K and L each serve one paid relay, so four nodes earn a reward
+   in round 4. The keeper is stopped meanwhile, so that round 4 lasts until
+   the nodes redeem the tickets, 41 blocks after the relays.
 7. **Round 5.** Round 4's validator amount is divided among V1, V2 and V3
    by their stake, 5,000, 3,000 and 2,000; what the division leaves goes
    to the treasury. V1's 10 % cut goes to its payout address and the rest,
    its pot, to Claims, from which V1 withdraws its part and H its part,
-   four fifths; H's second withdrawal is refused (`ALREADY_CLAIMED`). V2
-   and V3 leave their pay in Claims for themselves to withdraw. Every
-   later round pays V1, V2 and V4 the same way.
+   four fifths, since H bonds 4,000 of V1's 5,000 LPT; H's second
+   withdrawal is refused (`ALREADY_CLAIMED`). V2 and V3 leave their pay in
+   Claims for themselves to withdraw. Every
+   later round pays its members, V1, V2 and V4, the same way, but only
+   round 4's split is printed: V1's LPT at the end is its cut of every
+   round it was a member of (rounds 4 to 11), plus its round 4 part.
 8. **Round 8.** N's claim for round 2 is refused as too early
    (`CLAIM_TOO_EARLY`), and M's claim for N as not M's (`NOT_AUTHORIZED`).
 9. **Round 9.** A rival's and a delegator's claims for N are refused
@@ -112,8 +118,9 @@ it does, in this order, printing each step:
 10. **Rounds 10 to 12.** F unbonds 40 of the move before it arrives, then
     rebonds the 40: to M it is refused (`AMOUNT_TOO_LARGE`), to K it is
     taken. K's stake reads 250, 210 and 250 LPT in rounds 10, 11 and 12. In
-    round 11 L claims its round 4 reward at 1,000,000: one vote of 0 cannot
-    cut a node.
+    round 11 N, M, L and K claim their round 4 rewards, each at the median
+    read then: N 1,000,000, M 500,000, L 1,000,000 (one vote of 0 cannot
+    cut a node) and K 0.
 11. Prints every balance read from the chain beside the calculator's figure
     for the same steps: the USDC of every wallet, the test LPT of every
     address the run names, Claims and StakeLedger among them, each round's
@@ -121,11 +128,13 @@ it does, in this order, printing each step:
     (454.424865109532845983 for round 2) and in all, every stake shown and
     every refusal. It checks them against `ledger-cycle`'s worked figures,
     and prints the 544.750300038956261284 LPT never minted for round 2.
-    Claims holds `ledger-cycle`'s figure, E's part, plus the validator pots
-    not yet withdrawn, and the run checks exactly that.
+    Beyond those, W also holds N's round 4 cut, and Claims the round 4
+    claims' pots and the validator pots not yet withdrawn; the run checks
+    exactly that.
 12. **What the validators show** (the stage's section on validators):
-    beside the calculator's figure, the four claims, each with the votes
-    cast on the node, the median read at the claim and what it was paid:
+    beside the calculator's figure, the four claims of round 4's rewards,
+    each with the votes cast on the node, the median read at the claim and
+    what it was paid:
     N with no votes, M with two of 500,000, L with V1's one 0, K with two
     0s; the members of round 4 (V1, V2, V3) and of round 5 (V1, V2, V4);
     and round 4's validator mint: each member's pay, V1's cut and pot, the
