@@ -124,6 +124,9 @@ def calculate(kind: str, inputs: dict, parameters: Parameters,
     minting only when all scores are full: D-21 leaves withheld rewards open.
     A claim is a stateless calculation against the supplied already-paid flag.
     """
+    if kind == "score":
+        return {"score": median_score(inputs["members"], inputs["votes"])}
+
     if kind == "ledger":
         return ledger(inputs, parameters)
 
@@ -312,3 +315,14 @@ def ledger(inputs: dict, parameters: Parameters) -> dict:
             "network_micro_usdc": network, "fees_micro_usdc": fees,
             "total_fees_micro_usdc": {r: sum(nodes.values()) for r, nodes in fees.items()},
             "observed": observed, "refused": refused}
+
+
+def median_score(members: list, votes: dict) -> int:
+    """R-11 / D-09: missing votes are full; even medians floor."""
+    values = sorted(integer(votes[m]) if m in votes else MILLION for m in members)
+    if len(set(members)) != len(members) or any(v > MILLION for v in values):
+        raise ValueError("invalid members or score")
+    if not values:
+        return MILLION
+    n = len(values)
+    return (values[(n - 1) // 2] + values[n // 2]) // 2
