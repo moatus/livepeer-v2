@@ -7,6 +7,7 @@ cd "$(dirname "$0")"
 command -v forge >/dev/null 2>&1 || { echo "forge is not installed (./dev doctor)"; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "python3 is not installed (./dev doctor)"; exit 2; }
 forge test || exit 1
+python3 -m unittest -q test_mutations || exit 1
 
 # Each deployed contract and the interface file that declares its public
 # shape. The two ABIs must hold the same functions, events and errors, with

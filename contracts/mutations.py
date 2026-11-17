@@ -102,12 +102,20 @@ def catch(cmd, work):
         env = dict(os.environ, FOUNDRY_PROFILE="qualify")
         code, out = run(["forge", "test", "--match-contract", cmd[len("qualify:"):]], work, env)
         return code != 0, "Ran " in out, first_failure(out)
-    # A mutant that no longer compiles proves nothing about the named test:
-    # it is not ran (NOTRUN fails the run). Only the "check" path above may
-    # rely on the compiler.
     code, out = run(["forge", "test", "--match-test", cmd], work)
-    ran = "No tests match" not in out and "Compiler run failed" not in out
-    return code != 0, ran, first_failure(out)
+    red, ran = test_outcome(out)
+    return red, ran, first_failure(out)
+
+
+def test_outcome(out):
+    """(red, ran) for a --match-test run, from forge's per-test lines only.
+    A test ran only if forge printed its [PASS] or [FAIL] line; red only if
+    one of those is a [FAIL]. A mutant that does not compile, a tool error
+    before any test, or a pattern that matches no test is not ran (NOTRUN
+    fails the run), whatever the exit code. Only the "check" path may rely
+    on the compiler."""
+    marks = [l.strip()[:5] for l in out.splitlines() if l.strip().startswith(("[PASS", "[FAIL"))]
+    return "[FAIL" in marks, bool(marks)
 
 
 def main(sel):
