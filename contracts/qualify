@@ -1,0 +1,45 @@
+#!/bin/sh
+# The contracts' heavy check, run by ./dev qualify when a stage closes:
+#   1. long invariant and fuzz runs over test-qualify/ (the qualify profile
+#      in foundry.toml), with a fixed seed so a failure can be replayed;
+#      LP2_QUALIFY_SEED=<n> searches with another seed;
+#   2. static analysis, when slither or aderyn is already installed;
+#      otherwise that part is reported not_run;
+#   3. seeded errors (mutations.py): each must turn a check red.
+# Exit 0 passed, 1 failed, 2 could not run.
+set -u
+cd "$(dirname "$0")"
+command -v forge >/dev/null 2>&1 || { echo "forge is not installed (./dev doctor)"; exit 2; }
+command -v python3 >/dev/null 2>&1 || { echo "python3 is not installed (./dev doctor)"; exit 2; }
+failed=0
+
+echo "== invariant and fuzz runs (profile qualify)"
+start=$(date +%s)
+if [ -n "${LP2_QUALIFY_SEED:-}" ]; then
+    FOUNDRY_PROFILE=qualify forge test --fuzz-seed "$LP2_QUALIFY_SEED" || failed=1
+else
+    FOUNDRY_PROFILE=qualify forge test || failed=1
+fi
+echo "runs: $(( $(date +%s) - start ))s"
+
+echo "== static analysis"
+if command -v slither >/dev/null 2>&1; then
+    slither . --foundry-out-directory out || failed=1
+elif command -v aderyn >/dev/null 2>&1; then
+    aderyn . || failed=1
+else
+    echo "static analysis: not_run (neither slither nor aderyn is installed)"
+fi
+
+echo "== seeded errors"
+start=$(date +%s)
+python3 mutations.py
+case $? in
+    0) ;;
+    2) echo "seeded errors: could not run"; [ $failed -eq 0 ] && failed=2 ;;
+    *) failed=1 ;;
+esac
+echo "seeded errors: $(( $(date +%s) - start ))s"
+
+[ $failed -eq 0 ] && echo "contracts/qualify: passed (static analysis as stated above)"
+exit $failed

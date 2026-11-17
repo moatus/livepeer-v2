@@ -9,3 +9,25 @@ libs = []
 solc_version = "0.8.30"
 # The contract tests read the shared examples; nothing else on disk.
 fs_permissions = [{ access = "read", path = "../vectors" }]
+
+# The heavy checks (contracts/qualify): long invariant and fuzz runs over
+# test-qualify/. A separate profile, test folder and build output, so
+# contracts/check never compiles or runs them.
+[profile.qualify]
+src = "src"
+test = "test-qualify"
+out = "out/qualify"
+cache_path = "cache/qualify"
+libs = []
+solc_version = "0.8.30"
+fs_permissions = [{ access = "read", path = "../vectors" }]
+
+[profile.qualify.fuzz]
+runs = 100000
+seed = "0x5eed"
+
+[profile.qualify.invariant]
+runs = 256
+depth = 200
+fail_on_revert = true
+show_metrics = true
