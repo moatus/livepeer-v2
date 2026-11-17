@@ -18,7 +18,7 @@ Usage: mutations.py [name-substring ...]
 Exit 0 every mutation caught as expected; 1 one was not, or no longer
 applies; 2 could not run.
 """
-import os, pathlib, shutil, signal, subprocess, sys, tempfile, time
+import os, pathlib, re, shutil, signal, subprocess, sys, tempfile, time
 
 B, R, C = "src/money/Broker.sol", "src/authority/Registry.sol", "src/clock/RoundClock.sol"
 
@@ -101,21 +101,26 @@ def catch(cmd, work):
         shutil.rmtree(work / "cache" / "qualify" / "failures", ignore_errors=True)
         env = dict(os.environ, FOUNDRY_PROFILE="qualify")
         code, out = run(["forge", "test", "--match-contract", cmd[len("qualify:"):]], work, env)
-        return code != 0, "Ran " in out, first_failure(out)
-    code, out = run(["forge", "test", "--match-test", cmd], work)
+    else:
+        code, out = run(["forge", "test", "--match-test", cmd], work)
     red, ran = test_outcome(out)
     return red, ran, first_failure(out)
 
 
 def test_outcome(out):
-    """(red, ran) for a --match-test run, from forge's per-test lines only.
+    """(red, ran) for a forge test run, from forge's per-test lines only.
     A test ran only if forge printed its [PASS] or [FAIL] line; red only if
     one of those is a [FAIL]. A mutant that does not compile, a tool error
-    before any test, or a pattern that matches no test is not ran (NOTRUN
+    before any test, a pattern that matches no test, or a failing setUp()
+    (forge's suite line, printed when no test body ran) is not ran (NOTRUN
     fails the run), whatever the exit code. Only the "check" path may rely
     on the compiler."""
-    marks = [l.strip()[:5] for l in out.splitlines() if l.strip().startswith(("[PASS", "[FAIL"))]
+    marks = [l.strip()[:5] for l in out.splitlines()
+             if l.strip().startswith(("[PASS", "[FAIL")) and not SETUP.search(l)]
     return "[FAIL" in marks, bool(marks)
+
+
+SETUP = re.compile(r"\]\s+setUp\(\)")
 
 
 def main(sel):

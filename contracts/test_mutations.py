@@ -34,6 +34,17 @@ class TestOutcome(unittest.TestCase):
         out = "Warning: no tests match the provided pattern:\n\tmatch-test: `nothing`\n"
         self.assertEqual(mutations.test_outcome(out), (False, False))
 
+    def test_a_failing_setup_is_not_ran(self):
+        out = ("Ran 1 test for test/Ledger.t.sol:LedgerTest\n"
+               "[FAIL: EvmError: Revert] setUp() (gas: 0)\n"
+               "Suite result: FAILED. 0 passed; 1 failed; 0 skipped\n")
+        self.assertEqual(mutations.test_outcome(out), (False, False))
+
+    def test_fuzz_and_invariant_lines_count(self):
+        out = ("[PASS] testFuzz_x(uint256) (runs: 256, \u03bc: 1, ~: 1)\n"
+               "[FAIL: invariant broken] invariant_money() (runs: 1, calls: 5, reverts: 0)\n")
+        self.assertEqual(mutations.test_outcome(out), (True, True))
+
 
 if __name__ == "__main__":
     unittest.main()
