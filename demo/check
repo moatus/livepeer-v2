@@ -1,0 +1,8 @@
+#!/bin/sh
+# The demo's fast check: the case writer and the manifest, with no chain or
+# node. ./dev runs it from this folder; ./dev demo runs the demo itself.
+# Exit 0 passed, 1 failed, 2 could not run.
+set -u
+cd "$(dirname "$0")"
+command -v python3 >/dev/null 2>&1 || { echo "python3 is not installed (./dev doctor)"; exit 2; }
+python3 -B test_demo.py || exit 1
