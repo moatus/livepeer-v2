@@ -103,8 +103,8 @@ members are those at the start of R (R-08, R-13, R-15, R-24).
 
 ## The shared examples
 
-`vectors/october-main-text-v2.json` holds the parameters above and 64
-cases: v1's 35, unchanged, and 29 new ones. Every number in it is a
+`vectors/october-main-text-v2.json` holds the parameters above and 66
+cases: v1's 35, unchanged, and 31 new ones. Every number in it is a
 decimal string. A case has an `id`, a `kind` (`settlement`, `ceiling`,
 `round`, `claim`, `ledger`, `split`, `score`, `validators` or
 `validator-pay`), its `inputs`, and `expected`: exact amounts, one `code`,
