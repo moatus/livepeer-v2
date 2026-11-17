@@ -47,6 +47,17 @@ class LedgerInputs(unittest.TestCase):
                                             payer='P', **node))
                 self.reject(inputs, 'observe requires a node')
 
+    def test_bond_requires_owned_lpt(self):
+        with self.assertRaisesRegex(ValueError, 'bond exceeds holder LPT'):
+            ledger({'steps': [
+                dict(step='1', round='1', action='register', node='N'),
+                dict(step='2', round='1', action='bond', node='N', holder='H', amount_wei='1')
+            ]}, self.parameters)
+
+    def test_earning_round_starts_at_one(self):
+        with self.assertRaisesRegex(ValueError, 'earning rounds start at one'):
+            ledger({'steps': [dict(step='1', round='1', action='mint_shares', caller='K', earned_round='0')]}, self.parameters)
+
 
 if __name__ == '__main__':
     unittest.main()

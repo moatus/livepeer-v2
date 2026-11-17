@@ -212,6 +212,7 @@ def calculate(kind: str, inputs: dict, parameters: Parameters,
 def ledger(inputs: dict, parameters: Parameters) -> dict:
     """R-01/03/04/21/22: replay a fresh account ledger from inputs alone."""
     steps = inputs["steps"]
+    lpt = LptReplay(inputs, parameters)
     previous_round = 0
     tickets = {}
     for s in steps:
@@ -266,6 +267,7 @@ def ledger(inputs: dict, parameters: Parameters) -> dict:
         node, payer = s.get("node"), s.get("payer")
         key = (payer, node)
         code = None
+        lpt.advance(round_number)
         if action == "register":
             payouts.setdefault(node, node)
         elif action == "set_payout":
@@ -330,10 +332,10 @@ def ledger(inputs: dict, parameters: Parameters) -> dict:
                 fees[s["round"]][node] += gross
                 used.add(s["ticket"])
         else:
-            raise NotImplementedError(f"ledger action: {action!r}")
+            code = lpt.act(s, payouts, fees, observed)
         if code:
             refused.append({"step": s["step"], "code": code})
-    return {"deposits_micro_usdc": deposits, "earmarks_micro_usdc": earmarks,
+    return {**lpt.result(), "deposits_micro_usdc": deposits, "earmarks_micro_usdc": earmarks,
             "paid_micro_usdc": paid, "released_micro_usdc": released,
             "network_micro_usdc": network, "fees_micro_usdc": fees,
             "total_fees_micro_usdc": {r: sum(nodes.values()) for r, nodes in fees.items()},
@@ -427,3 +429,146 @@ def validators(inputs: dict, parameters: Parameters) -> dict:
         if code:
             refused.append({"step": step["step"], "code": code})
     return {"observed": observed, "refused": refused}
+
+
+class LptReplay:
+    """Round snapshots are immutable; execution balances change immediately."""
+
+    def __init__(self, inputs, parameters):
+        from collections import defaultdict
+        self.p = parameters
+        self.members = inputs.get('members', {})
+        self.bal = {s[k]: 0 for s in inputs['steps'] for k in
+                    ('node', 'payout', 'holder', 'caller', 'to') if k in s}
+        self.bal.update(dict.fromkeys(('Claims', 'StakeLedger', 'Treasury'), 0))
+        self.staying = defaultdict(int)
+        self.transfers, self.unbonded = [], []
+        self.cuts, self.snapshots, self.cut_snapshots = {}, {}, {}
+        self.shares, self.minted, self.pots = {}, {}, {}
+        self.drawn = set()
+        self.round = 0
+        self.enabled = False
+
+    def advance(self, r):
+        while self.round < r:
+            self.round += 1
+            for t in self.transfers[:]:
+                h, old, new, due, amount = t
+                if due <= self.round:
+                    self.staying[h, new] += amount
+                    self.transfers.remove(t)
+            bonds = dict(self.staying)
+            for h, old, new, due, amount in self.transfers:
+                bonds[h, old] = bonds.get((h, old), 0) + amount
+            self.snapshots[self.round] = bonds
+            self.cut_snapshots[self.round] = self.cuts.copy()
+
+    def details(self, r, node):
+        return {'cut_millionths': str(self.cut_snapshots[r].get(node, self.p.default_reward_cut_millionths)),
+                'bonds_wei': {h: str(b) for (h, n), b in self.snapshots[r].items() if n == node}}
+
+    def pay(self, r, node, amount, category, payouts):
+        parts = split(amount, self.details(r, node))
+        self.pots[category, r, node] = parts['parts_wei']
+        self.bal[payouts[node]] += parts['cut_wei']
+        self.bal['Claims'] += parts['pot_wei']
+
+    def act(self, s, payouts, fees, observed):
+        self.enabled = True
+        a, r, n, h = s['action'], self.round, s.get('node'), s.get('holder')
+        amount = integer(s.get('amount_wei', '0'))
+        if a == 'grant_lpt':
+            self.bal[s['to']] += amount
+        elif a == 'set_cut':
+            cut = integer(s['cut_millionths'])
+            if cut > MILLION:
+                return 'CUT_OUT_OF_RANGE'
+            self.cuts[n] = cut
+        elif a == 'observe_stake':
+            b = self.snapshots[r]
+            observed.append({'step': s['step'], 'stake_wei': sum(v for (holder, node), v in b.items() if node == n), 'total_stake_wei': sum(b.values())})
+        elif a in ('bond', 'transfer', 'unbond', 'unbond_transfer', 'rebond'):
+            old, new = s.get('from', n), s.get('to', n)
+            if a in ('bond', 'transfer', 'rebond') and new not in payouts:
+                return 'NOT_REGISTERED'
+            if a == 'bond':
+                if amount > self.bal[h]:
+                    raise ValueError('bond exceeds holder LPT')
+                self.bal[h] -= amount
+                self.bal['StakeLedger'] += amount
+                self.staying[h, n] += amount
+            elif a in ('transfer', 'unbond'):
+                if amount > self.staying[h, old]:
+                    return 'AMOUNT_TOO_LARGE'
+                self.staying[h, old] -= amount
+                if a == 'transfer':
+                    self.transfers.append([h, old, new, r + self.p.unbonding_period_rounds, amount])
+                else:
+                    self.unbonded.append([h, old, r + self.p.unbonding_period_rounds, amount])
+            else:
+                records = (sorted([t for t in self.transfers if t[:3] == [h, old, new]], key=lambda t: t[-2], reverse=True)
+                           if a == 'unbond_transfer' else list(reversed([t for t in self.unbonded if t[:2] == [h, n] and t[-2] > r])))
+                if amount > sum(t[-1] for t in records):
+                    return 'AMOUNT_TOO_LARGE'
+                remaining = amount
+                for t in records:
+                    take = min(remaining, t[-1]); t[-1] -= take; remaining -= take
+                if a == 'rebond':
+                    self.staying[h, n] += amount
+                else:
+                    self.unbonded.append([h, old, r + self.p.unbonding_period_rounds, amount])
+        elif a == 'withdraw_unbonded':
+            records = [t for t in self.unbonded if t[0] == h and t[-2] <= r]
+            value = sum(t[-1] for t in records)
+            if not value:
+                return 'UNBOND_NOT_READY'
+            for t in records:
+                self.unbonded.remove(t)
+            self.bal[h] += value
+            self.bal['StakeLedger'] -= value
+        elif a in ('claim', 'mint_shares'):
+            earned = integer(s['earned_round'])
+            if earned == 0:
+                raise ValueError('earning rounds start at one')
+            if a == 'claim' and s['caller'] != n:
+                return 'NOT_AUTHORIZED'
+            if a == 'mint_shares':
+                if earned >= r:
+                    return 'CLAIM_TOO_EARLY'
+                if str(earned) in self.shares:
+                    return 'ALREADY_CLAIMED'
+                members = self.members.get(str(earned), [])
+                result = calculate('validator-pay', {'round': str(earned - 1), 'members': [{'node': m, 'stake_wei': str(sum(integer(b) for b in self.details(earned, m)['bonds_wei'].values()))} for m in members]}, self.p, {})
+                shares = fixed_shares(self.p, emission(self.p, earned - 1))
+                self.shares[str(earned)] = shares
+                value = sum(shares.values())
+                self.bal['Treasury'] += shares['treasury_wei'] + result['to_treasury_wei']
+                for m, paid in result['paid_wei'].items():
+                    self.pay(earned, m, paid, 'validator', payouts)
+            else:
+                nodes = set(payouts)
+                earned_input = {'round': str(earned - 1), 'nodes': [{'node': m, 'fees_micro_usdc': str(fees.get(str(earned), {}).get(m, 0)), 'stake_wei': str(sum(integer(b) for b in self.details(earned, m)['bonds_wei'].values())), 'score': str(MILLION)} for m in nodes]} if earned < r else {'round': str(earned - 1)}
+                result = calculate('claim', {'earned_in': 'round', 'claim_round': str(r - 1), 'node': n, 'score': s['score'], 'already_paid': ('node', earned, n) in self.pots}, self.p, {'round': earned_input})
+                if 'code' in result:
+                    return result['code']
+                value = result['paid_wei']
+                self.pay(earned, n, value, 'node', payouts)
+            self.minted[str(earned)] = self.minted.get(str(earned), 0) + value
+        elif a in ('withdraw_parts', 'withdraw_validator_parts'):
+            category = 'node' if a == 'withdraw_parts' else 'validator'
+            rounds = [integer(v) for v in s['rounds']]
+            keys = [(category, e, n, h) for e in rounds]
+            if len(set(keys)) != len(keys) or any(k in self.drawn for k in keys):
+                return 'ALREADY_CLAIMED'
+            if any((category, e, n) not in self.pots and (category == 'node' or str(e) not in self.shares) for e in rounds):
+                return 'NOT_CLAIMED'
+            value = sum(self.pots.get((category, e, n), {}).get(h, 0) for e in rounds)
+            self.drawn.update(keys)
+            self.bal[h] += value
+            self.bal['Claims'] -= value
+        else:
+            raise NotImplementedError(f'ledger action: {a!r}')
+
+    def result(self):
+        return ({'lpt_wei': self.bal, 'shares_wei': self.shares,
+                 'minted_for_round_wei': self.minted, 'lpt_minted_wei': sum(self.minted.values())} if self.enabled else {})

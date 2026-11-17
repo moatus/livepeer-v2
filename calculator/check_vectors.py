@@ -7,7 +7,7 @@ from pathlib import Path
 from reference import Parameters, calculate
 
 
-DEFAULT_VECTORS = Path(__file__).resolve().parent.parent / "vectors/october-main-text-v1.json"
+DEFAULT_VECTORS = Path(__file__).resolve().parent.parent / "vectors/october-main-text-v2.json"
 
 
 def decimal_strings(value):
