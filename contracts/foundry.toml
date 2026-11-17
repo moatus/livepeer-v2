@@ -7,3 +7,5 @@ out = "out"
 cache_path = "cache"
 libs = []
 solc_version = "0.8.30"
+# The contract tests read the shared examples; nothing else on disk.
+fs_permissions = [{ access = "read", path = "../vectors" }]

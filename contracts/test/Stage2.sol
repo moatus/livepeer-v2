@@ -1,0 +1,175 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.30;
+
+import {vm} from "./Vm.sol";
+import {Controller} from "../src/authority/Controller.sol";
+import {Registry} from "../src/authority/Registry.sol";
+import {RoundClock} from "../src/clock/RoundClock.sol";
+import {Broker} from "../src/money/Broker.sol";
+import {MockUSDC} from "../src/money/MockUSDC.sol";
+import {ITicketBroker} from "../interfaces/ITicketBroker.sol";
+import {IRegistry} from "../interfaces/IRegistry.sol";
+
+/// A fresh stage 2 deployment, the shared examples, and the steps a test
+/// takes as a participant: register, fund, sign and redeem a ticket.
+abstract contract Stage2 {
+    RoundClock internal clock;
+    Registry internal registry;
+    MockUSDC internal usdc;
+    Broker internal broker;
+    Controller internal controller;
+
+    string internal vectors;
+
+    /// Deploys the five contracts at block 100 (round 1 starts there).
+    function deploy() internal {
+        vm.roll(100);
+        clock = new RoundClock();
+        registry = new Registry(clock);
+        usdc = new MockUSDC();
+        broker = new Broker(usdc, IRegistry(address(registry)), clock);
+        controller = new Controller(address(registry), address(clock), address(broker));
+    }
+
+    function loadVectors() internal {
+        vectors = vm.readFile(string.concat(vm.projectRoot(), "/../vectors/october-main-text-v1.json"));
+    }
+
+    function param(string memory name) internal view returns (uint256) {
+        return vm.parseUint(vm.parseJsonString(vectors, string.concat(".parameters.", name)));
+    }
+
+    /// Index of a case in the examples file.
+    function caseIndex(string memory id) internal view returns (uint256) {
+        string[] memory ids = abi.decode(vm.parseJson(vectors, ".cases[*].id"), (string[]));
+        for (uint256 i = 0; i < ids.length; i++) {
+            if (eq(ids[i], id)) return i;
+        }
+        revert(string.concat("no case ", id));
+    }
+
+    // --- participants ---------------------------------------------------
+
+    /// A throwaway key per name, made inside the test.
+    function key(string memory name) internal pure returns (uint256) {
+        return uint256(keccak256(abi.encodePacked("lp2 test key ", name)));
+    }
+
+    function who(string memory name) internal pure returns (address) {
+        return vm.addr(key(name));
+    }
+
+    /// Starts rounds, 50 blocks apart, until `round` is current.
+    function toRound(uint256 round) internal {
+        while (clock.currentRound() < round) {
+            vm.roll(block.number + clock.roundLength());
+            clock.initializeRound();
+        }
+    }
+
+    function register(string memory node) internal {
+        vm.prank(who(node));
+        registry.register();
+    }
+
+    /// Mints the payer exactly what it funds, then funds. Returns the
+    /// revert data, empty when the step took effect. A refused step leaves
+    /// the payer holding nothing it did not have.
+    function fund(string memory payer, uint256 dep, address node, uint256 mark) internal returns (bytes memory) {
+        address p = who(payer);
+        usdc.mint(p, dep + mark);
+        vm.prank(p);
+        usdc.approve(address(broker), dep + mark);
+        vm.prank(p);
+        (bool ok, bytes memory ret) = address(broker).call(abi.encodeCall(Broker.fund, (dep, node, mark)));
+        if (!ok) {
+            vm.prank(p);
+            usdc.transfer(address(0xdead), dep + mark);
+            return ret;
+        }
+        return "";
+    }
+
+    /// The ticket, signature and random value a payer gives a node, as the
+    /// node's signer builds them. Every ticket wins.
+    function ticket(string memory id, string memory payer, address node, uint256 created, uint256 face)
+        internal
+        view
+        returns (ITicketBroker.Ticket memory t, bytes memory sig, uint256 rand)
+    {
+        rand = uint256(keccak256(abi.encodePacked("rand ", id)));
+        t = ITicketBroker.Ticket({
+            recipient: node,
+            sender: who(payer),
+            faceValue: face,
+            winProb: type(uint256).max,
+            senderNonce: uint256(keccak256(abi.encodePacked("nonce ", id))) % 2 ** 32,
+            recipientRandHash: keccak256(abi.encodePacked(rand)),
+            auxData: abi.encodePacked(created, clock.blockHashForRound(created))
+        });
+        sig = signTicket(key(payer), t);
+    }
+
+    function ticketHash(ITicketBroker.Ticket memory t) internal pure returns (bytes32) {
+        return keccak256(
+            abi.encodePacked(
+                t.recipient, t.sender, t.faceValue, t.winProb, t.senderNonce, t.recipientRandHash, t.auxData
+            )
+        );
+    }
+
+    function signTicket(uint256 pk, ITicketBroker.Ticket memory t) internal pure returns (bytes memory) {
+        bytes32 digest = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", ticketHash(t)));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    /// Submits as the node does. Returns the revert data, empty on success.
+    function redeem(ITicketBroker.Ticket memory t, bytes memory sig, uint256 rand) internal returns (bytes memory) {
+        vm.prank(t.recipient);
+        (bool ok, bytes memory ret) =
+            address(broker).call(abi.encodeCall(Broker.redeemWinningTicket, (t, sig, rand)));
+        return ok ? bytes("") : ret;
+    }
+
+    // --- refusals -------------------------------------------------------
+
+    /// The stable code a call was refused with: a custom error's name, or
+    /// the kept revert text.
+    function code(bytes memory ret) internal pure returns (string memory) {
+        string[9] memory codes = [
+            "NOT_REGISTERED",
+            "TICKET_EXPIRED",
+            "TICKET_USED",
+            "TICKET_INVALID",
+            "NOTHING_TO_PAY",
+            "AMOUNT_TOO_LARGE",
+            "RELEASE_NOT_READY",
+            "PAYOUT_INVALID",
+            "ROUND_NOT_OVER"
+        ];
+        if (ret.length == 4) {
+            for (uint256 i = 0; i < codes.length; i++) {
+                if (bytes4(ret) == bytes4(keccak256(bytes(string.concat(codes[i], "()"))))) return codes[i];
+            }
+        }
+        if (ret.length > 4 && bytes4(ret) == bytes4(keccak256("Error(string)"))) {
+            bytes memory body = new bytes(ret.length - 4);
+            for (uint256 i = 0; i < body.length; i++) {
+                body[i] = ret[i + 4];
+            }
+            return abi.decode(body, (string));
+        }
+        return "unknown revert";
+    }
+
+    function eq(string memory a, string memory b) internal pure returns (bool) {
+        return keccak256(bytes(a)) == keccak256(bytes(b));
+    }
+
+    function expectEq(uint256 got, uint256 want, string memory what) internal pure {
+        if (got != want) {
+            revert(string.concat(what, ": got ", vm.toString(got), ", want ", vm.toString(want)));
+        }
+    }
+}
