@@ -75,6 +75,13 @@ contract StakeLedgerTest is LedgerRunnerV2 {
             "NOT_REGISTERED",
             "transfer to X"
         );
+        // X to X, with no bond at X: NOT_REGISTERED before SAME_NODE and the
+        // amount (D-38, D-39).
+        expectRefused(
+            as_(h, address(ledger), abi.encodeCall(StakeLedger.transferBond, (who("X"), who("X"), 1))),
+            "NOT_REGISTERED",
+            "transfer X to X"
+        );
         expectDone(as_(h, address(ledger), abi.encodeCall(StakeLedger.unbond, (who("P"), 10e18))), "unbond");
         expectRefused(
             as_(h, address(ledger), abi.encodeCall(StakeLedger.rebond, (who("X"), 10e18))),
