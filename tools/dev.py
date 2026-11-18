@@ -25,7 +25,17 @@ ROOT = Path(__file__).resolve().parent.parent
 # A folder that holds code checks itself: `<folder>/check` is the fast check
 # and `<folder>/qualify` the heavy one. `./dev` only finds and runs them.
 CODE_DIRS = ("tools", "calculator", "contracts", "programs", "demo")
-QUALIFY_DIRS = ("calculator", "contracts", "programs")
+# A folder with no heavy checks says so here, with the reason: ./dev qualify
+# shows it as n/a with that reason, never as passed, and fails if such a
+# folder has a qualify script after all. Any other folder that holds code
+# needs one.
+NO_QUALIFY = {
+    "tools": "no heavy checks: its fast check runs all of its self-tests",
+    "calculator": "no heavy checks: its fast check already runs every shared example and its"
+                  " unit tests, and nothing slower exists for it",
+    "demo": "its long run is ./dev demo, run on its own: every night and when a stage closes",
+}
+QUALIFY_DIRS = tuple(folder for folder in CODE_DIRS if folder not in NO_QUALIFY)
 
 PASSED, FAILED, NOT_RUN, NA = "passed", "failed", "not_run", "n/a"
 
@@ -162,13 +172,19 @@ def check_doors(paths: list[str]) -> list[tuple[str, str, list[str]]]:
 
 
 def check_components(kind: str) -> list[tuple[str, str, list[str]]]:
-    wanted = CODE_DIRS if kind == "check" else QUALIFY_DIRS
     out = []
-    for folder in wanted:
+    for folder in CODE_DIRS:
         name = f"{folder}/{kind}"
         base = ROOT / folder
         if not base.is_dir() or not any(base.iterdir()):
             out.append((name, NA, ["nothing built here yet"]))
+            continue
+        if kind == "qualify" and folder in NO_QUALIFY:
+            if (base / kind).exists():
+                out.append((name, FAILED, [f"tools/dev.py says {folder}/ has no heavy checks, but {name} exists:"
+                                           " remove one or the other"]))
+            else:
+                out.append((name, NA, [NO_QUALIFY[folder]]))
             continue
         if folder == "tools" and os.environ.get("LP2_DEV_SELFTEST"):
             out.append((name, NA, ["skipped inside the self-test"]))
@@ -535,6 +551,9 @@ def cmd_review(args) -> int:
     else:
         for folder in QUALIFY_DIRS:
             out(f"| {folder}/qualify (heavy checks) | `not_run` | `./dev qualify`, when the stage closes |")
+        for folder, reason in NO_QUALIFY.items():
+            if (ROOT / folder).is_dir():
+                out(f"| {folder}/qualify | `n/a`: {reason} | |")
     out("| Demo reconciled against the calculator | `not_run` by this report | `./dev demo`, at landing when behaviour changed, and at stage close |")
     out()
 

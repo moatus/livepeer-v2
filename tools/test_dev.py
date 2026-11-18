@@ -274,9 +274,11 @@ class Review(Fixture):
 
     def test_heavy_checks_are_listed_as_not_run(self):
         self.add("calculator/check", PASS, executable=True)
-        self.commit("Calculator check")
+        self.add("programs/check", PASS, executable=True)
+        self.commit("Calculator and programs checks")
         _, out = self.dev("review", "--base", "HEAD~1")
-        self.assertIn("| calculator/qualify (heavy checks) | `not_run` |", out)
+        self.assertIn("| programs/qualify (heavy checks) | `not_run` |", out)
+        self.assertIn("| calculator/qualify | `n/a`: no heavy checks:", out)
 
     def test_an_unknown_base_is_a_usage_error(self):
         code, _ = self.dev("review", "--base", "no-such-branch")
@@ -290,37 +292,62 @@ class Qualify(Fixture):
         self.assertIn("qualify: not_run", out)
 
     def test_a_clean_passing_run_is_recorded_and_shown_by_the_report(self):
-        self.add("calculator/check", PASS, executable=True)
-        self.add("calculator/qualify", PASS, executable=True)
-        self.commit("Calculator with heavy checks")
+        self.add("programs/check", PASS, executable=True)
+        self.add("programs/qualify", PASS, executable=True)
+        self.commit("Programs with heavy checks")
         code, out = self.dev("qualify")
         self.assertEqual(code, 0, out)
         record = json.loads((self.repo / ".cache/dev/qualify.json").read_text())
         self.assertEqual(record["commit"], self.git("rev-parse", "HEAD").strip())
         _, report = self.dev("review", "--base", "HEAD~1")
-        self.assertIn("| calculator/qualify | passed on this commit |", report)
+        self.assertIn("| programs/qualify | passed on this commit |", report)
 
     def test_an_uncommitted_tree_keeps_no_record(self):
-        self.add("calculator/check", PASS, executable=True)
-        self.add("calculator/qualify", PASS, executable=True)
+        self.add("programs/check", PASS, executable=True)
+        self.add("programs/qualify", PASS, executable=True)
         code, out = self.dev("qualify")
         self.assertEqual(code, 0, out)
         self.assertFalse((self.repo / ".cache/dev/qualify.json").exists())
 
     def test_a_passing_heavy_check_still_shows_the_parts_it_did_not_run(self):
-        self.add("calculator/check", PASS, executable=True)
-        self.add("calculator/qualify", "#!/bin/sh\necho 'runs: 3s'\necho 'static analysis: not_run (nothing installed)'\nexit 0\n", executable=True)
+        self.add("programs/check", PASS, executable=True)
+        self.add("programs/qualify", "#!/bin/sh\necho 'runs: 3s'\necho 'static analysis: not_run (nothing installed)'\nexit 0\n", executable=True)
         code, out = self.dev("qualify")
         self.assertEqual(code, 0, out)
-        self.assertIn("passed   calculator/qualify", out)
+        self.assertIn("passed   programs/qualify", out)
         self.assertIn("static analysis: not_run (nothing installed)", out)
         self.assertNotIn("runs: 3s", out)
 
     def test_a_failing_heavy_check_fails(self):
-        self.add("calculator/check", PASS, executable=True)
-        self.add("calculator/qualify", FAIL, executable=True)
+        self.add("programs/check", PASS, executable=True)
+        self.add("programs/qualify", FAIL, executable=True)
         code, out = self.dev("qualify")
         self.assertEqual(code, 1, out)
+
+    def test_a_folder_with_no_heavy_checks_is_shown_with_its_reason(self):
+        self.add("calculator/check", PASS, executable=True)
+        self.add("programs/check", PASS, executable=True)
+        self.add("programs/qualify", PASS, executable=True)
+        code, out = self.dev("qualify")
+        self.assertEqual(code, 0, out)
+        self.assertIn("n/a      calculator/qualify\n         no heavy checks: its fast check already runs every shared example", out)
+        self.assertNotIn("passed   calculator/qualify", out)
+
+    def test_a_folder_with_code_and_no_qualify_is_not_run(self):
+        self.add("calculator/check", PASS, executable=True)
+        self.add("programs/check", PASS, executable=True)
+        code, out = self.dev("qualify")
+        self.assertEqual(code, 2, out)
+        self.assertIn("not_run  programs/qualify\n         programs/ holds code but has no qualify script", out)
+
+    def test_a_qualify_script_in_a_folder_said_to_have_none_fails(self):
+        self.add("calculator/check", PASS, executable=True)
+        self.add("calculator/qualify", PASS, executable=True)
+        self.add("programs/check", PASS, executable=True)
+        self.add("programs/qualify", PASS, executable=True)
+        code, out = self.dev("qualify")
+        self.assertEqual(code, 1, out)
+        self.assertIn("failed   calculator/qualify", out)
 
 
 class Doctor(Fixture):
