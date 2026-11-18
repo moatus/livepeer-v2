@@ -10,6 +10,7 @@ import contextlib
 import importlib.machinery
 import importlib.util
 import io
+import json
 import os
 import shutil
 import subprocess
@@ -283,6 +284,44 @@ class Slither(unittest.TestCase):
     def test_a_finding_without_a_reason_is_refused(self):
         with self.assertRaises(SystemExit):
             self.s.parse_accepted("calls-loop: C.f() has external calls inside a loop: x\n")
+
+
+class SlitherRun(Fakes):
+    """contracts/slither: an analyzer that could not finish is not_run."""
+
+    def setUp(self):
+        super().setUp()
+        self.tool("forge", "exit 0")
+
+    def slither(self, body, version_exit=0):
+        self.tool("slither", f'[ "$1" = --version ] && {{ echo {pinned("SLITHER_VERSION")}; exit {version_exit}; }}\n' + body)
+
+    def test_an_analyzer_that_stops_before_its_report_is_not_run(self):
+        self.slither('echo "Traceback: something went wrong" >&2\nexit 1')
+        code, out = self.run_script(ROOT / "contracts" / "slither")
+        self.assertEqual(code, 2, out)
+        self.assertIn("not_run", out)
+
+    def test_a_report_that_says_it_did_not_succeed_is_not_run(self):
+        self.slither('while [ "$1" != --json ]; do shift; done\n'
+                     'echo \'{"success": false, "error": "compilation failed"}\' >"$2"\nexit 1')
+        code, out = self.run_script(ROOT / "contracts" / "slither")
+        self.assertEqual(code, 2, out)
+
+    def test_a_version_command_that_fails_is_not_run(self):
+        self.slither("exit 0", version_exit=1)
+        code, out = self.run_script(ROOT / "contracts" / "slither")
+        self.assertEqual(code, 2, out)
+
+    def test_a_finished_report_with_a_new_finding_fails(self):
+        report = {"success": True, "results": {"detectors": [
+            finding("calls-loop", "C.f() has external calls inside a loop: x = l.v(i)")]}}
+        (self.tmp / "report.json").write_text(json.dumps(report))
+        self.slither('while [ "$1" != --json ]; do shift; done\n'
+                     f'cat "{self.tmp / "report.json"}" >"$2"\nexit 0')
+        code, out = self.run_script(ROOT / "contracts" / "slither")
+        self.assertEqual(code, 1, out)
+        self.assertIn("NEW", out)
 
 
 class Mutations(Fakes):

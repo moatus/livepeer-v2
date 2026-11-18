@@ -5,9 +5,10 @@ reason it is accepted, in slither.accepted; a finding not listed fails the
 check, and so does a listed one slither no longer reports.
 
 The workflow .github/workflows/slither.yml runs it when the contracts
-change, and ./dev qualify runs it through contracts/qualify. Exit 0 passed,
-1 failed, 2 could not run (slither missing or at another version: never a
-pass)."""
+change, and ./dev qualify runs it through contracts/qualify. Exit 0 passed;
+1 failed: a finding neither fixed nor listed, or a listed one no longer
+reported; 2 could not run: slither missing, at another version, or
+stopping before it wrote its report (never a pass, never a finding)."""
 import json
 import re
 import shutil
@@ -73,7 +74,11 @@ def main() -> int:
     if not shutil.which("slither"):
         print(f"static analysis: not_run (slither is not installed; tools/setup slither installs {want})")
         return 2
-    have = subprocess.run(["slither", "--version"], capture_output=True, text=True).stdout.strip()
+    probe = subprocess.run(["slither", "--version"], capture_output=True, text=True)
+    have = probe.stdout.strip()
+    if probe.returncode != 0:
+        print(f"static analysis: not_run (slither --version exited {probe.returncode}; tools/setup slither)")
+        return 2
     if have != want:
         print(f"static analysis: not_run (slither is {have or 'unknown'}, tools/versions pins {want})")
         return 2
@@ -96,11 +101,11 @@ def main() -> int:
             data = json.loads(report.read_text())
         except (OSError, ValueError):
             data = {}
-        if not data.get("success"):
+        if not isinstance(data, dict) or data.get("success") is not True:
             print((done.stdout + done.stderr).strip()[-3000:])
-            print("static analysis: slither did not finish")
-            return 1
-    findings = data.get("results", {}).get("detectors", [])
+            print(f"static analysis: not_run (slither exited {done.returncode} without a finished report)")
+            return 2
+    findings = (data.get("results") or {}).get("detectors", [])
 
     new, stale = compare(findings, parse_accepted(ACCEPTED.read_text()))
     for k, found, listed in new:
@@ -119,5 +124,15 @@ def main() -> int:
     return 0
 
 
+def not_run(kind, value, tb):
+    # This script stopping is a check that did not run; exit 1 is only for
+    # a finding.
+    import traceback
+    traceback.print_exception(kind, value, tb)
+    print("static analysis: not_run (contracts/slither stopped; see above)")
+    sys.exit(2)
+
+
 if __name__ == "__main__":
+    sys.excepthook = not_run
     sys.exit(main())
