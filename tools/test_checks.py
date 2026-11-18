@@ -232,21 +232,23 @@ class Mutations(Fakes):
         self.patch.start()
         self.addCleanup(self.patch.stop)
 
-    def forge(self, fmt=0):
-        """A fake forge: builds, lays out with the given exit code, and
-        fails every test it is asked to run."""
+    def forge(self, fmt=0, check=0):
+        """A fake forge: builds, lays out with the exit code fmt, checks
+        the layout with the exit code check, and fails every test it is
+        asked to run."""
         self.tool("forge", 'case "$1" in\n'
-                           f"  fmt) exit {fmt} ;;\n"
+                           f'  fmt) [ "$2" = --check ] && exit {check}; exit {fmt} ;;\n'
                            '  test) echo "[FAIL: seeded] test_x() (gas: 1)"; exit 1 ;;\n'
                            "esac\nexit 0")
 
     def fast_check(self, code):
         self.check.write_text(f"#!/bin/sh\necho 'the fast check, exit {code}'\nexit {code}\n")
 
-    def main(self, name):
+    def main(self, *names):
         out = io.StringIO()
-        with mock.patch.dict(os.environ, {"PATH": str(self.bin)}), contextlib.redirect_stdout(out):
-            code = self.m.main([name])
+        with mock.patch.dict(os.environ, {"PATH": str(self.bin), "LOG": str(self.log)}), \
+                contextlib.redirect_stdout(out):
+            code = self.m.main(list(names))
         return code, out.getvalue()
 
     def test_a_check_that_turns_red_catches_the_mutant(self):
@@ -260,22 +262,88 @@ class Mutations(Fakes):
         self.forge(fmt=1)
         self.fast_check(1)
         code, out = self.main("abi: extra public function on Broker")
-        self.assertEqual(code, 1, out)
+        self.assertEqual(code, 2, out)
         self.assertIn("NOTRUN", out)
+
+    def test_a_layout_check_that_could_not_run_is_not_run_not_caught(self):
+        # The real contracts/check, with a forge fmt --check that stops.
+        self.forge(check=9)
+        shutil.copy(ROOT / "contracts" / "check", self.check)
+        code, out = self.main("abi: extra public function on Broker")
+        self.assertEqual(code, 2, out)
+        self.assertIn("NOTRUN", out)
+        self.assertNotIn("RED", out)
 
     def test_a_check_that_could_not_run_is_not_run_not_caught(self):
         self.forge()
         self.fast_check(2)
         code, out = self.main("abi: extra public function on Broker")
-        self.assertEqual(code, 1, out)
+        self.assertEqual(code, 2, out)
         self.assertIn("NOTRUN", out)
 
     def test_a_heavy_only_mutant_needs_a_fast_check_that_ran_green(self):
         self.forge()
         self.fast_check(2)
         code, out = self.main("partly paid ticket not marked used")
-        self.assertEqual(code, 1, out)
+        self.assertEqual(code, 2, out)
         self.assertNotIn("fast check: green", out)
+
+    def test_a_mutant_a_check_ran_and_missed_fails_the_run_beside_one_not_run(self):
+        self.forge()
+        # The first check could not run; the second ran and stayed green.
+        self.check.write_text('#!/bin/sh\n[ -e "$LOG" ] && exit 0\necho >"$LOG"\nexit 2\n')
+        code, out = self.main("abi: extra public function on Broker", "abi: extra public function on Claims")
+        self.assertEqual(code, 1, out)
+        self.assertIn("NOTRUN", out)
+        self.assertIn("GREEN", out)
+
+    def test_a_name_that_matches_no_mutant_is_not_run(self):
+        self.forge()
+        self.fast_check(1)
+        code, out = self.main("no mutant has this name")
+        self.assertEqual(code, 2, out)
+
+
+class ContractsCheck(Fakes):
+    """contracts/check: a finding is exit 1; a forge that could not check is
+    exit 2."""
+
+    def setUp(self):
+        super().setUp()
+        self.dir = self.tmp / "contracts"
+        self.dir.mkdir()
+        shutil.copy(ROOT / "contracts" / "check", self.dir / "check")
+
+    def forge(self, check, test=0):
+        self.tool("forge", 'case "$1" in\n'
+                           f"  fmt) {check} ;;\n"
+                           f"  test) exit {test} ;;\n"
+                           "esac\nexit 0")
+
+    def test_a_layout_that_differs_fails(self):
+        self.forge('echo "Diff in src/A.sol:"; exit 1')
+        code, out = self.run_script(self.dir / "check")
+        self.assertEqual(code, 1, out)
+
+    def test_a_file_the_formatter_cannot_read_is_not_run(self):
+        self.forge('echo "Error: solar reported errors:" >&2; exit 1')
+        code, out = self.run_script(self.dir / "check")
+        self.assertEqual(code, 2, out)
+
+    def test_a_formatter_that_stops_is_not_run(self):
+        self.forge("exit 9")
+        code, out = self.run_script(self.dir / "check")
+        self.assertEqual(code, 2, out)
+
+    def test_a_forge_test_that_stops_is_not_run(self):
+        self.forge("exit 0", test=101)
+        code, out = self.run_script(self.dir / "check")
+        self.assertEqual(code, 2, out)
+
+    def test_a_failing_test_fails(self):
+        self.forge("exit 0", test=1)
+        code, out = self.run_script(self.dir / "check")
+        self.assertEqual(code, 1, out)
 
 
 if __name__ == "__main__":

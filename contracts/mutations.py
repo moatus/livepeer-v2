@@ -15,8 +15,9 @@ A mutation marked fast_green must also leave the whole fast check green:
 it is a defect only the heavy runs find.
 
 Usage: mutations.py [name-substring ...]
-Exit 0 every mutation caught as expected; 1 one was not, or no longer
-applies; 2 could not run.
+Exit 0 every mutation caught as expected; 1 a check that ran missed one,
+or one no longer applies; 2 otherwise a check or the formatter could not
+run for one (NOTRUN), or nothing could run.
 """
 import os, pathlib, re, shutil, signal, subprocess, sys, tempfile, time
 
@@ -199,6 +200,11 @@ def test_outcome(out):
 SETUP = re.compile(r"\]\s+setUp\(\)")
 
 
+# A mutation's outcome: caught as expected; missed by a check that ran (or
+# no longer applies); or not checked, because a check could not run.
+OK, FAIL, NOTRUN = "ok", "fail", "notrun"
+
+
 def main(sel):
     if not shutil.which("forge"):
         print("mutations: forge is not installed (./dev doctor)")
@@ -230,7 +236,7 @@ def main(sel):
                         break
                     p.write_text(t.replace(old, new))
                 if stale:
-                    results.append(("STALE", name, cmd, stale, False))
+                    results.append(("STALE", name, cmd, stale, FAIL))
                     continue
                 # contracts/check holds the layout to forge fmt: lay the
                 # mutant out the same way, so only the seeded error is new.
@@ -238,32 +244,40 @@ def main(sel):
                 fmt, fmt_out = run(["forge", "fmt", *laid], work) if laid else (0, "")
                 if fmt != 0:
                     # A mutant the formatter rejects was never checked.
-                    verdict, ok = "NOTRUN", False
+                    verdict, outcome = "NOTRUN", NOTRUN
                     detail = f"forge fmt failed, so no check ran: {first_failure(fmt_out)}"
                 else:
                     red, ran, detail = catch(cmd, work)
                     verdict = "RED" if red and ran else "GREEN" if ran else "NOTRUN"
-                    ok = verdict == "RED"
-                if fast_green and ok:
+                    outcome = {"RED": OK, "GREEN": FAIL, "NOTRUN": NOTRUN}[verdict]
+                if fast_green and outcome == OK:
                     fred, fran, fdetail = catch("check", work)
                     if not fran:
-                        ok = False
+                        outcome = NOTRUN
                         detail = f"the fast check could not run, so heavy-only is not shown: {fdetail}"
                     elif fred:
-                        ok = False
+                        outcome = FAIL
                         detail = f"fast check also red, so not heavy-only: {fdetail}"
                     else:
                         detail += " | fast check: green"
-                results.append((verdict, name, cmd, f"{detail} ({time.time() - started:.0f}s)", ok))
+                results.append((verdict, name, cmd, f"{detail} ({time.time() - started:.0f}s)", outcome))
             finally:
                 for f, t in saved.items():
                     (work / f).write_text(t)
             print(f"{results[-1][0]:<6} | {name} | {cmd} | {results[-1][3]}", flush=True)
-    bad = [r for r in results if not r[4]]
+    if not results:
+        print("mutations: not_run (no mutation matches " + " ".join(map(repr, sel)) + ")")
+        return 2
+    bad = [r for r in results if r[4] != OK]
     print(f"mutations: {len(results) - len(bad)} of {len(results)} caught as expected")
     for r in bad:
         print(f"mutations: NOT CAUGHT as expected: {r[1]} ({r[0]})")
-    return 1 if bad else 0
+    if any(r[4] == FAIL for r in results):
+        return 1
+    if bad:
+        print(f"mutations: not_run ({len(bad)} could not be checked)")
+        return 2
+    return 0
 
 
 def stop(signum, _frame):

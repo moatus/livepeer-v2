@@ -7,12 +7,29 @@ cd "$(dirname "$0")"
 command -v forge >/dev/null 2>&1 || { echo "forge is not installed (./dev doctor)"; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "python3 is not installed (./dev doctor)"; exit 2; }
 # Every contract and test laid out as forge fmt lays it out (foundry.toml,
-# [fmt]; interfaces/ is left out).
-forge fmt --check src test test-qualify || {
-    echo "forge fmt: not laid out as forge fmt lays it out (forge fmt <file> fixes it)"
-    exit 1
-}
-forge test || exit 1
+# [fmt]; interfaces/ is left out). forge fmt exits 1 both for a layout that
+# differs and for a file it could not read, so a difference is exit 1 with
+# a diff and no error; anything else is a formatter that did not run.
+mkdir -p cache
+forge fmt --check src test test-qualify >cache/fmt.out 2>cache/fmt.err
+code=$?
+cat cache/fmt.out cache/fmt.err
+if [ $code -ne 0 ]; then
+    if [ $code -eq 1 ] && [ ! -s cache/fmt.err ] && grep -q '^Diff in ' cache/fmt.out; then
+        echo "forge fmt: not laid out as forge fmt lays it out (forge fmt <file> fixes it)"
+        exit 1
+    fi
+    echo "forge fmt: not_run (it exited $code without a layout difference; see above)"
+    exit 2
+fi
+# forge test exits 1 when a test fails or the code does not compile; any
+# other exit is forge itself stopping, not a finding.
+forge test
+case $? in
+    0) ;;
+    1) exit 1 ;;
+    *) echo "forge test: not_run (forge stopped; see above)"; exit 2 ;;
+esac
 python3 -m unittest -q test_mutations || exit 1
 
 # The reward maths (rulebook v2). Every function in src/math/ is declared
@@ -21,8 +38,15 @@ python3 -m unittest -q test_mutations || exit 1
 # 1,680, is R-05's exact floor: the largest c with
 # c^840 x 2^r <= EmissionBase^840, held to that inequality here in exact
 # integers. EmissionBase and the half-life are read from the shared examples.
-python3 - <<'EOF' || exit 1
+python3 - <<'EOF'
 import glob, json, re, subprocess, sys
+
+# A forge that stops, or prints no report, is a check that did not run: exit
+# 2. Exit 1 is only for a finding.
+def not_run(kind, value, tb):
+    print(f"maths: not_run ({value!r})")
+    sys.exit(2)
+sys.excepthook = not_run
 
 failed = False
 for path in sorted(glob.glob("src/math/**/*.sol", recursive=True)):
@@ -40,6 +64,9 @@ v = json.load(open("../vectors/october-main-text-v2.json"))["parameters"]
 base, half = int(v["emission_base_wei"]), int(v["emission_half_life_rounds"])
 run = subprocess.run(["forge", "test", "--match-test", "test_ceiling_residues", "--json", "-vv"],
                      capture_output=True, text=True)
+if run.returncode != 0:
+    print(f"maths: not_run (the residue test exited {run.returncode})\n{run.stderr[-600:]}")
+    sys.exit(2)
 logs = [line for suite in json.loads(run.stdout).values()
         for result in suite["test_results"].values() for line in result["decoded_logs"]]
 got = {}
@@ -62,6 +89,11 @@ if not failed:
     print(f"maths: every function pure; C(r) exact for {len(want)} rounds; costliest {gas} gas")
 sys.exit(1 if failed else 0)
 EOF
+case $? in
+    0) ;;
+    1) exit 1 ;;
+    *) exit 2 ;;
+esac
 
 # Each deployed contract and the interface file that declares its public
 # shape. The two ABIs must hold the same functions, events and errors, with
@@ -71,6 +103,13 @@ EOF
 # caller cannot tell them apart.
 python3 - <<'EOF'
 import json, subprocess, sys
+
+# A forge inspect that stops is a check that did not run: exit 2. Exit 1 is
+# only for an ABI that differs.
+def not_run(kind, value, tb):
+    print(f"abi: not_run ({value!r})")
+    sys.exit(2)
+sys.excepthook = not_run
 
 PAIRS = [("Controller", "IController"), ("Registry", "IRegistryV2"), ("RoundClock", "IRoundClock"),
          ("Broker", "ITicketBroker"), ("MockUSDC", "IMockUSDC"), ("StakeLedger", "IStakeLedger"),
