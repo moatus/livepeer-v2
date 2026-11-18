@@ -72,8 +72,11 @@ for tool in "$@"; do
         govulncheck)
             dir=$tools/govulncheck-$GOVULNCHECK_VERSION
             if ! ready "$dir" govulncheck; then
-                # Built with the pinned Go, installed first if it is missing.
-                for d in $("$0" go); do PATH="$d:$PATH"; done
+                # Built with the pinned Go, installed first if it is
+                # missing; never with another Go.
+                godir=$("$0" go) || fail "govulncheck is built with Go $GO_VERSION, which could not be installed"
+                for d in $godir; do PATH="$d:$PATH"; done
+                have go || fail "govulncheck is built with Go $GO_VERSION, and the go on PATH is another version"
                 start "$dir"
                 GOBIN="$(cd "$dir.part" && pwd)" GOTOOLCHAIN=local GOFLAGS= \
                     go install "golang.org/x/vuln/cmd/govulncheck@v$GOVULNCHECK_VERSION" >&2 ||

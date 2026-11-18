@@ -121,6 +121,22 @@ class ProgramsVulncheck(Fakes):
         self.assertEqual(self.logged().strip(), "scan GOVERSION=unset GOTOOLCHAIN=local")
 
 
+class Setup(Fakes):
+    """tools/setup installs only what tools/versions pins."""
+
+    def test_govulncheck_is_not_built_when_the_pinned_go_cannot_be_installed(self):
+        self.tool("curl", "exit 22")  # every download fails
+        self.tool("go", 'case "$1" in\n'
+                        "  env) echo go1.0.0 ;;\n"
+                        '  install) echo install >>"$LOG"\n'
+                        f'           printf \'#!/bin/sh\\necho "Scanner: govulncheck@v{pinned("GOVULNCHECK_VERSION")}"\\n\' >"$GOBIN/govulncheck"\n'
+                        '           chmod +x "$GOBIN/govulncheck" ;;\n'
+                        "esac\nexit 0")
+        code, out = self.run_script(ROOT / "tools" / "setup", "govulncheck", LP2_TOOLS=str(self.tmp / "tools"))
+        self.assertEqual(code, 2, out)
+        self.assertNotIn("install", self.logged())
+
+
 def finding(check, first, *more, line=10):
     """A slither finding as its JSON report gives it."""
     text = f"{first} (src/money/Claims.sol#{line}-{line + 4})\n" + "".join(f"\t{m}\n" for m in more)
