@@ -3,8 +3,8 @@
 #
 # Safe for a pull request from a fork: it runs on `pull_request`, never
 # `pull_request_target`, reads no secrets, and its token can only read.
-# A fork's code still runs on the runner, so a public repository should use
-# a hosted runner.
+# While the job runs on the private host's runner, it skips a pull request
+# from a fork, so a fork's code never runs there.
 name: verify
 
 on:
@@ -21,8 +21,10 @@ concurrency:
 jobs:
   verify:
     name: verify
-    # The runner. The private host's has this label; elsewhere use a hosted
-    # one, such as ubuntu-24.04. Change this line and nothing else.
+    # The runner: the private host's has this label. A fork's code must
+    # never run on it, so the if: skips a fork's pull request. On a hosted
+    # runner, such as ubuntu-24.04, change runs-on and delete the if:.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: lp2-verify
     timeout-minutes: 20
     steps:

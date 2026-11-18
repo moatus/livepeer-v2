@@ -19,8 +19,9 @@ concurrency:
 jobs:
   nightly:
     name: qualify and demo
-    # The runner: see verify.yml. Change this line and nothing else. The
-    # demo needs docker and the network (demo/run).
+    # The runner: see verify.yml. Change this line and nothing else; no
+    # pull request runs this workflow. The demo needs docker and the
+    # network (demo/run).
     runs-on: lp2-verify
     timeout-minutes: 240
     steps:
@@ -35,8 +36,11 @@ jobs:
       - name: ./dev doctor
         run: ./dev doctor
       - name: ./dev qualify
+        id: qualify
         run: ./dev qualify
       - name: ./dev demo
-        # Runs even when qualify failed: the two answer different questions.
-        if: ${{ !cancelled() }}
+        # Runs whether qualify passed or failed: the two answer different
+        # questions. Not when the checkout, the tools or the doctor failed,
+        # since then qualify did not run either.
+        if: ${{ !cancelled() && (steps.qualify.outcome == 'success' || steps.qualify.outcome == 'failure') }}
         run: ./dev demo

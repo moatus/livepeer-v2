@@ -30,7 +30,9 @@ concurrency:
 jobs:
   slither:
     name: slither
-    # The runner: see verify.yml. Change this line and nothing else.
+    # The runner, and a fork's pull request skipped while it is the private
+    # one: see verify.yml. On a hosted runner, change runs-on, delete the if:.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: lp2-verify
     timeout-minutes: 30
     steps:
