@@ -1,0 +1,42 @@
+# The heavy checks every night, and by hand from the Actions page:
+# ./dev qualify (long fuzz and invariant runs, slither, the seeded errors,
+# the Go vulnerability scan against that day's database), then the local
+# demo. A failure here is reported, not a block: no change waits for it.
+name: nightly
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  nightly:
+    name: qualify and demo
+    # The runner: see verify.yml. Change this line and nothing else. The
+    # demo needs docker and the network (demo/run).
+    runs-on: lp2-verify
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: The pinned tools (tools/versions)
+        run: |
+          export LP2_TOOLS="${RUNNER_TOOL_CACHE:-$HOME/.cache}/lp2-tools"
+          tools/setup foundry go govulncheck slither >>"$GITHUB_PATH"
+      - name: ./dev doctor
+        run: ./dev doctor
+      - name: ./dev qualify
+        run: ./dev qualify
+      - name: ./dev demo
+        # Runs even when qualify failed: the two answer different questions.
+        if: ${{ !cancelled() }}
+        run: ./dev demo

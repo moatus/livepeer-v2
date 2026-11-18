@@ -1,11 +1,15 @@
-# Runs the fast checks on every push, on the host's own runner. It reports;
-# it does not stop a push.
-# The private host reads this folder. Before this repository is published
-# elsewhere, change `runs-on`: no other host has a runner with this label.
+# The fast checks, on every push and on every pull request: ./dev verify,
+# then the Go vulnerability scan. It reports; it does not stop a push.
+#
+# Safe for a pull request from a fork: it runs on `pull_request`, never
+# `pull_request_target`, reads no secrets, and its token can only read.
+# A fork's code still runs on the runner, so a public repository should use
+# a hosted runner.
 name: verify
 
 on:
   push:
+  pull_request:
 
 permissions:
   contents: read
@@ -17,6 +21,8 @@ concurrency:
 jobs:
   verify:
     name: verify
+    # The runner. The private host's has this label; elsewhere use a hosted
+    # one, such as ubuntu-24.04. Change this line and nothing else.
     runs-on: lp2-verify
     timeout-minutes: 20
     steps:
@@ -24,11 +30,17 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: The checkout is the pushed commit
+      - name: The checkout is the commit the run is for
         env:
-          PUSHED: ${{ github.sha }}
-        run: test "$(git rev-parse HEAD)" = "$PUSHED"
+          COMMIT: ${{ github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$COMMIT"
+      - name: The pinned tools (tools/versions)
+        run: |
+          export LP2_TOOLS="${RUNNER_TOOL_CACHE:-$HOME/.cache}/lp2-tools"
+          tools/setup foundry go govulncheck >>"$GITHUB_PATH"
       - name: ./dev doctor
         run: ./dev doctor
       - name: ./dev verify
         run: ./dev verify
+      - name: Known vulnerabilities reachable from the Go code
+        run: programs/vulncheck
