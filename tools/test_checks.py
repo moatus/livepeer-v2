@@ -175,5 +175,66 @@ class Slither(unittest.TestCase):
             self.s.parse_accepted("calls-loop: C.f() has external calls inside a loop: x\n")
 
 
+class Mutations(Fakes):
+    """contracts/mutations.py: a mutant counts as caught only when its check
+    ran and turned red."""
+
+    def setUp(self):
+        super().setUp()
+        self.m = load(ROOT / "contracts" / "mutations.py", "mutations_check")
+        work = self.tmp / "copy" / "contracts"
+        shutil.copytree(ROOT / "contracts" / "src", work / "src")
+        shutil.copytree(ROOT / "vectors", self.tmp / "copy" / "vectors")
+        self.check = work / "check"
+        self.patch = mock.patch.object(self.m, "ROOT", work)
+        self.patch.start()
+        self.addCleanup(self.patch.stop)
+
+    def forge(self, fmt=0):
+        """A fake forge: builds, lays out with the given exit code, and
+        fails every test it is asked to run."""
+        self.tool("forge", 'case "$1" in\n'
+                           f"  fmt) exit {fmt} ;;\n"
+                           '  test) echo "[FAIL: seeded] test_x() (gas: 1)"; exit 1 ;;\n'
+                           "esac\nexit 0")
+
+    def fast_check(self, code):
+        self.check.write_text(f"#!/bin/sh\necho 'the fast check, exit {code}'\nexit {code}\n")
+
+    def main(self, name):
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, {"PATH": str(self.bin)}), contextlib.redirect_stdout(out):
+            code = self.m.main([name])
+        return code, out.getvalue()
+
+    def test_a_check_that_turns_red_catches_the_mutant(self):
+        self.forge()
+        self.fast_check(1)
+        code, out = self.main("abi: extra public function on Broker")
+        self.assertEqual(code, 0, out)
+        self.assertIn("RED", out)
+
+    def test_a_formatter_that_fails_is_not_run_not_caught(self):
+        self.forge(fmt=1)
+        self.fast_check(1)
+        code, out = self.main("abi: extra public function on Broker")
+        self.assertEqual(code, 1, out)
+        self.assertIn("NOTRUN", out)
+
+    def test_a_check_that_could_not_run_is_not_run_not_caught(self):
+        self.forge()
+        self.fast_check(2)
+        code, out = self.main("abi: extra public function on Broker")
+        self.assertEqual(code, 1, out)
+        self.assertIn("NOTRUN", out)
+
+    def test_a_heavy_only_mutant_needs_a_fast_check_that_ran_green(self):
+        self.forge()
+        self.fast_check(2)
+        code, out = self.main("partly paid ticket not marked used")
+        self.assertEqual(code, 1, out)
+        self.assertNotIn("fast check: green", out)
+
+
 if __name__ == "__main__":
     unittest.main()

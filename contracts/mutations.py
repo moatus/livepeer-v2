@@ -168,8 +168,10 @@ def first_failure(out):
 def catch(cmd, work):
     """Runs a catching check in the copy. Returns (red, ran, detail)."""
     if cmd == "check":
+        # contracts/check exits 1 on a failure and 2 when it could not run;
+        # only a failure catches a mutant.
         code, out = run(["sh", "./check"], work)
-        return code != 0, True, first_failure(out)
+        return code == 1, code in (0, 1), first_failure(out)
     if cmd.startswith("qualify:"):
         # Failures kept by the last mutant (foundry.toml) must not replay here.
         shutil.rmtree(work / "cache" / "qualify" / "failures", ignore_errors=True)
@@ -233,14 +235,21 @@ def main(sel):
                 # contracts/check holds the layout to forge fmt: lay the
                 # mutant out the same way, so only the seeded error is new.
                 laid = sorted({f for f, _, _ in edits if f.endswith(".sol") and not f.startswith("../")})
-                if laid:
-                    run(["forge", "fmt", *laid], work)
-                red, ran, detail = catch(cmd, work)
-                verdict = "RED" if red and ran else "GREEN" if ran else "NOTRUN"
-                ok = verdict == "RED"
+                fmt, fmt_out = run(["forge", "fmt", *laid], work) if laid else (0, "")
+                if fmt != 0:
+                    # A mutant the formatter rejects was never checked.
+                    verdict, ok = "NOTRUN", False
+                    detail = f"forge fmt failed, so no check ran: {first_failure(fmt_out)}"
+                else:
+                    red, ran, detail = catch(cmd, work)
+                    verdict = "RED" if red and ran else "GREEN" if ran else "NOTRUN"
+                    ok = verdict == "RED"
                 if fast_green and ok:
-                    fred, _, fdetail = catch("check", work)
-                    if fred:
+                    fred, fran, fdetail = catch("check", work)
+                    if not fran:
+                        ok = False
+                        detail = f"the fast check could not run, so heavy-only is not shown: {fdetail}"
+                    elif fred:
                         ok = False
                         detail = f"fast check also red, so not heavy-only: {fdetail}"
                     else:
