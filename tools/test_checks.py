@@ -136,6 +136,15 @@ class Setup(Fakes):
         self.assertEqual(code, 2, out)
         self.assertNotIn("install", self.logged())
 
+    def test_slither_is_installed_from_a_lock_at_the_pinned_version(self):
+        lock = (ROOT / "tools" / "slither-requirements.txt").read_text()
+        self.assertIn(f"\nslither-analyzer=={pinned('SLITHER_VERSION')} \\\n", lock)
+        packages = [line for line in lock.splitlines() if line and not line.startswith(("#", " "))]
+        self.assertGreater(len(packages), 1)
+        for package in packages:  # one version each; pip --require-hashes needs the hashes
+            self.assertRegex(package, r"^[A-Za-z0-9_.-]+==[^ ]+ \\$")
+        self.assertIn("--require-hashes", (ROOT / "tools" / "setup").read_text())
+
 
 def finding(check, first, *more, line=10):
     """A slither finding as its JSON report gives it."""

@@ -9,8 +9,10 @@
 # A tool already on PATH at the pinned version is left alone and prints
 # nothing. Each installed version has its own folder under $LP2_TOOLS
 # (default: .cache/tools in this checkout), so a folder is reused by later
-# runs and never mixes two versions. Downloads are checked against the
-# sha256 in tools/versions. Linux on amd64 only.
+# runs and never mixes two versions. Foundry and Go are checked against
+# the sha256 in tools/versions, govulncheck against the Go checksum
+# database, and slither and every package it needs against the sha256 in
+# tools/slither-requirements.txt. Linux on amd64 only.
 # Exit 0 every tool is ready; 2 one could not be installed.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
@@ -92,8 +94,13 @@ for tool in "$@"; do
                 base=$tools/slither-$SLITHER_VERSION
                 rm -rf "$base"
                 python3 -m venv "$base/venv" >&2 || fail "python3 cannot make a virtual environment (python3-venv)"
-                "$base/venv/bin/pip" install -q --disable-pip-version-check "slither-analyzer==$SLITHER_VERSION" >&2 ||
-                    fail "could not install slither-analyzer $SLITHER_VERSION"
+                # Every package at the version, and every file with the
+                # sha256, that tools/slither-requirements.txt lists.
+                lock=$here/slither-requirements.txt
+                grep -q "^slither-analyzer==$SLITHER_VERSION " "$lock" ||
+                    fail "$lock does not pin slither-analyzer==$SLITHER_VERSION, the version tools/versions pins"
+                "$base/venv/bin/pip" install -q --disable-pip-version-check --require-hashes --only-binary :all: -r "$lock" >&2 ||
+                    fail "could not install slither-analyzer $SLITHER_VERSION from $lock"
                 # Only slither goes on PATH: the environment's python3 and
                 # pip would otherwise shadow the machine's.
                 mkdir -p "$dir"

@@ -17,5 +17,7 @@ GO_SHA256=7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840
 # checks the module against the Go checksum database.
 GOVULNCHECK_VERSION=1.9.0
 
-# slither: contracts/slither. Installed from PyPI into its own environment.
+# slither: contracts/slither. Installed from PyPI into its own environment,
+# with every package it needs, from tools/slither-requirements.txt, which
+# pins the same version and the sha256 of each file.
 SLITHER_VERSION=0.11.6
