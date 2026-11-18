@@ -48,9 +48,11 @@ have() { # <tool>: the tool on PATH is at the pinned version. A version
                 [ "$out" = "go$GO_VERSION" ] || return 1
             g=$(command -v gofmt) && [ "$(dirname "$g")" = "$(dirname "$(command -v go)")" ] &&
                 printf 'package p\n' | gofmt >/dev/null 2>&1 ;;
-        govulncheck)
+        govulncheck) # and built with the pinned Go, as go version reads it
             out=$(govulncheck -version 2>/dev/null) &&
-                printf '%s\n' "$out" | grep -qx "Scanner: govulncheck@v$GOVULNCHECK_VERSION" ;;
+                printf '%s\n' "$out" | grep -qx "Scanner: govulncheck@v$GOVULNCHECK_VERSION" &&
+                b=$(command -v govulncheck) && out=$(GOENV=off GOTOOLCHAIN=local go version "$b" 2>/dev/null) &&
+                [ "${out##*: }" = "go$GO_VERSION" ] ;;
         slither)
             out=$(slither --version 2>/dev/null) && [ "$out" = "$SLITHER_VERSION" ] ;;
         *) fail "no tool named $1" ;;
@@ -95,12 +97,12 @@ for tool in "$@"; do
             fi ;;
         govulncheck)
             dir=$tools/govulncheck-$GOVULNCHECK_VERSION-go$GO_VERSION
+            # Built with the pinned Go, installed first if it is missing;
+            # never with another Go. It also reads which Go built a warm one.
+            godir=$("$0" go) || fail "govulncheck is built with Go $GO_VERSION, which could not be installed"
+            for d in $godir; do PATH="$d:$PATH"; done
+            have go || fail "govulncheck is built with Go $GO_VERSION, and the go on PATH is another version"
             if ! ready "$dir" govulncheck; then
-                # Built with the pinned Go, installed first if it is
-                # missing; never with another Go.
-                godir=$("$0" go) || fail "govulncheck is built with Go $GO_VERSION, which could not be installed"
-                for d in $godir; do PATH="$d:$PATH"; done
-                have go || fail "govulncheck is built with Go $GO_VERSION, and the go on PATH is another version"
                 start "$dir"
                 # Checked against the Go checksum database whatever the
                 # caller's environment or Go's saved settings say.

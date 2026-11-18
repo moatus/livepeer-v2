@@ -155,6 +155,23 @@ class Setup(Fakes):
         self.assertEqual(code, 2, out)
         self.assertNotIn("install", self.logged())
 
+    def test_a_govulncheck_built_with_another_go_is_not_the_pinned_one(self):
+        self.tool("curl", "exit 22")
+        self.tool("gofmt", "cat >/dev/null")
+        self.tool("govulncheck", f'echo "Scanner: govulncheck@v{pinned("GOVULNCHECK_VERSION")}"')
+        for built in ("go1.0.0", f'go{pinned("GO_VERSION")}'):
+            self.tool("go", 'case "$1" in\n'
+                            f'  env) echo go{pinned("GO_VERSION")} ;;\n'
+                            f'  version) echo "$2: {built}" ;;\n'
+                            '  install) echo install >>"$LOG"; exit 1 ;;\n'
+                            "esac\nexit 0")
+            code, out = self.run_script(ROOT / "tools" / "setup", "govulncheck", LP2_TOOLS=str(self.tmp / "tools"))
+            if built == "go1.0.0":  # rebuilt with the pinned go (which fails here)
+                self.assertEqual(code, 2, out)
+                self.assertIn("install", self.logged())
+            else:
+                self.assertEqual((code, out), (0, ""))
+
     def foundry(self, forge_exit=0):
         for b in ("forge", "anvil", "cast"):
             code = forge_exit if b == "forge" else 0
