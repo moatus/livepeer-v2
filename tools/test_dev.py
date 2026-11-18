@@ -428,6 +428,17 @@ class Doctor(Fixture):
         self.assertEqual(code, 1, out)
         self.assertIn("WRONG    go: 1.0.0", out)
 
+    def test_saved_go_settings_do_not_break_the_go_probe(self):
+        # A go env -w GOROOT=<a removed folder> breaks any go that reads it.
+        path = self.fine()
+        go = Path(path) / "go"
+        go.write_text("#!/bin/sh\n"
+                      '[ "$GOENV" = off ] || { echo "go: cannot find GOROOT directory: /gone" >&2; exit 2; }\n'
+                      f"echo go{self.pinned('GO_VERSION')}\n")
+        code, out = self.dev("doctor", path=path)
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"ok       go: {self.pinned('GO_VERSION')} (pinned)", out)
+
     def test_a_missing_tool_that_is_needed_now_fails(self):
         for tool in ("forge", "anvil", "cast", "go", "gofmt"):
             code, out = self.dev("doctor", path=self.fine(**{tool: None}))

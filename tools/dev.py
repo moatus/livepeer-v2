@@ -297,7 +297,7 @@ def cmd_doctor(_args) -> int:
             return None, None
         try:
             done = subprocess.run(command, input=stdin, capture_output=True, text=True, timeout=120,
-                                  env=dict(os.environ, GOTOOLCHAIN="local"))
+                                  env=dict(os.environ, GOTOOLCHAIN="local", GOENV="off"))
         except subprocess.TimeoutExpired:
             return None, f"`{' '.join(command)}` gave no answer in 120 s"
         if done.returncode != 0:
