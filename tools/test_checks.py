@@ -54,6 +54,7 @@ class Fakes(unittest.TestCase):
     def tool(self, name, body):
         """A fake tool: a shell script. $LOG is a file it may write to."""
         path = self.bin / name
+        path.unlink(missing_ok=True)  # never write through a link to a real tool
         path.write_text("#!/bin/sh\n" + body + "\n")
         path.chmod(0o755)
 
@@ -152,6 +153,73 @@ class Setup(Fakes):
         code, out = self.run_script(ROOT / "tools" / "setup", "govulncheck", LP2_TOOLS=str(self.tmp / "tools"))
         self.assertEqual(code, 2, out)
         self.assertNotIn("install", self.logged())
+
+    def foundry(self, forge_exit=0):
+        for b in ("forge", "anvil", "cast"):
+            code = forge_exit if b == "forge" else 0
+            self.tool(b, f'echo "{b} Version: {pinned("FOUNDRY_VERSION")}"\nexit {code}')
+
+    def test_a_version_probe_that_exits_non_zero_is_not_the_pinned_tool(self):
+        self.tool("curl", "exit 22")  # so setup cannot install another
+        self.foundry(forge_exit=3)
+        code, out = self.run_script(ROOT / "tools" / "setup", "foundry", LP2_TOOLS=str(self.tmp / "tools"))
+        self.assertEqual(code, 2, out)
+        self.foundry()
+        code, out = self.run_script(ROOT / "tools" / "setup", "foundry", LP2_TOOLS=str(self.tmp / "tools"))
+        self.assertEqual((code, out), (0, ""))
+
+    def test_go_without_its_gofmt_is_not_ready(self):
+        self.tool("curl", "exit 22")
+        self.tool("go", f'[ "$1 $2" = "env GOVERSION" ] && echo go{pinned("GO_VERSION")}\nexit 0')
+        code, out = self.run_script(ROOT / "tools" / "setup", "go", LP2_TOOLS=str(self.tmp / "tools"))
+        self.assertEqual(code, 2, out)
+        self.tool("gofmt", "cat >/dev/null")
+        code, out = self.run_script(ROOT / "tools" / "setup", "go", LP2_TOOLS=str(self.tmp / "tools"))
+        self.assertEqual((code, out), (0, ""))
+
+    def test_a_go_whose_version_command_fails_is_not_ready(self):
+        self.tool("curl", "exit 22")
+        self.tool("gofmt", "cat >/dev/null")
+        self.tool("go", f'echo go{pinned("GO_VERSION")}\nexit 1')
+        code, out = self.run_script(ROOT / "tools" / "setup", "go", LP2_TOOLS=str(self.tmp / "tools"))
+        self.assertEqual(code, 2, out)
+
+    def slither_setup(self, lock):
+        """A copy of tools/setup with the given lock file, a warm folder for
+        the lock in the checkout, the folder an older setup used, a slither
+        on PATH at the pinned version, and a python3 that logs instead of
+        making an environment."""
+        copy = self.tmp / "tools"
+        copy.mkdir()
+        for name in ("setup", "versions"):
+            shutil.copy(ROOT / "tools" / name, copy / name)
+        (copy / "slither-requirements.txt").write_text(lock)
+        cache = self.tmp / "cache"
+        real = ROOT / "tools" / "slither-requirements.txt"
+        digest = subprocess.run(["sha256sum", str(real)], capture_output=True, text=True).stdout[:16]
+        version = f'#!/bin/sh\necho {pinned("SLITHER_VERSION")}\n'
+        warm = cache / f"slither-{pinned('SLITHER_VERSION')}-{digest}" / "path"
+        for folder in (warm, cache / f"slither-{pinned('SLITHER_VERSION')}" / "path", self.bin):
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / "slither").unlink(missing_ok=True)
+            (folder / "slither").write_text(version)
+            (folder / "slither").chmod(0o755)
+        self.tool("python3", 'echo "python3 $*" >>"$LOG"\nexit 1')
+        code, out = self.run_script(copy / "setup", "slither", LP2_TOOLS=str(cache))
+        return code, out, warm
+
+    def test_a_warm_slither_is_used_only_for_the_lock_it_came_from(self):
+        lock = (ROOT / "tools" / "slither-requirements.txt").read_text()
+        code, out, warm = self.slither_setup(lock)
+        self.assertEqual((code, out.strip()), (0, str(warm)))
+        self.assertEqual(self.logged(), "")
+
+    def test_a_changed_lock_is_a_fresh_install(self):
+        lock = (ROOT / "tools" / "slither-requirements.txt").read_text()
+        changed = lock.replace("--hash=sha256:", "--hash=sha256:0", 1)
+        code, out, warm = self.slither_setup(changed)
+        self.assertEqual(code, 2, out)
+        self.assertIn("python3 -m venv", self.logged())
 
     def test_slither_is_installed_from_a_lock_at_the_pinned_version(self):
         lock = (ROOT / "tools" / "slither-requirements.txt").read_text()

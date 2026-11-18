@@ -11,12 +11,14 @@ on:
       - "contracts/**"
       - "tools/versions"
       - "tools/setup"
+      - "tools/slither-requirements.txt"
       - ".github/workflows/slither.yml"
   pull_request:
     paths:
       - "contracts/**"
       - "tools/versions"
       - "tools/setup"
+      - "tools/slither-requirements.txt"
       - ".github/workflows/slither.yml"
   workflow_dispatch:
 
@@ -42,6 +44,11 @@ jobs:
       - name: The pinned tools (tools/versions)
         run: |
           export LP2_TOOLS="${RUNNER_TOOL_CACHE:-$HOME/.cache}/lp2-tools"
-          tools/setup foundry slither >>"$GITHUB_PATH"
+          tools/setup foundry go slither >>"$GITHUB_PATH"
+      # As in the other workflows: every tool at its pin, and none broken,
+      # before anything runs. Go is installed only because ./dev doctor
+      # holds this checkout's Go code to it.
+      - name: ./dev doctor
+        run: ./dev doctor
       - name: contracts/slither
         run: contracts/slither
