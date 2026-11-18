@@ -495,12 +495,17 @@ class ContractsCheck(Fakes):
         code, out = self.run_script(self.dir / "check")
         self.assertEqual(code, 1, out)
 
-    # A filter in the caller's environment that matches nothing.
-    FILTERED = 'if [ -n "${FOUNDRY_MATCH_TEST-}${DAPP_NO_MATCH_PATH-}" ]; then echo filtered; exit 0; fi; '
+    # Any Foundry setting from the caller's environment reaches forge: here,
+    # one that runs nothing. Only qualify's own profile is allowed.
+    FILTERED = ('if env | grep -E "^(FOUNDRY|DAPP)_" | grep -vqx FOUNDRY_PROFILE=qualify; '
+                'then echo filtered; exit 0; fi; ')
+    # Test filters, a skipped file, and a setting no list here names.
+    INHERITED = {"FOUNDRY_MATCH_TEST": "^$", "DAPP_NO_MATCH_PATH": "test/*",
+                 "FOUNDRY_SKIP": '["test/ReviewSkip.t.sol"]', "FOUNDRY_FUZZ_RUNS": "0"}
 
     def test_inherited_test_filters_are_cleared(self):
         self.forge("exit 0", test=self.FILTERED + 'echo "[FAIL: seeded] test_a() (gas: 1)"; exit 1')
-        code, out = self.run_script(self.dir / "check", FOUNDRY_MATCH_TEST="^$", DAPP_NO_MATCH_PATH="test/*")
+        code, out = self.run_script(self.dir / "check", **self.INHERITED)
         self.assertEqual(code, 1, out)
         self.assertIn("[FAIL: seeded]", out)
 
@@ -514,7 +519,7 @@ class ContractsCheck(Fakes):
         for name in ("date", "tee"):
             (self.bin / name).symlink_to(shutil.which(name))
         self.forge("exit 0", test=self.FILTERED + 'echo "MoneyInvariants invariants (runs: 5)"; exit 0')
-        code, out = self.run_script(self.dir / "qualify", FOUNDRY_MATCH_TEST="^$", DAPP_NO_MATCH_PATH="test/*")
+        code, out = self.run_script(self.dir / "qualify", **self.INHERITED)
         self.assertNotIn("filtered", out)
         self.assertIn("MoneyInvariants invariants (runs: 5)", out)
 
