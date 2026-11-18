@@ -527,9 +527,12 @@ class ContractsCheck(Fakes):
 
     def test_inherited_test_filters_are_cleared(self):
         self.forge("exit 0", test=self.FILTERED + 'echo "[FAIL: seeded] test_a() (gas: 1)"; exit 1')
-        code, out = self.run_script(self.dir / "check", **self.INHERITED)
-        self.assertEqual(code, 1, out)
-        self.assertIn("[FAIL: seeded]", out)
+        for tools in ("all", "no sed"):  # the clearing needs no program
+            if tools == "no sed":
+                (self.bin / "sed").unlink()
+            code, out = self.run_script(self.dir / "check", **self.INHERITED)
+            self.assertEqual(code, 1, out)
+            self.assertIn("[FAIL: seeded]", out)
 
     def test_no_test_run_is_not_run(self):
         self.forge("exit 0", test='echo "No tests match the provided pattern"; exit 0')
@@ -541,9 +544,12 @@ class ContractsCheck(Fakes):
         for name in ("date", "tee"):
             (self.bin / name).symlink_to(shutil.which(name))
         self.forge("exit 0", test=self.FILTERED + 'echo "MoneyInvariants invariants (runs: 5)"; exit 0')
-        code, out = self.run_script(self.dir / "qualify", **self.INHERITED)
-        self.assertNotIn("filtered", out)
-        self.assertIn("MoneyInvariants invariants (runs: 5)", out)
+        for tools in ("all", "no sed"):
+            if tools == "no sed":
+                (self.bin / "sed").unlink()
+            code, out = self.run_script(self.dir / "qualify", **self.INHERITED)
+            self.assertNotIn("filtered", out)
+            self.assertIn("MoneyInvariants invariants (runs: 5)", out)
 
     def test_forge_stopping_with_exit_1_is_not_run(self):
         # FOUNDRY_OUT=/dev/null: forge exits 1 with no test run.
