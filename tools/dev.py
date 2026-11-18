@@ -204,7 +204,11 @@ def check_components(kind: str) -> list[tuple[str, str, list[str]]]:
             skipped = [line.strip() for line in (done.stdout + done.stderr).splitlines() if NOT_RUN in line]
             out.append((name, PASSED, [took, *skipped]))
         elif done.returncode == 2:
-            out.append((name, NOT_RUN, (done.stdout + done.stderr).strip().splitlines()[-15:]))
+            # The script's own not_run line is the reason the reports give,
+            # found before the log is cut to its last lines.
+            lines = (done.stdout + done.stderr).strip().splitlines()
+            reason = next((line.strip() for line in reversed(lines) if NOT_RUN in line), lines[-1] if lines else "")
+            out.append((name, NOT_RUN, [reason, *(line for line in lines[-15:] if line.strip() != reason)]))
         else:
             out.append((name, FAILED, (done.stdout + done.stderr).strip().splitlines()[-40:]))
     return out
@@ -250,6 +254,11 @@ def qualify_record() -> Path:
 def note(state: str, detail: list[str]) -> str:
     """The reason a check is n/a or not_run, as the reports give it."""
     return detail[0] if detail and state in (NA, NOT_RUN) else ""
+
+
+def cell(text: str) -> str:
+    """Text made safe for a Markdown table cell."""
+    return text.replace("|", "\\|")
 
 
 def cmd_qualify(_args) -> int:
@@ -538,7 +547,7 @@ def cmd_review(args) -> int:
     out("|---|---|")
     for name, state, detail in results:
         why = note(state, detail)
-        out(f"| {name} | {state}{f' ({why})' if why else ''} |")
+        out(f"| {name} | {state}{f' ({cell(why)})' if why else ''} |")
     if code_for(results) == 1:
         out()
         out("**A structure check failed.** Run `./dev verify` for the output.")
@@ -553,7 +562,7 @@ def cmd_review(args) -> int:
     if kept.get("commit") == head and not dirty:
         for name, state, *why in kept["results"]:
             if name.endswith("/qualify"):
-                reason = f": {why[0]}" if why and why[0] else ""
+                reason = f": {cell(why[0])}" if why and why[0] else ""
                 out(f"| {name} | `{state}` on this commit{reason} | `./dev qualify` |")
     else:
         for folder in QUALIFY_DIRS:

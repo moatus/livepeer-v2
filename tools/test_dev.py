@@ -312,6 +312,19 @@ class Qualify(Fixture):
         _, report = self.dev("review", "--base", "HEAD~1")
         self.assertIn("| calculator/qualify | `n/a` on this commit: no heavy checks:", report)
 
+    def test_the_reason_recorded_is_the_checks_own_not_run_line(self):
+        self.add("programs/check", PASS, executable=True)
+        self.add("programs/qualify", "#!/bin/sh\n"
+                 'echo "static analysis: not_run (slither | stopped)"\n'
+                 + "".join(f'echo "RED | mutant {i} | check"\n' for i in range(20)) + "exit 2\n",
+                 executable=True)
+        self.commit("Programs with heavy checks")
+        code, out = self.dev("qualify")
+        self.assertEqual(code, 2, out)
+        _, report = self.dev("review", "--base", "HEAD~1")
+        self.assertIn("| programs/qualify | `not_run` on this commit: static analysis: not_run (slither \\| stopped) |",
+                      report)
+
     def test_a_record_from_before_reasons_were_kept_still_reads(self):
         self.add("programs/check", PASS, executable=True)
         self.add("programs/qualify", PASS, executable=True)
