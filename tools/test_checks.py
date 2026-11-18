@@ -519,20 +519,34 @@ class ContractsCheck(Fakes):
 
     # Any Foundry setting from the caller's environment reaches forge: here,
     # one that runs nothing. Only qualify's own profile is allowed.
-    FILTERED = ('if env | grep -E "^(FOUNDRY|DAPP)_" | grep -vqx FOUNDRY_PROFILE=qualify; '
+    # Any other variable reaches it whole, a value over several lines too.
+    FILTERED = ('if env | grep -E "^(FOUNDRY|DAPP)_" | grep -vqx FOUNDRY_PROFILE=qualify'
+                ' || [ "${MY_FOUNDRY_NOTES-}" != "$(printf \'a\\nexport FOUNDRY_PROFILE=qualify\')" ]; '
                 'then echo filtered; exit 0; fi; ')
-    # Test filters, a skipped file, and a setting no list here names.
+    # Test filters, a skipped file, a setting no list here names, and an
+    # unrelated value with a line that looks like a Foundry variable.
     INHERITED = {"FOUNDRY_MATCH_TEST": "^$", "DAPP_NO_MATCH_PATH": "test/*",
-                 "FOUNDRY_SKIP": '["test/ReviewSkip.t.sol"]', "FOUNDRY_FUZZ_RUNS": "0"}
+                 "FOUNDRY_SKIP": '["test/ReviewSkip.t.sol"]', "FOUNDRY_FUZZ_RUNS": "0",
+                 "MY_FOUNDRY_NOTES": "a\nexport FOUNDRY_PROFILE=qualify"}
 
     def test_inherited_test_filters_are_cleared(self):
         self.forge("exit 0", test=self.FILTERED + 'echo "[FAIL: seeded] test_a() (gas: 1)"; exit 1')
         for tools in ("all", "no sed"):  # the clearing needs no program
             if tools == "no sed":
-                (self.bin / "sed").unlink()
+                (self.bin / "sed").unlink(missing_ok=True)
             code, out = self.run_script(self.dir / "check", **self.INHERITED)
             self.assertEqual(code, 1, out)
             self.assertIn("[FAIL: seeded]", out)
+
+    def test_settings_that_cannot_be_cleared_stop_the_check_before_forge(self):
+        # As the start without them finds them: still set, so not_run.
+        self.forge("exit 0", test='echo "[PASS] test_a() (gas: 1)"; echo ran >>"$LOG"; exit 0')
+        for script in ("check", "qualify"):
+            shutil.copy(ROOT / "contracts" / script, self.dir / script)
+            code, out = self.run_script(self.dir / script, FOUNDRY_SKIP="x", LP2_FORGE_ENV_CLEARED="1")
+            self.assertEqual(code, 2, out)
+            self.assertIn("still set", out)
+        self.assertEqual(self.logged(), "")
 
     def test_no_test_run_is_not_run(self):
         self.forge("exit 0", test='echo "No tests match the provided pattern"; exit 0')
@@ -546,7 +560,7 @@ class ContractsCheck(Fakes):
         self.forge("exit 0", test=self.FILTERED + 'echo "MoneyInvariants invariants (runs: 5)"; exit 0')
         for tools in ("all", "no sed"):
             if tools == "no sed":
-                (self.bin / "sed").unlink()
+                (self.bin / "sed").unlink(missing_ok=True)
             code, out = self.run_script(self.dir / "qualify", **self.INHERITED)
             self.assertNotIn("filtered", out)
             self.assertIn("MoneyInvariants invariants (runs: 5)", out)
