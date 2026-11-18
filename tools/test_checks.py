@@ -457,6 +457,29 @@ class ContractsCheck(Fakes):
         code, out = self.run_script(self.dir / "check")
         self.assertEqual(code, 1, out)
 
+    # A filter in the caller's environment that matches nothing.
+    FILTERED = 'if [ -n "${FOUNDRY_MATCH_TEST-}${DAPP_NO_MATCH_PATH-}" ]; then echo filtered; exit 0; fi; '
+
+    def test_inherited_test_filters_are_cleared(self):
+        self.forge("exit 0", test=self.FILTERED + 'echo "[FAIL: seeded] test_a() (gas: 1)"; exit 1')
+        code, out = self.run_script(self.dir / "check", FOUNDRY_MATCH_TEST="^$", DAPP_NO_MATCH_PATH="test/*")
+        self.assertEqual(code, 1, out)
+        self.assertIn("[FAIL: seeded]", out)
+
+    def test_no_test_run_is_not_run(self):
+        self.forge("exit 0", test='echo "No tests match the provided pattern"; exit 0')
+        code, out = self.run_script(self.dir / "check")
+        self.assertEqual(code, 2, out)
+
+    def test_qualify_clears_inherited_test_filters(self):
+        shutil.copy(ROOT / "contracts" / "qualify", self.dir / "qualify")
+        for name in ("date", "tee"):
+            (self.bin / name).symlink_to(shutil.which(name))
+        self.forge("exit 0", test=self.FILTERED + 'echo "MoneyInvariants invariants (runs: 5)"; exit 0')
+        code, out = self.run_script(self.dir / "qualify", FOUNDRY_MATCH_TEST="^$", DAPP_NO_MATCH_PATH="test/*")
+        self.assertNotIn("filtered", out)
+        self.assertIn("MoneyInvariants invariants (runs: 5)", out)
+
     def test_forge_stopping_with_exit_1_is_not_run(self):
         # FOUNDRY_OUT=/dev/null: forge exits 1 with no test run.
         self.forge("exit 0", test='echo "Error: File exists (os error 17)" >&2; exit 1')
