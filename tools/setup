@@ -72,7 +72,7 @@ for tool in "$@"; do
     [ "$tool" != slither ] && have "$tool" && continue
     case "$tool" in
         foundry)
-            dir=$tools/foundry-$FOUNDRY_VERSION-$(printf %.16s "$FOUNDRY_SHA256")
+            dir=$tools/foundry-$FOUNDRY_VERSION-$FOUNDRY_SHA256
             if ! ready "$dir" foundry; then
                 platform foundry
                 start "$dir"
@@ -83,7 +83,7 @@ for tool in "$@"; do
                 finish "$dir"
             fi ;;
         go)
-            base=$tools/go-$GO_VERSION-$(printf %.16s "$GO_SHA256")
+            base=$tools/go-$GO_VERSION-$GO_SHA256
             dir=$base/go/bin
             if ! ready "$dir" go; then
                 platform go
@@ -117,7 +117,7 @@ for tool in "$@"; do
             grep -q "^slither-analyzer==$SLITHER_VERSION " "$lock" ||
                 fail "$lock does not pin slither-analyzer==$SLITHER_VERSION, the version tools/versions pins"
             sum=$(sha256sum "$lock") || fail "could not read $lock"
-            base=$tools/slither-$SLITHER_VERSION-$(printf %.16s "$sum")
+            base=$tools/slither-$SLITHER_VERSION-${sum%% *}
             dir=$base/path
             if ! ready "$dir" slither; then
                 # A virtual environment cannot be moved, so it is made in

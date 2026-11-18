@@ -169,6 +169,27 @@ class Setup(Fakes):
         code, out = self.run_script(ROOT / "tools" / "setup", "foundry", LP2_TOOLS=str(self.tmp / "tools"))
         self.assertEqual((code, out), (0, ""))
 
+    def test_a_warm_folder_serves_only_the_whole_sha256_it_was_keyed_by(self):
+        """A pin that differs from the warm folder's only in its last hex
+        digit is a fresh install, which here cannot download."""
+        self.tool("curl", "exit 22")
+        copy = self.tmp / "tools"
+        copy.mkdir()
+        shutil.copy(ROOT / "tools" / "setup", copy / "setup")
+        sha = pinned("FOUNDRY_SHA256")
+        changed = sha[:-1] + ("0" if sha[-1] != "0" else "1")
+        versions = (ROOT / "tools" / "versions").read_text()
+        (copy / "versions").write_text(versions.replace(sha, changed))
+        cache = self.tmp / "cache"
+        for key in (sha, sha[:16]):  # the folders this and an older setup made
+            warm = cache / f"foundry-{pinned('FOUNDRY_VERSION')}-{key}"
+            warm.mkdir(parents=True)
+            for b in ("forge", "anvil", "cast"):
+                (warm / b).write_text(f'#!/bin/sh\necho "{b} Version: {pinned("FOUNDRY_VERSION")}"\n')
+                (warm / b).chmod(0o755)
+        code, out = self.run_script(copy / "setup", "foundry", LP2_TOOLS=str(cache))
+        self.assertEqual(code, 2, out)
+
     def test_go_without_its_gofmt_is_not_ready(self):
         self.tool("curl", "exit 22")
         self.tool("go", f'[ "$1 $2" = "env GOVERSION" ] && echo go{pinned("GO_VERSION")}\nexit 0')
@@ -197,7 +218,7 @@ class Setup(Fakes):
         (copy / "slither-requirements.txt").write_text(lock)
         cache = self.tmp / "cache"
         real = ROOT / "tools" / "slither-requirements.txt"
-        digest = subprocess.run(["sha256sum", str(real)], capture_output=True, text=True).stdout[:16]
+        digest = subprocess.run(["sha256sum", str(real)], capture_output=True, text=True).stdout.split()[0]
         version = f'#!/bin/sh\necho {pinned("SLITHER_VERSION")}\n'
         warm = cache / f"slither-{pinned('SLITHER_VERSION')}-{digest}" / "path"
         for folder in (warm, cache / f"slither-{pinned('SLITHER_VERSION')}" / "path", self.bin):
