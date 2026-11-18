@@ -1,11 +1,27 @@
 #!/bin/sh
-# The helper programs' fast check: vet, then run every test. ./dev runs it
-# from this folder. Exit 0 passed, 1 failed, 2 could not run.
+# The helper programs' fast check: layout, vet, then every test under the
+# race detector. ./dev runs it from this folder. Exit 0 passed, 1 failed,
+# 2 could not run.
 set -u
 cd "$(dirname "$0")"
 command -v go >/dev/null 2>&1 || { echo "go is not installed (./dev doctor)"; exit 2; }
 # An older Go would try to download the version go.mod names; that is a
 # missing tool, not a failure.
 GOTOOLCHAIN=local go list -m >/dev/null 2>&1 || { echo "the Go version go.mod names is not installed (./dev doctor)"; exit 2; }
+unformatted=$(gofmt -l .)
+if [ -n "$unformatted" ]; then
+    echo "gofmt: not laid out as gofmt lays it out (gofmt -w <file> fixes it):"
+    echo "$unformatted"
+    exit 1
+fi
 go vet ./... || exit 1
-go test ./... || exit 1
+# The race detector needs cgo, which Go turns off when it finds no C
+# compiler. Without it the tests still run, and the check says what it
+# could not do.
+if [ "$(go env CGO_ENABLED)" = 1 ]; then
+    go test -race ./... || exit 1
+else
+    go test ./... || exit 1
+    echo "race detector: not_run (it needs a C compiler for cgo)"
+    exit 2
+fi

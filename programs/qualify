@@ -1,0 +1,5 @@
+#!/bin/sh
+# The helper programs' heavy check, run by ./dev qualify: the vulnerability
+# scan, so a vulnerability published since the last change is found even
+# when nothing changed. Exit 0 passed, 1 failed, 2 could not run.
+exec "$(dirname "$0")/vulncheck"

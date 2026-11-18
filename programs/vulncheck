@@ -1,0 +1,22 @@
+#!/bin/sh
+# Known vulnerabilities in the Go code the helper programs can reach: their
+# modules and the standard library of the Go that builds them, checked by
+# the pinned govulncheck against the Go vulnerability database, which it
+# downloads. A vulnerability in a module the programs never call is not a
+# failure. CI runs this on every change (.github/workflows/verify.yml);
+# ./dev qualify runs it through programs/qualify.
+# Exit 0 none reachable; 1 one is reachable; 2 could not run.
+set -u
+cd "$(dirname "$0")"
+. ../tools/versions
+command -v go >/dev/null 2>&1 || { echo "go is not installed (./dev doctor)"; exit 2; }
+command -v govulncheck >/dev/null 2>&1 ||
+    { echo "vulnerability scan: not_run (govulncheck is not installed: tools/setup govulncheck)"; exit 2; }
+govulncheck -version 2>/dev/null | grep -qx "Scanner: govulncheck@v$GOVULNCHECK_VERSION" ||
+    { echo "vulnerability scan: not_run (govulncheck is not v$GOVULNCHECK_VERSION, the version tools/versions pins)"; exit 2; }
+govulncheck ./...
+case $? in
+    0) exit 0 ;;
+    3) echo "vulnerability scan: FAILED (a known vulnerability is reachable; see above)"; exit 1 ;;
+    *) echo "vulnerability scan: could not run"; exit 2 ;;
+esac
