@@ -85,8 +85,7 @@ abstract contract LedgerRunnerV2 is LedgerRunner, Stage3 {
             );
         } else if (eq(action, "unbond_transfer")) {
             refused = holderCall(
-                s,
-                abi.encodeCall(StakeLedger.unbondTransfer, (node(s, ".from"), node(s, ".to"), num(s, ".amount_wei")))
+                s, abi.encodeCall(StakeLedger.unbondTransfer, (node(s, ".from"), node(s, ".to"), num(s, ".amount_wei")))
             );
         } else if (eq(action, "rebond")) {
             refused = holderCall(s, abi.encodeCall(StakeLedger.rebond, (node(s, ".node"), num(s, ".amount_wei"))));
@@ -96,8 +95,7 @@ abstract contract LedgerRunnerV2 is LedgerRunner, Stage3 {
             // `caller` sets `node`'s cut; with no `caller`, the node itself.
             address n = node(s, ".node");
             address c = vm.keyExistsJson(vectors, string.concat(s, ".caller")) ? who(str(s, ".caller")) : n;
-            refused =
-                as_(c, address(ledger), abi.encodeCall(StakeLedger.setRewardCut, (n, num(s, ".cut_millionths"))));
+            refused = as_(c, address(ledger), abi.encodeCall(StakeLedger.setRewardCut, (n, num(s, ".cut_millionths"))));
         } else if (eq(action, "observe_stake")) {
             uint256 r = clock.currentRound();
             observed(s, ".stake_wei", ledger.stakeAt(node(s, ".node"), r), ".total_stake_wei", ledger.totalStakeAt(r));
@@ -176,7 +174,9 @@ abstract contract LedgerRunnerV2 is LedgerRunner, Stage3 {
         expectEq(lpt.totalSupply(), supply, "a validator withdrawal minted");
         uint256 gained = lpt.balanceOf(h) - mine;
         expectEq(
-            held - lpt.balanceOf(address(claims)), gained, "validator withdrawal: Claims paid other than the holder gained"
+            held - lpt.balanceOf(address(claims)),
+            gained,
+            "validator withdrawal: Claims paid other than the holder gained"
         );
         if (refused.length > 0) expectEq(gained, 0, "a refused validator withdrawal moved LPT");
         validatorWithdrawnTotal += gained;
@@ -327,8 +327,7 @@ abstract contract LedgerRunnerV2 is LedgerRunner, Stage3 {
         if (vm.keyExistsJson(vectors, at)) {
             string[] memory rounds = vm.parseJsonKeys(vectors, at);
             for (uint256 i = 0; i < rounds.length; i++) {
-                string[] memory names =
-                    abi.decode(vm.parseJson(vectors, string.concat(at, ".", rounds[i])), (string[]));
+                string[] memory names = abi.decode(vm.parseJson(vectors, string.concat(at, ".", rounds[i])), (string[]));
                 address[] memory list = new address[](names.length);
                 for (uint256 j = 0; j < names.length; j++) {
                     list[j] = who(names[j]);
@@ -376,7 +375,7 @@ abstract contract LedgerRunnerV2 is LedgerRunner, Stage3 {
         uint256 pots = 0;
         uint256 parts = 0;
         for (uint256 i = 0; i < claimedNode.length; i++) {
-            (, , uint256 pot) = claims.entitlementOf(claimedNode[i], claimedRound[i]);
+            (,, uint256 pot) = claims.entitlementOf(claimedNode[i], claimedRound[i]);
             pots += pot;
             uint256 taken = 0;
             for (uint256 j = 0; j < holders.length; j++) {
@@ -397,8 +396,7 @@ abstract contract LedgerRunnerV2 is LedgerRunner, Stage3 {
             vpots += pot;
             uint256 taken = 0;
             for (uint256 j = 0; j < holders.length; j++) {
-                (uint256 amount, bool withdrawn) =
-                    claims.validatorPartOf(who(holders[j]), paidMember[i], paidRound[i]);
+                (uint256 amount, bool withdrawn) = claims.validatorPartOf(who(holders[j]), paidMember[i], paidRound[i]);
                 if (withdrawn) taken += amount;
             }
             require(
@@ -408,7 +406,9 @@ abstract contract LedgerRunnerV2 is LedgerRunner, Stage3 {
             vparts += taken;
         }
         expectEq(
-            vparts, validatorWithdrawnTotal, string.concat(where, ": validator parts marked withdrawn, against LPT moved")
+            vparts,
+            validatorWithdrawnTotal,
+            string.concat(where, ": validator parts marked withdrawn, against LPT moved")
         );
         expectEq(
             lpt.balanceOf(address(claims)),

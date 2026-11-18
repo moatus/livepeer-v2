@@ -41,8 +41,14 @@ contract RewardMathTest {
             if (has(at, ".expected.ceiling_wei")) {
                 expectEq(c, num(at, ".expected.ceiling_wei"), ids[i]);
             } else {
-                expectEq(RewardMath.validatorsOf(c), num(at, ".expected.validators_wei"), string.concat(ids[i], " validators"));
-                expectEq(RewardMath.treasuryOf(c), num(at, ".expected.treasury_wei"), string.concat(ids[i], " treasury"));
+                expectEq(
+                    RewardMath.validatorsOf(c),
+                    num(at, ".expected.validators_wei"),
+                    string.concat(ids[i], " validators")
+                );
+                expectEq(
+                    RewardMath.treasuryOf(c), num(at, ".expected.treasury_wei"), string.concat(ids[i], " treasury")
+                );
             }
             ran++;
         }
@@ -70,17 +76,16 @@ contract RewardMathTest {
             for (uint256 n = 0; n < names.length; n++) {
                 string memory node = nodeAt(at, n);
                 uint256 paid = RewardMath.nodeReward(
-                    c,
-                    num(node, ".fees_micro_usdc"),
-                    totalFee,
-                    num(node, ".stake_wei"),
-                    totalStake,
-                    num(node, ".score")
+                    c, num(node, ".fees_micro_usdc"), totalFee, num(node, ".stake_wei"), totalStake, num(node, ".score")
                 );
-                expectEq(paid, num(at, string.concat(".expected.paid_wei.", names[n])), string.concat(ids[i], " ", names[n]));
+                expectEq(
+                    paid, num(at, string.concat(".expected.paid_wei.", names[n])), string.concat(ids[i], " ", names[n])
+                );
                 minted += paid;
             }
-            expectEq(RewardMath.validatorsOf(c), num(at, ".expected.validators_wei"), string.concat(ids[i], " validators"));
+            expectEq(
+                RewardMath.validatorsOf(c), num(at, ".expected.validators_wei"), string.concat(ids[i], " validators")
+            );
             expectEq(RewardMath.treasuryOf(c), num(at, ".expected.treasury_wei"), string.concat(ids[i], " treasury"));
             if (has(at, ".expected.minted_wei")) {
                 expectEq(minted, num(at, ".expected.minted_wei"), string.concat(ids[i], " minted"));
@@ -112,7 +117,11 @@ contract RewardMathTest {
             uint256 parts = 0;
             for (uint256 h = 0; h < holders.length; h++) {
                 uint256 part = RewardMath.partOf(pot, num(at, string.concat(".inputs.bonds_wei.", holders[h])), stake);
-                expectEq(part, num(at, string.concat(".expected.parts_wei.", holders[h])), string.concat(ids[i], " ", holders[h]));
+                expectEq(
+                    part,
+                    num(at, string.concat(".expected.parts_wei.", holders[h])),
+                    string.concat(ids[i], " ", holders[h])
+                );
                 parts += part;
             }
             expectEq(pot - parts, num(at, ".expected.dust_wei"), string.concat(ids[i], " dust"));
@@ -146,7 +155,9 @@ contract RewardMathTest {
                 if (has(at, string.concat(".inputs.splits.", name))) validatorSplit(ids[i], at, name, p);
             }
             expectEq(
-                RewardMath.validatorsOf(c) - paid, num(at, ".expected.to_treasury_wei"), string.concat(ids[i], " to treasury")
+                RewardMath.validatorsOf(c) - paid,
+                num(at, ".expected.to_treasury_wei"),
+                string.concat(ids[i], " to treasury")
             );
             ran++;
         }
@@ -161,7 +172,9 @@ contract RewardMathTest {
         expectEq(p - cut, num(e, ".pot_wei"), string.concat(id, " ", name, " pot"));
         string[] memory hs = vm.parseJsonKeys(vectors, string.concat(s, ".bonds_wei"));
         uint256 stake = 0;
-        for (uint256 h = 0; h < hs.length; h++) stake += num(s, string.concat(".bonds_wei.", hs[h]));
+        for (uint256 h = 0; h < hs.length; h++) {
+            stake += num(s, string.concat(".bonds_wei.", hs[h]));
+        }
         uint256 parts = 0;
         for (uint256 h = 0; h < hs.length; h++) {
             uint256 part = RewardMath.partOf(p - cut, num(s, string.concat(".bonds_wei.", hs[h])), stake);

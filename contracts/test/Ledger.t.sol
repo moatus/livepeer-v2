@@ -13,15 +13,41 @@ contract LedgerTest is LedgerRunner {
         loadVectors();
     }
 
-    function test_ledger_demo() external { run("ledger-demo"); }
-    function test_ledger_reserve() external { run("ledger-reserve"); }
-    function test_ledger_partial() external { run("ledger-partial"); }
-    function test_ledger_empty() external { run("ledger-empty"); }
-    function test_ledger_replay() external { run("ledger-replay"); }
-    function test_ledger_expired() external { run("ledger-expired"); }
-    function test_ledger_unregistered() external { run("ledger-unregistered"); }
-    function test_ledger_release() external { run("ledger-release"); }
-    function test_ledger_payout() external { run("ledger-payout"); }
+    function test_ledger_demo() external {
+        run("ledger-demo");
+    }
+
+    function test_ledger_reserve() external {
+        run("ledger-reserve");
+    }
+
+    function test_ledger_partial() external {
+        run("ledger-partial");
+    }
+
+    function test_ledger_empty() external {
+        run("ledger-empty");
+    }
+
+    function test_ledger_replay() external {
+        run("ledger-replay");
+    }
+
+    function test_ledger_expired() external {
+        run("ledger-expired");
+    }
+
+    function test_ledger_unregistered() external {
+        run("ledger-unregistered");
+    }
+
+    function test_ledger_release() external {
+        run("ledger-release");
+    }
+
+    function test_ledger_payout() external {
+        run("ledger-payout");
+    }
 
     /// R-23: ledger-reserve gives the same numbers after 999 more
     /// registrations, made before its steps.

@@ -93,7 +93,11 @@ contract MoneyInvariants {
         for (uint256 i = 0; i < h.keptCount(); i++) {
             (bytes32 hash, bool paid) = h.keptTicket(i);
             if (broker.usedTickets(hash) != paid) {
-                revert(string.concat("R-04: kept ticket ", vm.toString(i), paid ? " paid but not used" : " used but never paid"));
+                revert(
+                    string.concat(
+                        "R-04: kept ticket ", vm.toString(i), paid ? " paid but not used" : " used but never paid"
+                    )
+                );
             }
         }
     }
@@ -124,7 +128,9 @@ contract MoneyInvariants {
             for (uint256 j = 0; j < h.slotCount(); j++) {
                 (uint256 a, uint256 pe, uint256 r) = broker.earmarkOf(p, h.slot(j));
                 if (pe > a) revert(string.concat("R-22: pending above balance, payer ", vm.toString(i)));
-                if (pe == 0 && r != 0) revert(string.concat("R-22: cleared request keeps a round, payer ", vm.toString(i)));
+                if (pe == 0 && r != 0) {
+                    revert(string.concat("R-22: cleared request keeps a round, payer ", vm.toString(i)));
+                }
                 held += a;
             }
             uint256 putIn = h.fundedBy(p) - h.releasedTo(p);

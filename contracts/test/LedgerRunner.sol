@@ -32,7 +32,7 @@ abstract contract LedgerRunner is Stage2 {
     /// expected figure.
     function steps(string memory id) internal {
         path = string.concat(".cases[", vm.toString(caseIndex(id)), "]");
-        for (uint256 i = 0; ; i++) {
+        for (uint256 i = 0;; i++) {
             string memory s = string.concat(path, ".inputs.steps[", vm.toString(i), "]");
             if (!vm.keyExistsJson(vectors, s)) break;
             this.runStep(s, string.concat(id, " step ", vm.toString(i + 1)));
@@ -73,7 +73,10 @@ abstract contract LedgerRunner is Stage2 {
             refused = fund(payer, num(s, ".deposit_micro_usdc"), node, mark);
         } else if (eq(action, "redeem")) {
             (ITicketBroker.Ticket memory t, bytes memory sig, uint256 rand) = ticket(
-                str(s, ".ticket"), str(s, ".payer"), who(str(s, ".node")), num(s, ".created_round"),
+                str(s, ".ticket"),
+                str(s, ".payer"),
+                who(str(s, ".node")),
+                num(s, ".created_round"),
                 num(s, ".face_micro_usdc")
             );
             refused = redeem(t, sig, rand);
@@ -98,9 +101,7 @@ abstract contract LedgerRunner is Stage2 {
         }
     }
 
-    function observed(string memory s, string memory fieldA, uint256 a, string memory fieldB, uint256 b)
-        internal
-    {
+    function observed(string memory s, string memory fieldA, uint256 a, string memory fieldB, uint256 b) internal {
         observedSteps.push(str(s, ".step"));
         observedFieldA.push(fieldA);
         observedA.push(a);
@@ -193,8 +194,16 @@ abstract contract LedgerRunner is Stage2 {
             require(
                 eq(refusedSteps[i], nums[i]) && eq(refusedCodes[i], codes[i]),
                 string.concat(
-                    "refusal ", vm.toString(i), ": got step ", refusedSteps[i], " ", refusedCodes[i],
-                    ", want step ", nums[i], " ", codes[i]
+                    "refusal ",
+                    vm.toString(i),
+                    ": got step ",
+                    refusedSteps[i],
+                    " ",
+                    refusedCodes[i],
+                    ", want step ",
+                    nums[i],
+                    " ",
+                    codes[i]
                 )
             );
         }
@@ -258,7 +267,9 @@ abstract contract LedgerRunner is Stage2 {
         for (uint256 i = 0; i < ids.length; i++) {
             if (!eq(kinds[i], "ledger")) continue;
             bool found = false;
-            for (uint256 j = 0; j < ran.length; j++) found = found || eq(ids[i], ran[j]);
+            for (uint256 j = 0; j < ran.length; j++) {
+                found = found || eq(ids[i], ran[j]);
+            }
             if (!found) missing = string.concat(missing, " ", ids[i]);
         }
     }

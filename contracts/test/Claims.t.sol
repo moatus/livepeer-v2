@@ -22,14 +22,37 @@ contract ClaimsTest is LedgerRunnerV2 {
         loadVectors("october-main-text-v2");
     }
 
-    function test_ledger_cycle() external { runV2("ledger-cycle"); }
-    function test_ledger_window() external { runV2("ledger-window"); }
-    function test_ledger_mint_order() external { runV2("ledger-mint-order"); }
-    function test_ledger_round_zero() external { runV2("ledger-round-zero"); }
-    function test_ledger_same_node() external { runV2("ledger-same-node"); }
-    function test_refusal_order() external { runV2("refusal-order"); }
-    function test_ledger_validator_pot() external { runV2("ledger-validator-pot"); }
-    function test_ledger_mid_round() external { runV2("ledger-mid-round"); }
+    function test_ledger_cycle() external {
+        runV2("ledger-cycle");
+    }
+
+    function test_ledger_window() external {
+        runV2("ledger-window");
+    }
+
+    function test_ledger_mint_order() external {
+        runV2("ledger-mint-order");
+    }
+
+    function test_ledger_round_zero() external {
+        runV2("ledger-round-zero");
+    }
+
+    function test_ledger_same_node() external {
+        runV2("ledger-same-node");
+    }
+
+    function test_refusal_order() external {
+        runV2("refusal-order");
+    }
+
+    function test_ledger_validator_pot() external {
+        runV2("ledger-validator-pot");
+    }
+
+    function test_ledger_mid_round() external {
+        runV2("ledger-mid-round");
+    }
 
     function runV2(string memory id) internal {
         deployStage3();
@@ -227,7 +250,9 @@ contract ClaimsTest is LedgerRunnerV2 {
             expectDone(bondAs(who(ns[i]), who(ns[i]), amounts[i]), string.concat(ns[i], " bonds"));
         }
         toRound(2);
-        for (uint256 i = 0; i < 3; i++) optInAs(ns[i]);
+        for (uint256 i = 0; i < 3; i++) {
+            optInAs(ns[i]);
+        }
         toRound(3);
         optInAs("X");
         requireMembers(3, who("A"), who("B"), who("C"));
@@ -245,7 +270,9 @@ contract ClaimsTest is LedgerRunnerV2 {
         uint256 c3 = RewardMath.ceiling(2);
         for (uint256 i = 0; i < 3; i++) {
             (paid,, pot) = claims.validatorPayOf(who(ns[i]), 3);
-            expectEq(paid, RewardMath.validatorPayOf(c3, amounts[i], 10_000e18), string.concat(ns[i], " paid for round 3"));
+            expectEq(
+                paid, RewardMath.validatorPayOf(c3, amounts[i], 10_000e18), string.concat(ns[i], " paid for round 3")
+            );
             require(paid > 0 && pot == paid, "a member of round 3 paid, all to its pot");
         }
         // X's part of round 3 is 0, and X may still take it, once.
@@ -307,7 +334,7 @@ contract ClaimsTest is LedgerRunnerV2 {
         expectRefused(doWithdrawValidator(h, v, one(3)), "NOT_CLAIMED", "H's validator part before the mint");
         expectDone(doMintShares(who("Keeper"), 3), "round 3's shares");
         holdsEverything("shares");
-        (, , uint256 vpot) = claims.validatorPayOf(v, 3);
+        (,, uint256 vpot) = claims.validatorPayOf(v, 3);
         require(vpot > 0, "V's validator pot");
         expectDone(doWithdrawValidator(h, v, one(3)), "H's validator part");
         expectEq(lpt.balanceOf(h), vpot * 400 / 1_000, "H's validator part: its bond at the start of round 3");
@@ -320,7 +347,7 @@ contract ClaimsTest is LedgerRunnerV2 {
         toRound(10);
         expectDone(doClaim(v, v, 3, 1_000_000), "V claims round 3");
         holdsEverything("V's claim");
-        (, , uint256 pot) = claims.entitlementOf(v, 3);
+        (,, uint256 pot) = claims.entitlementOf(v, 3);
         require(pot > 0 && pot != vpot, "V's claim pot, apart from its validator pot");
         uint256 before = lpt.balanceOf(h);
         expectDone(doWithdraw(h, v, one(3)), "H's node part");
@@ -377,8 +404,11 @@ contract ClaimsTest is LedgerRunnerV2 {
                 string.concat("mintRoundShares at ", vm.toString(hs[k]), " holders, ", vm.toString(os[k]), " opted in"),
                 g
             );
-            if (k == 0) base = g;
-            else expectEq(g, base, string.concat("mint gas at ", vm.toString(hs[k]), " holders, ", vm.toString(os[k])));
+            if (k == 0) {
+                base = g;
+            } else {
+                expectEq(g, base, string.concat("mint gas at ", vm.toString(hs[k]), " holders, ", vm.toString(os[k])));
+            }
         }
     }
 
@@ -403,7 +433,9 @@ contract ClaimsTest is LedgerRunnerV2 {
             registry.register();
         }
         toRound(2);
-        for (uint256 i = 0; i < 3; i++) optInAs(ns[i]);
+        for (uint256 i = 0; i < 3; i++) {
+            optInAs(ns[i]);
+        }
         for (uint256 i = 0; i < optedIn - 3; i++) {
             address e = address(uint160(0x20000 + i));
             expectDone(as_(e, address(validatorSet), abi.encodeCall(Scores.optIn, (e))), "extra opts in");
@@ -433,9 +465,13 @@ contract ClaimsTest is LedgerRunnerV2 {
         address[] memory got = validatorSet.membersAt(round);
         address[3] memory want = [a, b, c];
         uint256 n = 0;
-        for (uint256 i = 0; i < 3; i++) if (want[i] != address(0)) n++;
+        for (uint256 i = 0; i < 3; i++) {
+            if (want[i] != address(0)) n++;
+        }
         expectEq(got.length, n, string.concat("members of round ", vm.toString(round)));
-        for (uint256 i = 0; i < n; i++) require(got[i] == want[i], string.concat("member of round ", vm.toString(round)));
+        for (uint256 i = 0; i < n; i++) {
+            require(got[i] == want[i], string.concat("member of round ", vm.toString(round)));
+        }
     }
 
     // --- LPT that reaches Claims any other way -------------------------------

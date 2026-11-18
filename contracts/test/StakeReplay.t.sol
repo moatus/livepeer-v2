@@ -64,14 +64,27 @@ contract StakeReplayTest is Stage3 {
 
     // --- the tests ----------------------------------------------------------
 
-    function test_replay_seed_1() external { random(1); covered(); }
-    function test_replay_seed_2() external { random(2); covered(); }
-    function test_replay_seed_3() external { random(3); covered(); }
+    function test_replay_seed_1() external {
+        random(1);
+        covered();
+    }
+
+    function test_replay_seed_2() external {
+        random(2);
+        covered();
+    }
+
+    function test_replay_seed_3() external {
+        random(3);
+        covered();
+    }
 
     /// More seeds, a few per run of the fast checks. A seed may miss an
     /// order; the fixed seeds and the script show each is reached.
     /// forge-config: default.fuzz.runs = 4
-    function testFuzz_replay(uint256 s) external { random(s); }
+    function testFuzz_replay(uint256 s) external {
+        random(s);
+    }
 
     /// The orders a random run may miss, on purpose: an arrival cancelled
     /// while a later one is already written, an unbond of several transfers,

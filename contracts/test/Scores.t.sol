@@ -49,24 +49,73 @@ contract ScoresTest is Stage3 {
 
     // --- the shared examples ----------------------------------------------
 
-    function test_score_none() external { scoreCase("score-none"); }
-    function test_score_one_zero() external { scoreCase("score-one-zero"); }
-    function test_score_reduced() external { scoreCase("score-reduced"); }
-    function test_score_majority_zero() external { scoreCase("score-majority-zero"); }
-    function test_score_spread() external { scoreCase("score-spread"); }
-    function test_score_even() external { scoreCase("score-even"); }
-    function test_score_even_floor() external { scoreCase("score-even-floor"); }
-    function test_score_empty() external { scoreCase("score-empty"); }
+    function test_score_none() external {
+        scoreCase("score-none");
+    }
 
-    function test_validators_seats() external { validatorsCase("validators-seats"); }
-    function test_validators_tie() external { validatorsCase("validators-tie"); }
-    function test_validators_zero_stake() external { validatorsCase("validators-zero-stake"); }
-    function test_validators_opt_out_vote() external { validatorsCase("validators-opt-out-vote"); }
-    function test_validators_return_in_round() external { validatorsCase("validators-return-in-round"); }
-    function test_validators_return_displaced() external { validatorsCase("validators-return-displaced"); }
-    function test_validators_return_seat_taken() external { validatorsCase("validators-return-seat-taken"); }
-    function test_validators_return_order() external { validatorsCase("validators-return-order"); }
-    function test_refusal_order_validators() external { validatorsCase("refusal-order-validators"); }
+    function test_score_one_zero() external {
+        scoreCase("score-one-zero");
+    }
+
+    function test_score_reduced() external {
+        scoreCase("score-reduced");
+    }
+
+    function test_score_majority_zero() external {
+        scoreCase("score-majority-zero");
+    }
+
+    function test_score_spread() external {
+        scoreCase("score-spread");
+    }
+
+    function test_score_even() external {
+        scoreCase("score-even");
+    }
+
+    function test_score_even_floor() external {
+        scoreCase("score-even-floor");
+    }
+
+    function test_score_empty() external {
+        scoreCase("score-empty");
+    }
+
+    function test_validators_seats() external {
+        validatorsCase("validators-seats");
+    }
+
+    function test_validators_tie() external {
+        validatorsCase("validators-tie");
+    }
+
+    function test_validators_zero_stake() external {
+        validatorsCase("validators-zero-stake");
+    }
+
+    function test_validators_opt_out_vote() external {
+        validatorsCase("validators-opt-out-vote");
+    }
+
+    function test_validators_return_in_round() external {
+        validatorsCase("validators-return-in-round");
+    }
+
+    function test_validators_return_displaced() external {
+        validatorsCase("validators-return-displaced");
+    }
+
+    function test_validators_return_seat_taken() external {
+        validatorsCase("validators-return-seat-taken");
+    }
+
+    function test_validators_return_order() external {
+        validatorsCase("validators-return-order");
+    }
+
+    function test_refusal_order_validators() external {
+        validatorsCase("refusal-order-validators");
+    }
 
     function test_every_score_and_validators_case_is_run() external view {
         string[17] memory ran = [
@@ -94,7 +143,9 @@ contract ScoresTest is Stage3 {
         for (uint256 i = 0; i < ids.length; i++) {
             if (!eq(kinds[i], "score") && !eq(kinds[i], "validators")) continue;
             bool found = false;
-            for (uint256 j = 0; j < ran.length; j++) found = found || eq(ids[i], ran[j]);
+            for (uint256 j = 0; j < ran.length; j++) {
+                found = found || eq(ids[i], ran[j]);
+            }
             if (!found) missing = string.concat(missing, " ", ids[i]);
         }
         require(bytes(missing).length == 0, string.concat("case not run:", missing));
@@ -121,7 +172,9 @@ contract ScoresTest is Stage3 {
         string[] memory voters = vm.parseJsonKeys(vectors, string.concat(at, ".inputs.votes"));
         for (uint256 i = 0; i < voters.length; i++) {
             uint256 s = num(at, string.concat(".inputs.votes.", voters[i]));
-            expectDone(as_(who(voters[i]), address(vset), abi.encodeCall(Scores.vote, (who(voters[i]), who("X"), s))), "vote");
+            expectDone(
+                as_(who(voters[i]), address(vset), abi.encodeCall(Scores.vote, (who(voters[i]), who("X"), s))), "vote"
+            );
         }
         require(eq(memberNames(vset.membersAt(3)), sorted(members)), string.concat(id, ": members"));
         expectEq(vset.scoreOf(who("X")), num(at, ".expected.score"), string.concat(id, ": score"));
@@ -143,7 +196,9 @@ contract ScoresTest is Stage3 {
             uint256 f = num(stakesAt(i), ".from_round");
             if (f == 1) shift = 1;
             string[] memory ns = vm.parseJsonKeys(vectors, string.concat(stakesAt(i), ".stake_wei"));
-            for (uint256 j = 0; j < ns.length; j++) remember(ns[j]);
+            for (uint256 j = 0; j < ns.length; j++) {
+                remember(ns[j]);
+            }
         }
         for (uint256 i = 0; i < nSteps; i++) {
             string memory s = stepAt(i);
@@ -154,7 +209,9 @@ contract ScoresTest is Stage3 {
         }
         for (uint256 i = 0; i < names.length; i++) {
             bool skip = false;
-            for (uint256 j = 0; j < unregistered.length; j++) skip = skip || eq(names[i], unregistered[j]);
+            for (uint256 j = 0; j < unregistered.length; j++) {
+                skip = skip || eq(names[i], unregistered[j]);
+            }
             if (!skip) register(names[i]);
         }
 
@@ -244,8 +301,17 @@ contract ScoresTest is Stage3 {
             require(
                 eq(refusedSteps[i], str(e, ".step")) && eq(refusedCodes[i], str(e, ".code")),
                 string.concat(
-                    id, ": refusal ", vm.toString(i), ": got step ", refusedSteps[i], " ", refusedCodes[i],
-                    ", want step ", str(e, ".step"), " ", str(e, ".code")
+                    id,
+                    ": refusal ",
+                    vm.toString(i),
+                    ": got step ",
+                    refusedSteps[i],
+                    " ",
+                    refusedCodes[i],
+                    ", want step ",
+                    str(e, ".step"),
+                    " ",
+                    str(e, ".code")
                 )
             );
         }
@@ -257,8 +323,7 @@ contract ScoresTest is Stage3 {
             require(eq(observedSteps[i], str(e, ".step")), string.concat(where, ": observed out of order"));
             string memory want = sorted(list(string.concat(e, ".members")));
             require(
-                eq(observedMembers[i], want),
-                string.concat(where, ": members ", observedMembers[i], ", want ", want)
+                eq(observedMembers[i], want), string.concat(where, ": members ", observedMembers[i], ", want ", want)
             );
             expectEq(observedScores[i], num(e, ".score"), string.concat(where, ": score"));
         }
@@ -272,7 +337,9 @@ contract ScoresTest is Stage3 {
     function test_displaced_member_vote_counts_in_its_last_round_only() external {
         world();
         string[5] memory ns = ["A", "B", "C", "D", "X"];
-        for (uint256 i = 0; i < ns.length; i++) reg(ns[i]);
+        for (uint256 i = 0; i < ns.length; i++) {
+            reg(ns[i]);
+        }
         setStake("A", 4_000e18);
         setStake("B", 3_000e18);
         setStake("C", 2_000e18);
@@ -298,7 +365,9 @@ contract ScoresTest is Stage3 {
         toRound(5);
         expectEq(vset.scoreOf(x), ONE, "round 5: C's vote does not count (0, 10^6, 10^6)");
         expectRefused(
-            as_(who("C"), address(vset), abi.encodeCall(Scores.vote, (who("C"), x, 0))), "NOT_VALIDATOR", "C's vote in 5"
+            as_(who("C"), address(vset), abi.encodeCall(Scores.vote, (who("C"), x, 0))),
+            "NOT_VALIDATOR",
+            "C's vote in 5"
         );
         // B opts out, and C takes the free seat from round 6.
         expectDone(as_(who("B"), address(vset), abi.encodeCall(Scores.optOut, (who("B")))), "B opts out");
@@ -322,7 +391,9 @@ contract ScoresTest is Stage3 {
     function test_a_tie_keeps_the_incumbent() external {
         world();
         string[4] memory ns = ["A", "B", "C", "D"];
-        for (uint256 i = 0; i < ns.length; i++) reg(ns[i]);
+        for (uint256 i = 0; i < ns.length; i++) {
+            reg(ns[i]);
+        }
         setStake("A", 2_000e18);
         setStake("B", 2_000e18);
         setStake("C", 3_000e18);
@@ -359,7 +430,9 @@ contract ScoresTest is Stage3 {
         expectRefused(as_(y, address(vset), abi.encodeCall(Scores.optOut, (a))), "NOT_AUTHORIZED", "Y opts A out");
         // A is not a member of round 2, and the score is out of range.
         expectRefused(
-            as_(y, address(vset), abi.encodeCall(Scores.vote, (a, who("X"), ONE + 1))), "NOT_AUTHORIZED", "Y votes for A"
+            as_(y, address(vset), abi.encodeCall(Scores.vote, (a, who("X"), ONE + 1))),
+            "NOT_AUTHORIZED",
+            "Y votes for A"
         );
         expectRefused(
             as_(a, address(vset), abi.encodeCall(Scores.vote, (a, who("X"), ONE + 1))), "NOT_VALIDATOR", "A votes in 2"
@@ -369,7 +442,9 @@ contract ScoresTest is Stage3 {
             as_(y, address(vset), abi.encodeCall(Scores.vote, (a, who("X"), 0))), "NOT_AUTHORIZED", "Y votes for A"
         );
         expectRefused(
-            as_(a, address(vset), abi.encodeCall(Scores.vote, (a, who("X"), ONE + 1))), "SCORE_OUT_OF_RANGE", "A, 10^6 + 1"
+            as_(a, address(vset), abi.encodeCall(Scores.vote, (a, who("X"), ONE + 1))),
+            "SCORE_OUT_OF_RANGE",
+            "A, 10^6 + 1"
         );
         // A vote of exactly 10^6 is taken.
         voteAs("A", who("X"), ONE);
@@ -383,14 +458,18 @@ contract ScoresTest is Stage3 {
     function test_calls_that_change_nothing() external {
         world();
         string[4] memory ns = ["A", "B", "E", "F"];
-        for (uint256 i = 0; i < ns.length; i++) reg(ns[i]);
+        for (uint256 i = 0; i < ns.length; i++) {
+            reg(ns[i]);
+        }
         setStake("A", 1_000e18);
         toRound(2);
         optIn("A");
         optIn("E"); // no stake: opted in, not seated, though a seat is free
         requireMembers(vset.membersAt(3), "A", "members of round 3");
         expectRefused(
-            as_(who("Anyone"), address(vset), abi.encodeCall(Scores.seat, (who("E")))), "STAKE_TOO_LOW", "seat E, no stake"
+            as_(who("Anyone"), address(vset), abi.encodeCall(Scores.seat, (who("E")))),
+            "STAKE_TOO_LOW",
+            "seat E, no stake"
         );
         setStake("E", 1_000e18);
         toRound(3);
@@ -424,7 +503,9 @@ contract ScoresTest is Stage3 {
     function test_events() external {
         world();
         string[3] memory ns = ["A", "B", "X"];
-        for (uint256 i = 0; i < ns.length; i++) reg(ns[i]);
+        for (uint256 i = 0; i < ns.length; i++) {
+            reg(ns[i]);
+        }
         setStake("A", 1_000e18);
         toRound(2);
         vm.recordLogs();
@@ -496,7 +577,9 @@ contract ScoresTest is Stage3 {
     function gasAt(uint256 optedIn, bool full) internal returns (uint256[4] memory g) {
         world();
         string[5] memory ns = ["A", "B", "C", "D", "X"];
-        for (uint256 i = 0; i < ns.length; i++) reg(ns[i]);
+        for (uint256 i = 0; i < ns.length; i++) {
+            reg(ns[i]);
+        }
         setStake("A", 4_000e18);
         setStake("B", 3_000e18);
         if (full) setStake("C", 2_000e18);
@@ -575,7 +658,9 @@ contract ScoresTest is Stage3 {
     }
 
     function optIn(string memory name) internal {
-        expectDone(as_(who(name), address(vset), abi.encodeCall(Scores.optIn, (who(name)))), string.concat(name, " opts in"));
+        expectDone(
+            as_(who(name), address(vset), abi.encodeCall(Scores.optIn, (who(name)))), string.concat(name, " opts in")
+        );
     }
 
     function voteAs(string memory name, address target, uint256 score) internal {

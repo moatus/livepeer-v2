@@ -65,6 +65,7 @@ contract Claims is IClaims {
     mapping(address => mapping(address => mapping(uint256 => bool))) private partWithdrawn;
     /// earning round => whether its validator and treasury amounts are minted.
     mapping(uint256 => bool) private minted;
+
     /// One (round, member) validator pay: what R's share mint paid the
     /// member and the pot it left here for the member's holders. The cut is
     /// the difference. Written once, by that mint; 0s for a node that was no
@@ -93,8 +94,8 @@ contract Claims is IClaims {
     ) {
         require(
             address(lpt_) != address(0) && address(registry_) != address(0) && address(clock_) != address(0)
-                && address(broker_) != address(0) && address(ledger_) != address(0)
-                && address(scores_) != address(0) && address(validators_) != address(0) && treasury_ != address(0),
+                && address(broker_) != address(0) && address(ledger_) != address(0) && address(scores_) != address(0)
+                && address(validators_) != address(0) && treasury_ != address(0),
             "zero address"
         );
         lpt = lpt_;

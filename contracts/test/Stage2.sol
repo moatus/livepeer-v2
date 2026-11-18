@@ -107,8 +107,7 @@ abstract contract Stage2 {
     /// or its earmark for `node`. Returns the revert data, empty on success.
     function requestRelease(string memory payer, address node, uint256 amount) internal returns (bytes memory) {
         vm.prank(who(payer));
-        (bool ok, bytes memory ret) =
-            address(broker).call(abi.encodeCall(Broker.requestRelease, (node, amount)));
+        (bool ok, bytes memory ret) = address(broker).call(abi.encodeCall(Broker.requestRelease, (node, amount)));
         return ok ? bytes("") : ret;
     }
 
@@ -157,8 +156,7 @@ abstract contract Stage2 {
     /// Submits as the node does. Returns the revert data, empty on success.
     function redeem(ITicketBroker.Ticket memory t, bytes memory sig, uint256 rand) internal returns (bytes memory) {
         vm.prank(t.recipient);
-        (bool ok, bytes memory ret) =
-            address(broker).call(abi.encodeCall(Broker.redeemWinningTicket, (t, sig, rand)));
+        (bool ok, bytes memory ret) = address(broker).call(abi.encodeCall(Broker.redeemWinningTicket, (t, sig, rand)));
         return ok ? bytes("") : ret;
     }
 

@@ -66,13 +66,33 @@ contract ValidatorPayTest is LedgerRunnerV2 {
         loadVectors("october-main-text-v2");
     }
 
-    function test_pay_weighted() external { payCase("pay-weighted"); }
-    function test_pay_thirds() external { payCase("pay-thirds"); }
-    function test_pay_chained() external { payCase("pay-chained"); }
-    function test_pay_empty() external { payCase("pay-empty"); }
-    function test_pay_no_stake() external { payCase("pay-no-stake"); }
-    function test_pay_split() external { payCase("pay-split"); }
-    function test_pay_split_dust() external { payCase("pay-split-dust"); }
+    function test_pay_weighted() external {
+        payCase("pay-weighted");
+    }
+
+    function test_pay_thirds() external {
+        payCase("pay-thirds");
+    }
+
+    function test_pay_chained() external {
+        payCase("pay-chained");
+    }
+
+    function test_pay_empty() external {
+        payCase("pay-empty");
+    }
+
+    function test_pay_no_stake() external {
+        payCase("pay-no-stake");
+    }
+
+    function test_pay_split() external {
+        payCase("pay-split");
+    }
+
+    function test_pay_split_dust() external {
+        payCase("pay-split-dust");
+    }
 
     /// A new validator-pay case fails this until it is run here.
     function test_every_validator_pay_case_is_run() external view {
@@ -83,7 +103,9 @@ contract ValidatorPayTest is LedgerRunnerV2 {
         for (uint256 i = 0; i < ids.length; i++) {
             if (!eq(kinds[i], "validator-pay")) continue;
             bool found = false;
-            for (uint256 j = 0; j < ran.length; j++) found = found || eq(ids[i], ran[j]);
+            for (uint256 j = 0; j < ran.length; j++) {
+                found = found || eq(ids[i], ran[j]);
+            }
             require(found, string.concat("validator-pay case not run: ", ids[i]));
         }
     }

@@ -54,9 +54,8 @@ contract HandlerReach {
     }
 
     function log(string memory what, uint256 n) internal view {
-        (bool ok,) = address(0x000000000000000000636F6e736F6c652e6c6f67).staticcall(
-            abi.encodeWithSignature("log(string,uint256)", what, n)
-        );
+        (bool ok,) = address(0x000000000000000000636F6e736F6c652e6c6f67)
+            .staticcall(abi.encodeWithSignature("log(string,uint256)", what, n));
         ok;
     }
 }

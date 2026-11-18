@@ -16,18 +16,46 @@ contract StakeLedgerTest is LedgerRunnerV2 {
         loadVectors("october-main-text-v2");
     }
 
-    function test_ledger_stake() external { runV2("ledger-stake"); }
+    function test_ledger_stake() external {
+        runV2("ledger-stake");
+    }
 
     // v1's ledger cases, unchanged in v2, on a stage 3 deployment.
-    function test_v2_ledger_demo() external { runV2("ledger-demo"); }
-    function test_v2_ledger_reserve() external { runV2("ledger-reserve"); }
-    function test_v2_ledger_partial() external { runV2("ledger-partial"); }
-    function test_v2_ledger_empty() external { runV2("ledger-empty"); }
-    function test_v2_ledger_replay() external { runV2("ledger-replay"); }
-    function test_v2_ledger_expired() external { runV2("ledger-expired"); }
-    function test_v2_ledger_unregistered() external { runV2("ledger-unregistered"); }
-    function test_v2_ledger_release() external { runV2("ledger-release"); }
-    function test_v2_ledger_payout() external { runV2("ledger-payout"); }
+    function test_v2_ledger_demo() external {
+        runV2("ledger-demo");
+    }
+
+    function test_v2_ledger_reserve() external {
+        runV2("ledger-reserve");
+    }
+
+    function test_v2_ledger_partial() external {
+        runV2("ledger-partial");
+    }
+
+    function test_v2_ledger_empty() external {
+        runV2("ledger-empty");
+    }
+
+    function test_v2_ledger_replay() external {
+        runV2("ledger-replay");
+    }
+
+    function test_v2_ledger_expired() external {
+        runV2("ledger-expired");
+    }
+
+    function test_v2_ledger_unregistered() external {
+        runV2("ledger-unregistered");
+    }
+
+    function test_v2_ledger_release() external {
+        runV2("ledger-release");
+    }
+
+    function test_v2_ledger_payout() external {
+        runV2("ledger-payout");
+    }
 
     function runV2(string memory id) internal {
         deployStage3();
@@ -247,9 +275,7 @@ contract StakeLedgerTest is LedgerRunnerV2 {
     function testFuzz_mint_refused_from_any_other_address(address caller, address to, uint256 amount) external {
         deployStage3();
         if (caller == claimsAddress()) return;
-        expectRefused(
-            as_(caller, address(lpt), abi.encodeCall(TestLPT.mint, (to, amount))), "NOT_AUTHORIZED", "mint"
-        );
+        expectRefused(as_(caller, address(lpt), abi.encodeCall(TestLPT.mint, (to, amount))), "NOT_AUTHORIZED", "mint");
         expectEq(lpt.totalSupply(), GENESIS, "supply");
     }
 

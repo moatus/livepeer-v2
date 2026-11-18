@@ -184,14 +184,9 @@ contract Broker is ITicketBroker {
 
     /// The one place a balance changes, so the earmarks shown to the signer
     /// stay summed (R-23).
-    function _set(
-        address payer,
-        address node,
-        Balance storage b,
-        uint256 amount,
-        uint256 pending,
-        uint256 readyRound
-    ) private {
+    function _set(address payer, address node, Balance storage b, uint256 amount, uint256 pending, uint256 readyRound)
+        private
+    {
         if (node != address(0)) {
             shownEarmarks[payer] = shownEarmarks[payer] - (b.amount - b.pending) + (amount - pending);
         }

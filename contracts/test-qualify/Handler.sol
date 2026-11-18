@@ -228,9 +228,9 @@ contract Handler is Stage2 {
         address node = slot(n % slotCount());
         Bal storage b = model[p][node];
         uint256 k = a % 5;
-        uint256 want = k == 0 ? 0 : k == 1 ? b.amount : k == 2 ? b.amount + 1 : k == 3
-            ? (a >> 8) % (b.amount + 1)
-            : amount(a >> 8);
+        uint256 want = k == 0
+            ? 0
+            : k == 1 ? b.amount : k == 2 ? b.amount + 1 : k == 3 ? (a >> 8) % (b.amount + 1) : amount(a >> 8);
         vm.prank(p);
         (bool ok, bytes memory ret) = address(broker).call(abi.encodeCall(Broker.requestRelease, (node, want)));
         if (want > b.amount) {
@@ -332,8 +332,7 @@ contract Handler is Stage2 {
         (uint256 fromDeposit, uint256 fromEarmark) = draws(t);
 
         vm.prank(t.recipient);
-        (bool ok, bytes memory ret) =
-            address(broker).call(abi.encodeCall(Broker.redeemWinningTicket, (t, sig, rand)));
+        (bool ok, bytes memory ret) = address(broker).call(abi.encodeCall(Broker.redeemWinningTicket, (t, sig, rand)));
 
         // Every reason the rules and the contracts' ticket checks give to
         // refuse this ticket; any one of them may be the code.

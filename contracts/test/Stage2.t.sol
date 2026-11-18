@@ -58,8 +58,7 @@ contract Stage2Test is Stage2 {
         register("M");
         require(fund("P", dep, who("N"), mark).length == 0, "fund");
 
-        (ITicketBroker.Sender memory sender, ITicketBroker.ReserveInfo memory reserve) =
-            broker.getSenderInfo(who("P"));
+        (ITicketBroker.Sender memory sender, ITicketBroker.ReserveInfo memory reserve) = broker.getSenderInfo(who("P"));
         expectEq(sender.deposit, dep, "deposit shown");
         expectEq(sender.withdrawRound, 0, "withdrawRound");
         expectEq(reserve.fundsRemaining, mark, "earmarks summed");
@@ -198,12 +197,9 @@ contract Stage2Test is Stage2 {
 
     /// The ticket is refused with `want`, and no money, fee record or used
     /// ticket changed.
-    function refusedAndNothingMoved(
-        ITicketBroker.Ticket memory t,
-        bytes memory sig,
-        uint256 rand,
-        string memory want
-    ) internal {
+    function refusedAndNothingMoved(ITicketBroker.Ticket memory t, bytes memory sig, uint256 rand, string memory want)
+        internal
+    {
         uint256 held = usdc.balanceOf(address(broker));
         (uint256 dep,,) = broker.earmarkOf(who("P"), address(0));
         (uint256 mark,,) = broker.earmarkOf(who("P"), who("N"));
