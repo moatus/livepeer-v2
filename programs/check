@@ -4,11 +4,15 @@
 # 2 could not run.
 set -u
 cd "$(dirname "$0")"
+# GOFLAGS from the caller's environment (-run, -short, a build tag) could
+# change which tests run, so the check runs without it.
+unset GOFLAGS
 command -v go >/dev/null 2>&1 || { echo "go is not installed (./dev doctor)"; exit 2; }
 # An older Go would try to download the version go.mod names; that is a
 # missing tool, not a failure.
 GOTOOLCHAIN=local go list -m >/dev/null 2>&1 || { echo "the Go version go.mod names is not installed (./dev doctor)"; exit 2; }
-unformatted=$(gofmt -l .)
+command -v gofmt >/dev/null 2>&1 || { echo "gofmt is not installed; it comes with Go (./dev doctor)"; exit 2; }
+unformatted=$(gofmt -l .) || { echo "gofmt could not read the sources (see above)"; exit 2; }
 if [ -n "$unformatted" ]; then
     echo "gofmt: not laid out as gofmt lays it out (gofmt -w <file> fixes it):"
     echo "$unformatted"

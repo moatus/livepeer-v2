@@ -1,0 +1,125 @@
+"""Self-tests for the scripts the component checks run: each case seeds a
+missing or misbehaving tool, or a finding, and shows the script reports it
+as failed or not_run, never as passed.
+
+The tools are fakes, written into a folder that is the whole PATH, so a
+real tool installed on the machine never answers in their place. Nothing
+here changes the checkout. Run with tools/check, or through ./dev verify.
+"""
+import contextlib
+import importlib.machinery
+import importlib.util
+import io
+import os
+import shutil
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+ROOT = Path(__file__).resolve().parent.parent
+# What the scripts under test need from the machine besides the faked tools.
+UTILS = ("sh", "env", "dirname", "cat", "grep", "sed", "mkdir", "rm", "mv", "ln",
+         "uname", "sha256sum", "tar", "python3")
+
+
+def pinned(name):
+    for line in (ROOT / "tools" / "versions").read_text().splitlines():
+        if line.startswith(name + "="):
+            return line.split("=", 1)[1]
+    raise AssertionError(f"tools/versions pins no {name}")
+
+
+def load(path, name):
+    loader = importlib.machinery.SourceFileLoader(name, str(path))
+    spec = importlib.util.spec_from_loader(name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+class Fakes(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="lp2-checks-test-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.bin = self.tmp / "bin"
+        self.bin.mkdir()
+        self.log = self.tmp / "log"
+        for util in UTILS:
+            found = shutil.which(util)
+            if found:
+                (self.bin / util).symlink_to(found)
+
+    def tool(self, name, body):
+        """A fake tool: a shell script. $LOG is a file it may write to."""
+        path = self.bin / name
+        path.write_text("#!/bin/sh\n" + body + "\n")
+        path.chmod(0o755)
+
+    def run_script(self, script, *args, **env):
+        base = {"PATH": str(self.bin), "HOME": str(self.tmp), "LOG": str(self.log)}
+        done = subprocess.run([str(script), *args], env={**base, **env},
+                              capture_output=True, text=True, timeout=120)
+        return done.returncode, done.stdout + done.stderr
+
+    def logged(self):
+        return self.log.read_text() if self.log.exists() else ""
+
+
+class ProgramsCheck(Fakes):
+    """programs/check: layout, vet, then the tests under the race detector."""
+
+    def setUp(self):
+        super().setUp()
+        self.tool("go", 'echo "go $* GOFLAGS=${GOFLAGS-unset}" >>"$LOG"\n'
+                        '[ "$1 $2" = "env CGO_ENABLED" ] && echo 1\nexit 0')
+
+    def test_a_missing_gofmt_is_not_run(self):
+        code, out = self.run_script(ROOT / "programs" / "check")
+        self.assertEqual(code, 2, out)
+        self.assertIn("gofmt", out)
+        self.assertNotIn("go test", self.logged())
+
+    def test_a_failing_gofmt_is_not_run(self):
+        self.tool("gofmt", 'echo "gofmt: something went wrong" >&2\nexit 2')
+        code, out = self.run_script(ROOT / "programs" / "check")
+        self.assertEqual(code, 2, out)
+        self.assertNotIn("go test", self.logged())
+
+    def test_inherited_goflags_cannot_skip_the_tests(self):
+        self.tool("gofmt", "exit 0")
+        code, out = self.run_script(ROOT / "programs" / "check", GOFLAGS="-run=^$")
+        self.assertEqual(code, 0, out)
+        tests = [line for line in self.logged().splitlines() if line.startswith("go test")]
+        self.assertEqual(len(tests), 1, self.logged())
+        self.assertNotIn("-run", tests[0])
+
+
+class ProgramsVulncheck(Fakes):
+    """programs/vulncheck: the scan uses the real Go, at the pinned version."""
+
+    def setUp(self):
+        super().setUp()
+        self.tool("govulncheck",
+                  f'[ "$1" = -version ] && {{ echo "Scanner: govulncheck@v{pinned("GOVULNCHECK_VERSION")}"; exit 0; }}\n'
+                  'echo "scan GOVERSION=${GOVERSION-unset} GOTOOLCHAIN=${GOTOOLCHAIN-unset}" >>"$LOG"\nexit 0')
+
+    def go(self, version):
+        self.tool("go", f'[ "$1 $2" = "env GOVERSION" ] && echo go{version}\nexit 0')
+
+    def test_an_older_go_is_not_run_even_when_GOVERSION_names_the_pin(self):
+        self.go("1.0.0")
+        code, out = self.run_script(ROOT / "programs" / "vulncheck", GOVERSION="go" + pinned("GO_VERSION"))
+        self.assertEqual(code, 2, out)
+        self.assertNotIn("scan", self.logged())
+
+    def test_the_scan_runs_with_the_local_go_and_no_GOVERSION(self):
+        self.go(pinned("GO_VERSION"))
+        code, out = self.run_script(ROOT / "programs" / "vulncheck", GOVERSION="go9.9.9")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.logged().strip(), "scan GOVERSION=unset GOTOOLCHAIN=local")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -10,6 +10,13 @@ set -u
 cd "$(dirname "$0")"
 . ../tools/versions
 command -v go >/dev/null 2>&1 || { echo "go is not installed (./dev doctor)"; exit 2; }
+# The scan reads the standard library of the Go it finds, and takes that
+# Go's version from GOVERSION when it is set; so GOVERSION is cleared and
+# the Go on PATH must itself be the pinned one, never fetched in its place.
+unset GOVERSION
+export GOTOOLCHAIN=local
+[ "$(go env GOVERSION 2>/dev/null)" = "go$GO_VERSION" ] ||
+    { echo "vulnerability scan: not_run (go is $(go env GOVERSION 2>/dev/null || echo unknown), tools/versions pins go$GO_VERSION: tools/setup go)"; exit 2; }
 command -v govulncheck >/dev/null 2>&1 ||
     { echo "vulnerability scan: not_run (govulncheck is not installed: tools/setup govulncheck)"; exit 2; }
 govulncheck -version 2>/dev/null | grep -qx "Scanner: govulncheck@v$GOVULNCHECK_VERSION" ||
