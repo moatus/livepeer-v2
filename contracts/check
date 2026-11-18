@@ -22,14 +22,18 @@ if [ $code -ne 0 ]; then
     echo "forge fmt: not_run (it exited $code without a layout difference; see above)"
     exit 2
 fi
-# forge test exits 1 when a test fails or the code does not compile; any
-# other exit is forge itself stopping, not a finding.
-forge test
-case $? in
-    0) ;;
-    1) exit 1 ;;
-    *) echo "forge test: not_run (forge stopped; see above)"; exit 2 ;;
-esac
+# forge test exits 1 when a test fails or the code does not compile, and
+# also when forge itself stops (an output folder it cannot write, say). So
+# exit 1 needs a failing test or the compiler's error in the output; any
+# other failure is a check that did not run.
+forge test >cache/test.out 2>&1
+code=$?
+cat cache/test.out
+if [ $code -ne 0 ]; then
+    grep -qE '^\[FAIL|Compiler run failed' cache/test.out && exit 1
+    echo "forge test: not_run (forge exited $code without a failing test or a compiler error; see above)"
+    exit 2
+fi
 python3 -m unittest -q test_mutations || exit 1
 
 # The reward maths (rulebook v2). Every function in src/math/ is declared

@@ -421,10 +421,10 @@ class ContractsCheck(Fakes):
         self.dir.mkdir()
         shutil.copy(ROOT / "contracts" / "check", self.dir / "check")
 
-    def forge(self, check, test=0):
+    def forge(self, check, test="exit 0"):
         self.tool("forge", 'case "$1" in\n'
                            f"  fmt) {check} ;;\n"
-                           f"  test) exit {test} ;;\n"
+                           f"  test) {test} ;;\n"
                            "esac\nexit 0")
 
     def test_a_layout_that_differs_fails(self):
@@ -443,14 +443,25 @@ class ContractsCheck(Fakes):
         self.assertEqual(code, 2, out)
 
     def test_a_forge_test_that_stops_is_not_run(self):
-        self.forge("exit 0", test=101)
+        self.forge("exit 0", test="exit 101")
         code, out = self.run_script(self.dir / "check")
         self.assertEqual(code, 2, out)
 
     def test_a_failing_test_fails(self):
-        self.forge("exit 0", test=1)
+        self.forge("exit 0", test='echo "[FAIL: seeded] test_a() (gas: 1)"; exit 1')
         code, out = self.run_script(self.dir / "check")
         self.assertEqual(code, 1, out)
+
+    def test_code_that_does_not_compile_fails(self):
+        self.forge("exit 0", test='echo "Error: Compiler run failed:" >&2; exit 1')
+        code, out = self.run_script(self.dir / "check")
+        self.assertEqual(code, 1, out)
+
+    def test_forge_stopping_with_exit_1_is_not_run(self):
+        # FOUNDRY_OUT=/dev/null: forge exits 1 with no test run.
+        self.forge("exit 0", test='echo "Error: File exists (os error 17)" >&2; exit 1')
+        code, out = self.run_script(self.dir / "check")
+        self.assertEqual(code, 2, out)
 
 
 if __name__ == "__main__":
