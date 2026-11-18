@@ -230,6 +230,11 @@ def main(sel):
                 if stale:
                     results.append(("STALE", name, cmd, stale, False))
                     continue
+                # contracts/check holds the layout to forge fmt: lay the
+                # mutant out the same way, so only the seeded error is new.
+                laid = sorted({f for f, _, _ in edits if f.endswith(".sol") and not f.startswith("../")})
+                if laid:
+                    run(["forge", "fmt", *laid], work)
                 red, ran, detail = catch(cmd, work)
                 verdict = "RED" if red and ran else "GREEN" if ran else "NOTRUN"
                 ok = verdict == "RED"

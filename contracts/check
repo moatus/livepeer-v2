@@ -1,11 +1,17 @@
 #!/bin/sh
-# The contracts' fast check: build and run every test, then compare each
-# contract's compiled ABI with its interface file. ./dev runs it from this
+# The contracts' fast check: layout, then build and run every test, then
+# compare each contract's compiled ABI with its interface file. ./dev runs it from this
 # folder. Exit 0 passed, 1 failed, 2 could not run.
 set -u
 cd "$(dirname "$0")"
 command -v forge >/dev/null 2>&1 || { echo "forge is not installed (./dev doctor)"; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "python3 is not installed (./dev doctor)"; exit 2; }
+# Every contract and test laid out as forge fmt lays it out (foundry.toml,
+# [fmt]; interfaces/ is left out).
+forge fmt --check src test test-qualify || {
+    echo "forge fmt: not laid out as forge fmt lays it out (forge fmt <file> fixes it)"
+    exit 1
+}
 forge test || exit 1
 python3 -m unittest -q test_mutations || exit 1
 

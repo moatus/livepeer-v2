@@ -10,6 +10,12 @@ solc_version = "0.8.30"
 # The contract tests read the shared examples; nothing else on disk.
 fs_permissions = [{ access = "read", path = "../vectors" }]
 
+# The layout contracts/check holds src/, test/ and test-qualify/ to.
+# interfaces/ is a freeze seam, changed only by a freeze change, so the
+# formatter leaves it as it is.
+[fmt]
+ignore = ["interfaces/**"]
+
 # The heavy checks (contracts/qualify): long invariant and fuzz runs over
 # test-qualify/. A separate profile, test folder and build output, so
 # contracts/check never compiles or runs them.
