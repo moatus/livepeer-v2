@@ -300,7 +300,28 @@ class Qualify(Fixture):
         record = json.loads((self.repo / ".cache/dev/qualify.json").read_text())
         self.assertEqual(record["commit"], self.git("rev-parse", "HEAD").strip())
         _, report = self.dev("review", "--base", "HEAD~1")
-        self.assertIn("| programs/qualify | passed on this commit |", report)
+        self.assertIn("| programs/qualify | `passed` on this commit |", report)
+
+    def test_the_recorded_report_gives_the_reason_a_check_is_n_a(self):
+        self.add("calculator/check", PASS, executable=True)
+        self.add("programs/check", PASS, executable=True)
+        self.add("programs/qualify", PASS, executable=True)
+        self.commit("Calculator, and programs with heavy checks")
+        code, out = self.dev("qualify")
+        self.assertEqual(code, 0, out)
+        _, report = self.dev("review", "--base", "HEAD~1")
+        self.assertIn("| calculator/qualify | `n/a` on this commit: no heavy checks:", report)
+
+    def test_a_record_from_before_reasons_were_kept_still_reads(self):
+        self.add("programs/check", PASS, executable=True)
+        self.add("programs/qualify", PASS, executable=True)
+        self.commit("Programs with heavy checks")
+        record = self.repo / ".cache/dev/qualify.json"
+        record.parent.mkdir(parents=True, exist_ok=True)
+        record.write_text(json.dumps({"commit": self.git("rev-parse", "HEAD").strip(),
+                                      "results": [["programs/qualify", "passed"]]}))
+        code, report = self.dev("review", "--base", "HEAD~1")
+        self.assertIn("| programs/qualify | `passed` on this commit |", report)
 
     def test_an_uncommitted_tree_keeps_no_record(self):
         self.add("programs/check", PASS, executable=True)

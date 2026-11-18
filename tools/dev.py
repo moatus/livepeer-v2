@@ -247,6 +247,11 @@ def qualify_record() -> Path:
     return ROOT / ".cache" / "dev" / "qualify.json"
 
 
+def note(state: str, detail: list[str]) -> str:
+    """The reason a check is n/a or not_run, as the reports give it."""
+    return detail[0] if detail and state in (NA, NOT_RUN) else ""
+
+
 def cmd_qualify(_args) -> int:
     results = run_verify() + check_components("qualify")
     show(results)
@@ -257,7 +262,8 @@ def cmd_qualify(_args) -> int:
         record.parent.mkdir(parents=True, exist_ok=True)
         record.write_text(json.dumps({
             "commit": git("rev-parse", "HEAD").strip(),
-            "results": [[name, state] for name, state, _ in results],
+            # With the reason for n/a and not_run, as the report shows it.
+            "results": [[name, state, note(state, detail)] for name, state, detail in results],
         }, indent=1))
     else:
         print("qualify: the working tree has uncommitted changes, so no record was kept")
@@ -531,8 +537,8 @@ def cmd_review(args) -> int:
     out("| Check | Result |")
     out("|---|---|")
     for name, state, detail in results:
-        note = f" ({detail[0]})" if detail and state in (NA, NOT_RUN) else ""
-        out(f"| {name} | {state}{note} |")
+        why = note(state, detail)
+        out(f"| {name} | {state}{f' ({why})' if why else ''} |")
     if code_for(results) == 1:
         out()
         out("**A structure check failed.** Run `./dev verify` for the output.")
@@ -545,9 +551,10 @@ def cmd_review(args) -> int:
     out("| Check | Status | Where it runs |")
     out("|---|---|---|")
     if kept.get("commit") == head and not dirty:
-        for name, state in kept["results"]:
+        for name, state, *why in kept["results"]:
             if name.endswith("/qualify"):
-                out(f"| {name} | {state} on this commit | `./dev qualify` |")
+                reason = f": {why[0]}" if why and why[0] else ""
+                out(f"| {name} | `{state}` on this commit{reason} | `./dev qualify` |")
     else:
         for folder in QUALIFY_DIRS:
             out(f"| {folder}/qualify (heavy checks) | `not_run` | `./dev qualify`, when the stage closes |")
