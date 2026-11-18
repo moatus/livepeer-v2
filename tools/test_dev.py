@@ -326,6 +326,12 @@ class Qualify(Fixture):
 class Doctor(Fixture):
     """./dev doctor holds each tool to the version tools/versions pins."""
 
+    def setUp(self):
+        super().setUp()
+        # Foundry is needed now where contracts/ exists, Go where programs/ does.
+        (self.repo / "contracts").mkdir()
+        (self.repo / "programs").mkdir()
+
     def pinned(self, name):
         for line in (ROOT / "tools" / "versions").read_text().splitlines():
             if line.startswith(name + "="):
@@ -333,43 +339,65 @@ class Doctor(Fixture):
         self.fail(f"tools/versions pins no {name}")
 
     def tools(self, **says):
-        """A PATH holding fake tools that print what they are told to,
-        then the folders of the real git and python3."""
+        """A PATH that is one folder: the real git, python3 and dirname
+        ./dev needs, and fake tools that print what they are told to. A
+        value of the form "exit N" makes the fake fail with that code."""
         bin_ = self.tmp / "bin"
-        bin_.mkdir(exist_ok=True)
+        shutil.rmtree(bin_, ignore_errors=True)
+        bin_.mkdir()
+        for real in ("git", "python3", "dirname"):
+            (bin_ / real).symlink_to(shutil.which(real))
         for name, text in says.items():
-            (bin_ / name).write_text(f"#!/bin/sh\necho '{text}'\n")
+            if text is None:
+                continue
+            body = f"echo 'it broke' >&2\n{text}" if text.startswith("exit ") else f"echo '{text}'"
+            (bin_ / name).write_text(f"#!/bin/sh\n{body}\n")
             (bin_ / name).chmod(0o755)
-        real = {str(Path(shutil.which(t)).parent) for t in ("git", "python3")}
-        return os.pathsep.join([str(bin_), *sorted(real)])
+        return str(bin_)
 
-    def foundry(self, version):
-        return {"forge": f"forge Version: {version}", "anvil": f"anvil Version: {version}"}
+    def fine(self, **change):
+        """The tools ./dev verify needs, each at its pinned version."""
+        foundry = self.pinned("FOUNDRY_VERSION")
+        tools = {"go": f"go{self.pinned('GO_VERSION')}", "gofmt": "package p",
+                 **{t: f"{t} Version: {foundry}" for t in ("forge", "anvil", "cast")}}
+        return self.tools(**{**tools, **change})
 
     def test_the_pinned_versions_pass(self):
-        path = self.tools(go=f"go{self.pinned('GO_VERSION')}", **self.foundry(self.pinned("FOUNDRY_VERSION")))
-        code, out = self.dev("doctor", path=path)
+        code, out = self.dev("doctor", path=self.fine())
         self.assertEqual(code, 0, out)
         self.assertIn(f"ok       forge: {self.pinned('FOUNDRY_VERSION')} (pinned)", out)
+        self.assertIn(f"ok       cast: {self.pinned('FOUNDRY_VERSION')} (pinned)", out)
+        self.assertIn("ok       gofmt: runs", out)
 
     def test_another_foundry_version_fails(self):
-        path = self.tools(go=f"go{self.pinned('GO_VERSION')}", **self.foundry("0.0.1"))
-        code, out = self.dev("doctor", path=path)
-        self.assertEqual(code, 1, out)
-        self.assertIn(f"WRONG    forge: 0.0.1, but tools/versions pins {self.pinned('FOUNDRY_VERSION')}", out)
+        for tool in ("forge", "anvil", "cast"):
+            code, out = self.dev("doctor", path=self.fine(**{tool: f"{tool} Version: 0.0.1"}))
+            self.assertEqual(code, 1, out)
+            self.assertIn(f"WRONG    {tool}: 0.0.1, but tools/versions pins {self.pinned('FOUNDRY_VERSION')}", out)
 
     def test_another_go_version_fails(self):
-        path = self.tools(go="go1.0.0", **self.foundry(self.pinned("FOUNDRY_VERSION")))
-        code, out = self.dev("doctor", path=path)
+        code, out = self.dev("doctor", path=self.fine(go="go1.0.0"))
         self.assertEqual(code, 1, out)
         self.assertIn("WRONG    go: 1.0.0", out)
 
+    def test_a_missing_tool_that_is_needed_now_fails(self):
+        for tool in ("forge", "anvil", "cast", "go", "gofmt"):
+            code, out = self.dev("doctor", path=self.fine(**{tool: None}))
+            self.assertEqual(code, 1, out)
+            self.assertIn(f"MISSING  {tool}: needed now.", out)
+
+    def test_a_version_command_that_fails_fails(self):
+        for tool in ("forge", "cast", "go", "gofmt", "slither"):
+            code, out = self.dev("doctor", path=self.fine(**{tool: "exit 3"}))
+            self.assertEqual(code, 1, out)
+            self.assertIn(f"BROKEN   {tool}: `", out)
+            self.assertIn("exited 3: it broke", out)
+
     def test_a_missing_slither_is_noted_and_another_version_fails(self):
-        fine = dict(go=f"go{self.pinned('GO_VERSION')}", **self.foundry(self.pinned("FOUNDRY_VERSION")))
-        code, out = self.dev("doctor", path=self.tools(**fine))
+        code, out = self.dev("doctor", path=self.fine())
         self.assertEqual(code, 0, out)
         self.assertIn("absent   slither", out)
-        code, out = self.dev("doctor", path=self.tools(slither="0.0.1", **fine))
+        code, out = self.dev("doctor", path=self.fine(slither="0.0.1"))
         self.assertEqual(code, 1, out)
         self.assertIn("WRONG    slither: 0.0.1", out)
 

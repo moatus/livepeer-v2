@@ -268,27 +268,39 @@ def pins() -> dict[str, str]:
 
 
 def cmd_doctor(_args) -> int:
-    def version(command: list[str], pattern: str) -> str | None:
-        """What the tool says its version is; None when it is not installed."""
+    def version(command: list[str], pattern: str | None, stdin: str) -> tuple[str | None, str | None]:
+        """(what the tool says its version is, None), (None, None) when it is
+        not installed, or (None, what went wrong) when it could not say."""
         if not shutil.which(command[0]):
-            return None
+            return None, None
         try:
-            done = subprocess.run(command, capture_output=True, text=True, timeout=120,
+            done = subprocess.run(command, input=stdin, capture_output=True, text=True, timeout=120,
                                   env=dict(os.environ, GOTOOLCHAIN="local"))
         except subprocess.TimeoutExpired:
-            return "no answer"
+            return None, f"`{' '.join(command)}` gave no answer in 120 s"
+        if done.returncode != 0:
+            said = (done.stdout + done.stderr).strip().splitlines()
+            return None, f"`{' '.join(command)}` exited {done.returncode}" + (f": {said[-1][:100]}" if said else "")
+        if pattern is None:
+            return "runs", None
         found = re.search(pattern, done.stdout + done.stderr, re.M)
-        return found.group(1) if found else "an unknown version"
+        return (found.group(1) if found else "an unknown version"), None
 
     pin = pins()
     contracts, programs = (ROOT / "contracts").is_dir(), (ROOT / "programs").is_dir()
-    # name, command, the pattern that finds its version, needed now, pinned version, how to fix
+    foundry = pin.get("FOUNDRY_VERSION")
+    # name, command, the pattern that finds its version (None: it need only
+    # run), needed now, pinned version, how to fix
     needs = [
         ("git", ["git", "--version"], r"^git version (\S+)", True, None, "install git"),
         ("python3", ["python3", "--version"], r"^Python (\S+)", True, None, "install Python 3"),
-        ("forge", ["forge", "--version"], r"^forge Version: (\S+)", contracts, pin.get("FOUNDRY_VERSION"), "tools/setup foundry"),
-        ("anvil", ["anvil", "--version"], r"^anvil Version: (\S+)", contracts, pin.get("FOUNDRY_VERSION"), "tools/setup foundry"),
+        ("forge", ["forge", "--version"], r"^forge Version: (\S+)", contracts, foundry, "tools/setup foundry"),
+        ("anvil", ["anvil", "--version"], r"^anvil Version: (\S+)", contracts, foundry, "tools/setup foundry"),
+        ("cast", ["cast", "--version"], r"^cast Version: (\S+)", contracts, foundry, "tools/setup foundry"),
         ("go", ["go", "env", "GOVERSION"], r"^go(\S+)", programs, pin.get("GO_VERSION"), "tools/setup go"),
+        # gofmt has no version of its own; it comes with go, and lays out
+        # a one-line file when it works.
+        ("gofmt", ["gofmt"], None, programs, None, "it comes with Go: tools/setup go"),
         # Not needed by ./dev verify: contracts/slither and programs/vulncheck
         # use them, in CI and through ./dev qualify.
         ("slither", ["slither", "--version"], r"^(\d\S*)$", False, pin.get("SLITHER_VERSION"), "tools/setup slither"),
@@ -297,8 +309,11 @@ def cmd_doctor(_args) -> int:
     ]
     bad = False
     for name, command, pattern, needed_now, pinned, fix in needs:
-        found = version(command, pattern)
-        if found and pinned and found != pinned:
+        found, broken = version(command, pattern, "package p\n" if name == "gofmt" else "")
+        if broken:
+            bad = True
+            print(f"BROKEN   {name}: {broken}. {fix}")
+        elif found and pinned and found != pinned:
             bad = True
             print(f"WRONG    {name}: {found}, but tools/versions pins {pinned}. {fix}")
         elif found:

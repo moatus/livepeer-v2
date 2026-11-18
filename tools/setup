@@ -28,7 +28,7 @@ have() { # <tool>: the tool on PATH is at the pinned version
     case "$1" in
         foundry) [ "$(forge --version 2>/dev/null | sed -n 's/^forge Version: //p')" = "$FOUNDRY_VERSION" ] &&
                  [ "$(anvil --version 2>/dev/null | sed -n 's/^anvil Version: //p')" = "$FOUNDRY_VERSION" ] &&
-                 command -v cast >/dev/null 2>&1 ;;
+                 [ "$(cast --version 2>/dev/null | sed -n 's/^cast Version: //p')" = "$FOUNDRY_VERSION" ] ;;
         go) [ "$(GOTOOLCHAIN=local go env GOVERSION 2>/dev/null)" = "go$GO_VERSION" ] ;;
         govulncheck) govulncheck -version 2>/dev/null | grep -qx "Scanner: govulncheck@v$GOVULNCHECK_VERSION" ;;
         slither) [ "$(slither --version 2>/dev/null)" = "$SLITHER_VERSION" ] ;;
