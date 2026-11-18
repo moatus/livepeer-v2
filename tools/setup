@@ -100,7 +100,7 @@ for tool in "$@"; do
             # Built with the pinned Go, installed first if it is missing;
             # never with another Go. It also reads which Go built a warm one.
             godir=$("$0" go) || fail "govulncheck is built with Go $GO_VERSION, which could not be installed"
-            for d in $godir; do PATH="$d:$PATH"; done
+            [ -z "$godir" ] || PATH="$godir:$PATH"
             have go || fail "govulncheck is built with Go $GO_VERSION, and the go on PATH is another version"
             if ! ready "$dir" govulncheck; then
                 start "$dir"

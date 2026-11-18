@@ -172,6 +172,28 @@ class Setup(Fakes):
             else:
                 self.assertEqual((code, out), (0, ""))
 
+    def test_a_tools_folder_with_a_space_in_its_name_works(self):
+        """A warm govulncheck, with an older go first on PATH so the pinned
+        Go comes from the tools folder."""
+        self.tool("curl", "exit 22")
+        tools = self.tmp / "my tools"
+        go = tools / f"go-{pinned('GO_VERSION')}-{pinned('GO_SHA256')}" / "go" / "bin"
+        vuln = tools / f"govulncheck-{pinned('GOVULNCHECK_VERSION')}-go{pinned('GO_VERSION')}"
+        for folder, name, body in (
+                (self.bin, "go", "echo go1.0.0"),
+                (go, "go", 'case "$1" in\n'
+                           f'  env) echo go{pinned("GO_VERSION")} ;;\n'
+                           f'  version) echo "$2: go{pinned("GO_VERSION")}" ;;\n'
+                           "esac"),
+                (go, "gofmt", "cat >/dev/null"),
+                (vuln, "govulncheck", f'echo "Scanner: govulncheck@v{pinned("GOVULNCHECK_VERSION")}"')):
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / name).unlink(missing_ok=True)
+            (folder / name).write_text(f"#!/bin/sh\n{body}\n")
+            (folder / name).chmod(0o755)
+        code, out = self.run_script(ROOT / "tools" / "setup", "govulncheck", LP2_TOOLS=str(tools))
+        self.assertEqual((code, out.strip()), (0, str(vuln)))
+
     def foundry(self, forge_exit=0):
         for b in ("forge", "anvil", "cast"):
             code = forge_exit if b == "forge" else 0
