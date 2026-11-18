@@ -203,7 +203,7 @@ def fetch_node() -> Path:
     say("  building livepeer-orchestrator and livepeer-signer (the first run takes a few minutes)")
     for p, b in bins.items():
         try:
-            sh(["go", "build", "-o", str(b), f"./cmd/{p}"], cwd=src)
+            sh(["go", "build", "-o", str(b), f"./cmd/{p}"], cwd=src, env=GO_ENV)
         except Failed as e:
             raise NotRun(f"could not build the node: {e}")
     return home / "bin"
@@ -236,6 +236,10 @@ def fetch_model() -> Path:
     return path
 
 
+# Go builds without its saved settings (go env -w, the file GOENV names) or
+# the caller's GOFLAGS, either of which could add a build tag or flag.
+GO_ENV = {**{k: v for k, v in os.environ.items() if k != "GOFLAGS"}, "GOENV": "off", "GOWORK": "off"}
+
 # Each helper program: its binary name and the package it is built from.
 PROGRAMS = {"lp2-fund": "./cmd/lp2-fund", "lp2-keeper": "./cmd/lp2-keeper", "lp2-stake": "./cmd/lp2-stake",
             "lp2-validators": "./validators"}
@@ -246,7 +250,7 @@ def build_ours() -> Path:
         sh(["forge", "build", "--root", str(ROOT / "contracts")])
         bin_dir = RUN / "bin"
         for p, pkg in PROGRAMS.items():
-            sh(["go", "build", "-o", str(bin_dir / p), pkg], cwd=ROOT / "programs")
+            sh(["go", "build", "-o", str(bin_dir / p), pkg], cwd=ROOT / "programs", env=GO_ENV)
     except Failed as e:
         raise NotRun(f"could not build the contracts or programs: {e}")
     return bin_dir

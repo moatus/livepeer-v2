@@ -72,7 +72,7 @@ class ProgramsCheck(Fakes):
 
     def setUp(self):
         super().setUp()
-        self.tool("go", 'echo "go $* GOFLAGS=${GOFLAGS-unset}" >>"$LOG"\n'
+        self.tool("go", 'echo "go $* GOFLAGS=${GOFLAGS-unset} GOENV=${GOENV-unset}" >>"$LOG"\n'
                         '[ "$1 $2" = "env CGO_ENABLED" ] && echo 1\nexit 0')
 
     def test_a_missing_gofmt_is_not_run(self):
@@ -95,6 +95,19 @@ class ProgramsCheck(Fakes):
         self.assertEqual(len(tests), 1, self.logged())
         self.assertNotIn("-run", tests[0])
 
+    def test_go_saved_settings_cannot_skip_the_tests(self):
+        # go env -w GOFLAGS=-run=^$ writes this file; an empty GOFLAGS in
+        # the environment falls back to it.
+        self.tool("gofmt", "exit 0")
+        saved = self.tmp / "goenv"
+        saved.write_text("GOFLAGS=-run=^$\n")
+        code, out = self.run_script(ROOT / "programs" / "check", GOENV=str(saved), GOFLAGS="")
+        self.assertEqual(code, 0, out)
+        calls = self.logged().splitlines()
+        self.assertTrue(calls, out)
+        for call in calls:
+            self.assertTrue(call.endswith("GOFLAGS=unset GOENV=off"), call)
+
 
 class ProgramsVulncheck(Fakes):
     """programs/vulncheck: the scan uses the real Go, at the pinned version."""
@@ -103,7 +116,8 @@ class ProgramsVulncheck(Fakes):
         super().setUp()
         self.tool("govulncheck",
                   f'[ "$1" = -version ] && {{ echo "Scanner: govulncheck@v{pinned("GOVULNCHECK_VERSION")}"; exit 0; }}\n'
-                  'echo "scan GOVERSION=${GOVERSION-unset} GOTOOLCHAIN=${GOTOOLCHAIN-unset}" >>"$LOG"\nexit 0')
+                  'echo "scan GOVERSION=${GOVERSION-unset} GOTOOLCHAIN=${GOTOOLCHAIN-unset}'
+                  ' GOENV=${GOENV-unset} GOFLAGS=${GOFLAGS-unset}" >>"$LOG"\nexit 0')
 
     def go(self, version):
         self.tool("go", f'[ "$1 $2" = "env GOVERSION" ] && echo go{version}\nexit 0')
@@ -114,11 +128,14 @@ class ProgramsVulncheck(Fakes):
         self.assertEqual(code, 2, out)
         self.assertNotIn("scan", self.logged())
 
-    def test_the_scan_runs_with_the_local_go_and_no_GOVERSION(self):
+    def test_the_scan_runs_with_the_local_go_and_nothing_saved(self):
         self.go(pinned("GO_VERSION"))
-        code, out = self.run_script(ROOT / "programs" / "vulncheck", GOVERSION="go9.9.9")
+        saved = self.tmp / "goenv"
+        saved.write_text("GOFLAGS=-tags=skip\n")
+        code, out = self.run_script(ROOT / "programs" / "vulncheck", GOVERSION="go9.9.9",
+                                    GOENV=str(saved), GOFLAGS="-tags=skip")
         self.assertEqual(code, 0, out)
-        self.assertEqual(self.logged().strip(), "scan GOVERSION=unset GOTOOLCHAIN=local")
+        self.assertEqual(self.logged().strip(), "scan GOVERSION=unset GOTOOLCHAIN=local GOENV=off GOFLAGS=unset")
 
 
 class Setup(Fakes):

@@ -80,8 +80,11 @@ for tool in "$@"; do
                 for d in $godir; do PATH="$d:$PATH"; done
                 have go || fail "govulncheck is built with Go $GO_VERSION, and the go on PATH is another version"
                 start "$dir"
-                GOBIN="$(cd "$dir.part" && pwd)" GOTOOLCHAIN=local GOFLAGS= \
-                    go install "golang.org/x/vuln/cmd/govulncheck@v$GOVULNCHECK_VERSION" >&2 ||
+                # Checked against the Go checksum database whatever the
+                # caller's environment or Go's saved settings say.
+                (unset GOFLAGS GONOSUMDB GOPRIVATE GONOPROXY GOINSECURE
+                 GOBIN="$(cd "$dir.part" && pwd)" GOENV=off GOTOOLCHAIN=local GOWORK=off \
+                     GOSUMDB=sum.golang.org go install "golang.org/x/vuln/cmd/govulncheck@v$GOVULNCHECK_VERSION") >&2 ||
                     fail "could not build govulncheck"
                 finish "$dir"
             fi ;;

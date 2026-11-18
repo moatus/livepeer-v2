@@ -4,13 +4,17 @@
 # 2 could not run.
 set -u
 cd "$(dirname "$0")"
-# GOFLAGS from the caller's environment (-run, -short, a build tag) could
-# change which tests run, so the check runs without it.
+# GOFLAGS (-run, -short, a build tag) could change which tests run, and Go
+# reads it from the caller's environment and from its saved settings (go
+# env -w, the file GOENV names), and GOTOOLCHAIN from both could run
+# another Go. So the check runs with neither: no saved settings, no
+# GOFLAGS, no go.work from a folder above, and only the Go on PATH.
+export GOENV=off GOTOOLCHAIN=local GOWORK=off
 unset GOFLAGS
 command -v go >/dev/null 2>&1 || { echo "go is not installed (./dev doctor)"; exit 2; }
 # An older Go would try to download the version go.mod names; that is a
 # missing tool, not a failure.
-GOTOOLCHAIN=local go list -m >/dev/null 2>&1 || { echo "the Go version go.mod names is not installed (./dev doctor)"; exit 2; }
+go list -m >/dev/null 2>&1 || { echo "the Go version go.mod names is not installed (./dev doctor)"; exit 2; }
 command -v gofmt >/dev/null 2>&1 || { echo "gofmt is not installed; it comes with Go (./dev doctor)"; exit 2; }
 unformatted=$(gofmt -l .) || { echo "gofmt could not read the sources (see above)"; exit 2; }
 if [ -n "$unformatted" ]; then
