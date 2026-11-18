@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 FACTORY_FILES = (
     "dev", "tools/dev.py", "SEAMS.md", "AGENTS.md", "README.md",
     "CLAUDE.md", ".gitignore", ".t3code/worktree-links.json",
+    "tools/versions",
 )
 PASS = "#!/bin/sh\nexit 0\n"
 FAIL = "#!/bin/sh\necho 'boom: 2 + 2 was 5'\nexit 1\n"
@@ -57,8 +58,10 @@ class Fixture(unittest.TestCase):
         if executable:
             target.chmod(0o755)
 
-    def dev(self, *args, research=True):
+    def dev(self, *args, research=True, path=None):
         env = dict(os.environ, LP2_DEV_SELFTEST="1")
+        if path:
+            env["PATH"] = path
         env.pop("LP2_RESEARCH", None)
         if research:
             env["LP2_RESEARCH"] = str(self.research)
@@ -318,6 +321,57 @@ class Qualify(Fixture):
         self.add("calculator/qualify", FAIL, executable=True)
         code, out = self.dev("qualify")
         self.assertEqual(code, 1, out)
+
+
+class Doctor(Fixture):
+    """./dev doctor holds each tool to the version tools/versions pins."""
+
+    def pinned(self, name):
+        for line in (ROOT / "tools" / "versions").read_text().splitlines():
+            if line.startswith(name + "="):
+                return line.split("=", 1)[1]
+        self.fail(f"tools/versions pins no {name}")
+
+    def tools(self, **says):
+        """A PATH holding fake tools that print what they are told to,
+        then the folders of the real git and python3."""
+        bin_ = self.tmp / "bin"
+        bin_.mkdir(exist_ok=True)
+        for name, text in says.items():
+            (bin_ / name).write_text(f"#!/bin/sh\necho '{text}'\n")
+            (bin_ / name).chmod(0o755)
+        real = {str(Path(shutil.which(t)).parent) for t in ("git", "python3")}
+        return os.pathsep.join([str(bin_), *sorted(real)])
+
+    def foundry(self, version):
+        return {"forge": f"forge Version: {version}", "anvil": f"anvil Version: {version}"}
+
+    def test_the_pinned_versions_pass(self):
+        path = self.tools(go=f"go{self.pinned('GO_VERSION')}", **self.foundry(self.pinned("FOUNDRY_VERSION")))
+        code, out = self.dev("doctor", path=path)
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"ok       forge: {self.pinned('FOUNDRY_VERSION')} (pinned)", out)
+
+    def test_another_foundry_version_fails(self):
+        path = self.tools(go=f"go{self.pinned('GO_VERSION')}", **self.foundry("0.0.1"))
+        code, out = self.dev("doctor", path=path)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"WRONG    forge: 0.0.1, but tools/versions pins {self.pinned('FOUNDRY_VERSION')}", out)
+
+    def test_another_go_version_fails(self):
+        path = self.tools(go="go1.0.0", **self.foundry(self.pinned("FOUNDRY_VERSION")))
+        code, out = self.dev("doctor", path=path)
+        self.assertEqual(code, 1, out)
+        self.assertIn("WRONG    go: 1.0.0", out)
+
+    def test_a_missing_slither_is_noted_and_another_version_fails(self):
+        fine = dict(go=f"go{self.pinned('GO_VERSION')}", **self.foundry(self.pinned("FOUNDRY_VERSION")))
+        code, out = self.dev("doctor", path=self.tools(**fine))
+        self.assertEqual(code, 0, out)
+        self.assertIn("absent   slither", out)
+        code, out = self.dev("doctor", path=self.tools(slither="0.0.1", **fine))
+        self.assertEqual(code, 1, out)
+        self.assertIn("WRONG    slither: 0.0.1", out)
 
 
 class Demo(Fixture):

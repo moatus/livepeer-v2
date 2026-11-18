@@ -1,0 +1,21 @@
+# The pinned tool versions: the one place each is named. ./dev doctor
+# fails when a tool is installed at another version, and tools/setup,
+# which the workflows under .github/ run, installs exactly these.
+# Lines are NAME=value, read by sh and by tools/dev.py; no spaces, no quotes.
+# A download's sha256 is for Linux on amd64, the platform tools/setup
+# installs for; change a version and its sha256 together.
+
+# Foundry (forge, anvil, cast): contracts/check, the demo.
+FOUNDRY_VERSION=1.9.0
+FOUNDRY_SHA256=8d17599b42e3139f1a9c171be3798c4ed8e743ae17b84cc3435e57bf2a51ae99
+
+# Go: programs/check, the demo. go.mod names the oldest Go that builds.
+GO_VERSION=1.27.4
+GO_SHA256=7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840
+
+# govulncheck: programs/vulncheck. Installed with the pinned Go, which
+# checks the module against the Go checksum database.
+GOVULNCHECK_VERSION=1.9.0
+
+# slither: contracts/slither. Installed from PyPI into its own environment.
+SLITHER_VERSION=0.11.6

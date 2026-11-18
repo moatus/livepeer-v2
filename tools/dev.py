@@ -260,31 +260,54 @@ def cmd_demo(args) -> int:
     return subprocess.run([str(script), *args.rest], cwd=ROOT / "demo").returncode
 
 
+def pins() -> dict[str, str]:
+    """The tool versions tools/versions pins: NAME=value lines."""
+    path = ROOT / "tools" / "versions"
+    lines = path.read_text().splitlines() if path.is_file() else []
+    return dict(line.split("=", 1) for line in lines if "=" in line and not line.startswith("#"))
+
+
 def cmd_doctor(_args) -> int:
-    def version(command: list[str]) -> str | None:
+    def version(command: list[str], pattern: str) -> str | None:
+        """What the tool says its version is; None when it is not installed."""
         if not shutil.which(command[0]):
             return None
-        done = subprocess.run(command, capture_output=True, text=True)
-        text = (done.stdout or done.stderr).strip()
-        return text.splitlines()[0] if text else "present"
+        try:
+            done = subprocess.run(command, capture_output=True, text=True, timeout=120,
+                                  env=dict(os.environ, GOTOOLCHAIN="local"))
+        except subprocess.TimeoutExpired:
+            return "no answer"
+        found = re.search(pattern, done.stdout + done.stderr, re.M)
+        return found.group(1) if found else "an unknown version"
 
+    pin = pins()
+    contracts, programs = (ROOT / "contracts").is_dir(), (ROOT / "programs").is_dir()
+    # name, command, the pattern that finds its version, needed now, pinned version, how to fix
     needs = [
-        ("git", ["git", "--version"], True, "install git"),
-        ("python3", ["python3", "--version"], True, "install Python 3"),
-        ("forge", ["forge", "--version"], (ROOT / "contracts").is_dir(), "install Foundry: https://getfoundry.sh"),
-        ("anvil", ["anvil", "--version"], (ROOT / "contracts").is_dir(), "comes with Foundry"),
-        ("go", ["go", "version"], (ROOT / "programs").is_dir(), "install Go: https://go.dev/dl"),
+        ("git", ["git", "--version"], r"^git version (\S+)", True, None, "install git"),
+        ("python3", ["python3", "--version"], r"^Python (\S+)", True, None, "install Python 3"),
+        ("forge", ["forge", "--version"], r"^forge Version: (\S+)", contracts, pin.get("FOUNDRY_VERSION"), "tools/setup foundry"),
+        ("anvil", ["anvil", "--version"], r"^anvil Version: (\S+)", contracts, pin.get("FOUNDRY_VERSION"), "tools/setup foundry"),
+        ("go", ["go", "env", "GOVERSION"], r"^go(\S+)", programs, pin.get("GO_VERSION"), "tools/setup go"),
+        # Not needed by ./dev verify: contracts/slither and programs/vulncheck
+        # use them, in CI and through ./dev qualify.
+        ("slither", ["slither", "--version"], r"^(\d\S*)$", False, pin.get("SLITHER_VERSION"), "tools/setup slither"),
+        ("govulncheck", ["govulncheck", "-version"], r"^Scanner: govulncheck@v(\S+)", False,
+         pin.get("GOVULNCHECK_VERSION"), "tools/setup govulncheck"),
     ]
     bad = False
-    for name, command, needed_now, fix in needs:
-        found = version(command)
-        if found:
-            print(f"ok       {name}: {found}")
+    for name, command, pattern, needed_now, pinned, fix in needs:
+        found = version(command, pattern)
+        if found and pinned and found != pinned:
+            bad = True
+            print(f"WRONG    {name}: {found}, but tools/versions pins {pinned}. {fix}")
+        elif found:
+            print(f"ok       {name}: {found}" + (" (pinned)" if pinned else ""))
         elif needed_now:
             bad = True
             print(f"MISSING  {name}: needed now. {fix}")
         else:
-            print(f"absent   {name}: not needed until its code exists. {fix}")
+            print(f"absent   {name}: not needed by ./dev verify. {fix}")
     research = research_dir()
     print(f"{'ok      ' if research else 'absent  '} lp2-research: {research or 'not beside this checkout (set LP2_RESEARCH)'}")
     roster = ROOT / ".agents" / "roster.md"

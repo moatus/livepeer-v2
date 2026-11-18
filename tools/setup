@@ -1,0 +1,103 @@
+#!/bin/sh
+# Installs the tools pinned in tools/versions, for a machine or a CI runner
+# that lacks them, and prints the folders to put first on PATH, one per line
+# (the form a workflow's $GITHUB_PATH file takes):
+#
+#   tools/setup foundry go govulncheck slither >>"$GITHUB_PATH"
+#   export PATH="$(tools/setup foundry go | paste -sd:):$PATH"
+#
+# A tool already on PATH at the pinned version is left alone and prints
+# nothing. Each installed version has its own folder under $LP2_TOOLS
+# (default: .cache/tools in this checkout), so a folder is reused by later
+# runs and never mixes two versions. Downloads are checked against the
+# sha256 in tools/versions. Linux on amd64 only.
+# Exit 0 every tool is ready; 2 one could not be installed.
+set -eu
+here=$(cd "$(dirname "$0")" && pwd)
+. "$here/versions"
+tools=${LP2_TOOLS:-$here/../.cache/tools}
+[ "$#" -gt 0 ] || { echo "usage: tools/setup foundry|go|govulncheck|slither ..." >&2; exit 64; }
+
+fail() { echo "setup: $*" >&2; exit 2; }
+ready() { # <dir> <tool>: the tool is in dir at the pinned version
+    (PATH="$1:$PATH"; have "$2")
+}
+have() { # <tool>: the tool on PATH is at the pinned version
+    case "$1" in
+        foundry) [ "$(forge --version 2>/dev/null | sed -n 's/^forge Version: //p')" = "$FOUNDRY_VERSION" ] &&
+                 [ "$(anvil --version 2>/dev/null | sed -n 's/^anvil Version: //p')" = "$FOUNDRY_VERSION" ] &&
+                 command -v cast >/dev/null 2>&1 ;;
+        go) [ "$(GOTOOLCHAIN=local go env GOVERSION 2>/dev/null)" = "go$GO_VERSION" ] ;;
+        govulncheck) govulncheck -version 2>/dev/null | grep -qx "Scanner: govulncheck@v$GOVULNCHECK_VERSION" ;;
+        slither) [ "$(slither --version 2>/dev/null)" = "$SLITHER_VERSION" ] ;;
+        *) fail "no tool named $1" ;;
+    esac
+}
+fetch() { # <url> <sha256> <file>
+    curl -fsSL --retry 3 -o "$3" "$1" || fail "could not download $1"
+    echo "$2  $3" | sha256sum -c --quiet - >&2 || fail "$1 does not have the sha256 in tools/versions"
+}
+platform() {
+    [ "$(uname -s)-$(uname -m)" = Linux-x86_64 ] || fail "$1: downloads are for Linux on amd64; install $1 by hand"
+}
+# Builds into a fresh folder beside the final one, then moves it in place,
+# so a run that stops half way leaves nothing that looks installed.
+start() { rm -rf "$1.part"; mkdir -p "$1.part"; }
+finish() { rm -rf "$1"; mv "$1.part" "$1"; }
+
+for tool in "$@"; do
+    have "$tool" && continue
+    case "$tool" in
+        foundry)
+            dir=$tools/foundry-$FOUNDRY_VERSION
+            if ! ready "$dir" foundry; then
+                platform foundry
+                start "$dir"
+                fetch "https://github.com/foundry-rs/foundry/releases/download/v$FOUNDRY_VERSION/foundry_v${FOUNDRY_VERSION}_linux_amd64.tar.gz" \
+                    "$FOUNDRY_SHA256" "$dir.part/foundry.tar.gz"
+                tar -xzf "$dir.part/foundry.tar.gz" -C "$dir.part" forge anvil cast
+                rm "$dir.part/foundry.tar.gz"
+                finish "$dir"
+            fi ;;
+        go)
+            dir=$tools/go-$GO_VERSION/go/bin
+            if ! ready "$dir" go; then
+                platform go
+                start "$tools/go-$GO_VERSION"
+                fetch "https://go.dev/dl/go$GO_VERSION.linux-amd64.tar.gz" "$GO_SHA256" "$tools/go-$GO_VERSION.part/go.tar.gz"
+                tar -xzf "$tools/go-$GO_VERSION.part/go.tar.gz" -C "$tools/go-$GO_VERSION.part"
+                rm "$tools/go-$GO_VERSION.part/go.tar.gz"
+                finish "$tools/go-$GO_VERSION"
+            fi ;;
+        govulncheck)
+            dir=$tools/govulncheck-$GOVULNCHECK_VERSION
+            if ! ready "$dir" govulncheck; then
+                # Built with the pinned Go, installed first if it is missing.
+                for d in $("$0" go); do PATH="$d:$PATH"; done
+                start "$dir"
+                GOBIN="$(cd "$dir.part" && pwd)" GOTOOLCHAIN=local GOFLAGS= \
+                    go install "golang.org/x/vuln/cmd/govulncheck@v$GOVULNCHECK_VERSION" >&2 ||
+                    fail "could not build govulncheck"
+                finish "$dir"
+            fi ;;
+        slither)
+            dir=$tools/slither-$SLITHER_VERSION/path
+            if ! ready "$dir" slither; then
+                # A virtual environment cannot be moved, so it is made in
+                # place; until slither answers with its version, it is not
+                # installed.
+                base=$tools/slither-$SLITHER_VERSION
+                rm -rf "$base"
+                python3 -m venv "$base/venv" >&2 || fail "python3 cannot make a virtual environment (python3-venv)"
+                "$base/venv/bin/pip" install -q --disable-pip-version-check "slither-analyzer==$SLITHER_VERSION" >&2 ||
+                    fail "could not install slither-analyzer $SLITHER_VERSION"
+                # Only slither goes on PATH: the environment's python3 and
+                # pip would otherwise shadow the machine's.
+                mkdir -p "$dir"
+                ln -sf ../venv/bin/slither "$dir/slither"
+            fi ;;
+        *) fail "no tool named $tool" ;;
+    esac
+    ready "$dir" "$tool" || fail "$tool was installed in $dir but is not the pinned version"
+    (cd "$dir" && pwd)
+done
