@@ -121,5 +121,59 @@ class ProgramsVulncheck(Fakes):
         self.assertEqual(self.logged().strip(), "scan GOVERSION=unset GOTOOLCHAIN=local")
 
 
+def finding(check, first, *more, line=10):
+    """A slither finding as its JSON report gives it."""
+    text = f"{first} (src/money/Claims.sol#{line}-{line + 4})\n" + "".join(f"\t{m}\n" for m in more)
+    return {"check": check, "impact": "Low", "description": text}
+
+
+class Slither(unittest.TestCase):
+    """contracts/slither: each finding is accepted by name, as often as it
+    occurs."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.s = load(ROOT / "contracts" / "slither", "slither_check")
+
+    def accepted(self, *keys):
+        return self.s.parse_accepted("".join(f"{k}\n    the reason\n" for k in keys))
+
+    def test_line_numbers_do_not_change_a_finding(self):
+        a = finding("calls-loop", "C.f() has external calls inside a loop: x = l.v(i)", line=10)
+        b = finding("calls-loop", "C.f() has external calls inside a loop: x = l.v(i)", line=99)
+        self.assertEqual(self.s.key(a), self.s.key(b))
+
+    def test_the_call_stack_tells_findings_apart(self):
+        a = finding("calls-loop", "C._p() has external calls inside a loop: l.v()",
+                    "Calls stack containing the loop:", "\tC.withdraw()")
+        b = finding("calls-loop", "C._p() has external calls inside a loop: l.v()",
+                    "Calls stack containing the loop:", "\tC.withdrawOther()")
+        self.assertNotEqual(self.s.key(a), self.s.key(b))
+        new, stale = self.s.compare([a, b], self.accepted(self.s.key(a)))
+        self.assertEqual([k for k, _, _ in new], [self.s.key(b)])
+        self.assertEqual(stale, [])
+
+    def test_a_second_finding_with_an_accepted_key_is_new(self):
+        a = finding("calls-loop", "C.f() has external calls inside a loop: x = l.v(i)", line=10)
+        b = finding("calls-loop", "C.f() has external calls inside a loop: x = l.v(i)", line=12)
+        new, stale = self.s.compare([a, b], self.accepted(self.s.key(a)))
+        self.assertEqual(new, [(self.s.key(a), 2, 1)])
+        self.assertEqual(stale, [])
+
+    def test_a_finding_listed_twice_accepts_two(self):
+        a = finding("calls-loop", "C.f() has external calls inside a loop: x = l.v(i)", line=10)
+        b = finding("calls-loop", "C.f() has external calls inside a loop: x = l.v(i)", line=12)
+        self.assertEqual(self.s.compare([a, b], self.accepted(self.s.key(a), self.s.key(a))), ([], []))
+
+    def test_a_listed_finding_no_longer_reported_is_stale(self):
+        a = finding("calls-loop", "C.f() has external calls inside a loop: x = l.v(i)")
+        new, stale = self.s.compare([], self.accepted(self.s.key(a)))
+        self.assertEqual((new, stale), ([], [(self.s.key(a), 0, 1)]))
+
+    def test_a_finding_without_a_reason_is_refused(self):
+        with self.assertRaises(SystemExit):
+            self.s.parse_accepted("calls-loop: C.f() has external calls inside a loop: x\n")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections import Counter
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -28,29 +29,43 @@ def pinned() -> str:
 
 
 def key(finding: dict) -> str:
-    """The detector and the first line of the finding, without file paths
-    and line numbers, so moving code does not change it."""
-    first = finding["description"].strip().splitlines()[0]
-    return f"{finding['check']}: " + re.sub(r" \([^()]*#\d+(-\d+)?\)", "", first).strip()
+    """The detector and the whole of slither's description, one line per
+    part joined by " | ", without file paths and line numbers: the
+    contract and function, the call or event, and the calling path where
+    slither gives one. Moving code does not change it."""
+    lines = (re.sub(r" \([^()]*#\d+(-\d+)?\)", "", line).strip()
+             for line in finding["description"].strip().splitlines())
+    return f"{finding['check']}: " + " | ".join(line for line in lines if line)
 
 
-def accepted() -> dict[str, str]:
-    """slither.accepted: a finding's line, then its reason, indented."""
-    out, last = {}, None
-    for n, line in enumerate(ACCEPTED.read_text().splitlines(), 1):
+def parse_accepted(text: str) -> list[tuple[str, str]]:
+    """slither.accepted: a finding's key, then its reason, indented. A
+    finding slither reports twice is listed twice."""
+    out = []
+    for n, line in enumerate(text.splitlines(), 1):
         if not line.strip() or line.startswith("#"):
             continue
         if line[0].isspace():
-            if last is None or out[last]:
+            if not out or out[-1][1]:
                 raise SystemExit(f"slither.accepted:{n}: one reason line follows each finding")
-            out[last] = line.strip()
+            out[-1] = (out[-1][0], line.strip())
         else:
-            last = line.strip()
-            out[last] = ""
-    missing = [k for k, reason in out.items() if not reason]
+            out.append((line.strip(), ""))
+    missing = [k for k, reason in out if not reason]
     if missing:
         raise SystemExit(f"slither.accepted: no reason given for {missing[0]}")
     return out
+
+
+def compare(findings: list[dict], accepted: list[tuple[str, str]]):
+    """The keys found more often than they are listed (new), and those
+    listed more often than they are found (stale), each as (key, found,
+    listed)."""
+    found = Counter(key(f) for f in findings)
+    listed = Counter(k for k, _ in accepted)
+    new = [(k, found[k], listed[k]) for k in sorted(found) if found[k] > listed[k]]
+    stale = [(k, found[k], listed[k]) for k in sorted(listed) if listed[k] > found[k]]
+    return new, stale
 
 
 def main() -> int:
@@ -87,16 +102,17 @@ def main() -> int:
             return 1
     findings = data.get("results", {}).get("detectors", [])
 
-    allowed = accepted()
-    found = sorted({key(f) for f in findings})
-    new = [f for f in findings if key(f) not in allowed]
-    stale = [k for k in allowed if k not in found]
-    for f in new:
-        print(f"NEW      [{f['impact']}] {f['check']}\n{f['description'].strip()}\n")
-    for k in stale:
-        print(f"STALE    {k}\n         slither no longer reports this; remove it from slither.accepted")
-    print(f"slither {have}: {len(findings)} finding(s), {len(findings) - len(new)} accepted in "
-          f"slither.accepted, {len(new)} new, {len(stale)} stale")
+    new, stale = compare(findings, parse_accepted(ACCEPTED.read_text()))
+    for k, found, listed in new:
+        print(f"NEW      {k}\n         (found {found}, accepted {listed}); slither says:")
+        for f in findings:
+            if key(f) == k:
+                print(f"[{f['impact']}] {f['description'].strip()}\n")
+    for k, found, listed in stale:
+        print(f"STALE    {k}\n         (found {found}, accepted {listed}): remove what slither no longer reports")
+    extra = sum(found - listed for _, found, listed in new)
+    print(f"slither {have}: {len(findings)} finding(s), {len(findings) - extra} accepted in "
+          f"slither.accepted, {extra} new, {sum(listed - found for _, found, listed in stale)} stale")
     if new or stale:
         print("static analysis: FAILED (fix each new finding, or list it with its reason in slither.accepted)")
         return 1
