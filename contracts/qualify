@@ -3,8 +3,8 @@
 #   1. long invariant and fuzz runs over test-qualify/ (the qualify profile
 #      in foundry.toml), with a fixed seed so a failure can be replayed;
 #      LP2_QUALIFY_SEED=<n> searches with another seed;
-#   2. static analysis, when slither or aderyn is already installed;
-#      otherwise that part is reported not_run;
+#   2. static analysis: contracts/slither, at the version tools/versions
+#      pins; without it this check is not_run, never passed;
 #   3. seeded errors (mutations.py): each must turn a check red.
 # Exit 0 passed, 1 failed, 2 could not run.
 set -u
@@ -28,14 +28,13 @@ if ! grep -q 'MoneyInvariants invariants (runs: [1-9]' "$log"; then
 fi
 echo "runs: $(( $(date +%s) - start ))s"
 
-echo "== static analysis"
-if command -v slither >/dev/null 2>&1; then
-    slither . --foundry-out-directory out || failed=1
-elif command -v aderyn >/dev/null 2>&1; then
-    aderyn . || failed=1
-else
-    echo "static analysis: not_run (neither slither nor aderyn is installed)"
-fi
+echo "== static analysis (contracts/slither)"
+./slither
+case $? in
+    0) ;;
+    2) [ $failed -eq 0 ] && failed=2 ;;
+    *) failed=1 ;;
+esac
 
 echo "== seeded errors"
 start=$(date +%s)
@@ -47,5 +46,5 @@ case $? in
 esac
 echo "seeded errors: $(( $(date +%s) - start ))s"
 
-[ $failed -eq 0 ] && echo "contracts/qualify: passed (static analysis as stated above)"
+[ $failed -eq 0 ] && echo "contracts/qualify: passed"
 exit $failed

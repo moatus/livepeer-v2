@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+"""Static analysis of the contracts with slither, at the version
+tools/versions pins. Every finding is either fixed or listed, with the
+reason it is accepted, in slither.accepted; a finding not listed fails the
+check, and so does a listed one slither no longer reports.
+
+The workflow .github/workflows/slither.yml runs it when the contracts
+change, and ./dev qualify runs it through contracts/qualify. Exit 0 passed,
+1 failed, 2 could not run (slither missing or at another version: never a
+pass)."""
+import json
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+ACCEPTED = HERE / "slither.accepted"
+
+
+def pinned() -> str:
+    for line in (HERE.parent / "tools" / "versions").read_text().splitlines():
+        if line.startswith("SLITHER_VERSION="):
+            return line.split("=", 1)[1].strip()
+    raise SystemExit("tools/versions pins no SLITHER_VERSION")
+
+
+def key(finding: dict) -> str:
+    """The detector and the first line of the finding, without file paths
+    and line numbers, so moving code does not change it."""
+    first = finding["description"].strip().splitlines()[0]
+    return f"{finding['check']}: " + re.sub(r" \([^()]*#\d+(-\d+)?\)", "", first).strip()
+
+
+def accepted() -> dict[str, str]:
+    """slither.accepted: a finding's line, then its reason, indented."""
+    out, last = {}, None
+    for n, line in enumerate(ACCEPTED.read_text().splitlines(), 1):
+        if not line.strip() or line.startswith("#"):
+            continue
+        if line[0].isspace():
+            if last is None or out[last]:
+                raise SystemExit(f"slither.accepted:{n}: one reason line follows each finding")
+            out[last] = line.strip()
+        else:
+            last = line.strip()
+            out[last] = ""
+    missing = [k for k, reason in out.items() if not reason]
+    if missing:
+        raise SystemExit(f"slither.accepted: no reason given for {missing[0]}")
+    return out
+
+
+def main() -> int:
+    want = pinned()
+    if not shutil.which("slither"):
+        print(f"static analysis: not_run (slither is not installed; tools/setup slither installs {want})")
+        return 2
+    have = subprocess.run(["slither", "--version"], capture_output=True, text=True).stdout.strip()
+    if have != want:
+        print(f"static analysis: not_run (slither is {have or 'unknown'}, tools/versions pins {want})")
+        return 2
+    if not shutil.which("forge"):
+        print("static analysis: not_run (forge is not installed; ./dev doctor)")
+        return 2
+
+    # slither runs `forge clean` before it builds, so it gets a copy of the
+    # sources: the checkout's build output and qualify cache are left alone.
+    with tempfile.TemporaryDirectory() as tmp:
+        work = Path(tmp) / "contracts"
+        work.mkdir()
+        shutil.copy(HERE / "foundry.toml", work)
+        for folder in ("src", "interfaces"):
+            shutil.copytree(HERE / folder, work / folder)
+        report = Path(tmp) / "report.json"
+        done = subprocess.run(["slither", ".", "--foundry-out-directory", "out", "--json", str(report)],
+                              cwd=work, capture_output=True, text=True)
+        try:
+            data = json.loads(report.read_text())
+        except (OSError, ValueError):
+            data = {}
+        if not data.get("success"):
+            print((done.stdout + done.stderr).strip()[-3000:])
+            print("static analysis: slither did not finish")
+            return 1
+    findings = data.get("results", {}).get("detectors", [])
+
+    allowed = accepted()
+    found = sorted({key(f) for f in findings})
+    new = [f for f in findings if key(f) not in allowed]
+    stale = [k for k in allowed if k not in found]
+    for f in new:
+        print(f"NEW      [{f['impact']}] {f['check']}\n{f['description'].strip()}\n")
+    for k in stale:
+        print(f"STALE    {k}\n         slither no longer reports this; remove it from slither.accepted")
+    print(f"slither {have}: {len(findings)} finding(s), {len(findings) - len(new)} accepted in "
+          f"slither.accepted, {len(new)} new, {len(stale)} stale")
+    if new or stale:
+        print("static analysis: FAILED (fix each new finding, or list it with its reason in slither.accepted)")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

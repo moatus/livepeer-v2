@@ -1,0 +1,31 @@
+# Slither's findings on contracts/src that are accepted, each with the
+# reason. contracts/slither fails on a finding not listed here, and on a
+# line here that slither no longer reports. Before listing a finding, fix it
+# if it is a defect; a defect under src/money/ or src/authority/ goes to the
+# owner first (SEAMS.md).
+#
+# Each entry is the finding's line as contracts/slither prints it (the
+# detector, then the first line of slither's description without file
+# paths or line numbers), then one indented line giving the reason.
+# Slither 0.11.6, first run: 12 findings, all accepted below.
+
+calls-loop: Claims._part(uint256,address,address,uint256) has external calls inside a loop: RewardMath.partOf(pot,ledger.bondAt(holder,node,round),ledger.stakeAt(node,round))
+    The calls are views on StakeLedger, fixed at deployment; the loop is over the rounds the caller lists, so a long list costs only the caller.
+calls-loop: Claims._payMember(address,uint256,uint256,uint256,uint256) has external calls inside a loop: cut = RewardMath.cutOf(paid,ledger.cutAt(m,round))
+    A view on StakeLedger, fixed at deployment, once per member of the round, at most Scores' N = 3.
+calls-loop: Claims._payMember(address,uint256,uint256,uint256,uint256) has external calls inside a loop: lpt.mint(payout,cut)
+    TestLPT, fixed at deployment, mints without calling the recipient; once per member of the round, at most N = 3.
+calls-loop: Claims._payMember(address,uint256,uint256,uint256,uint256) has external calls inside a loop: payout = registry.payoutOf(m)
+    A view on Registry, fixed at deployment, once per member of the round, at most N = 3.
+calls-loop: Claims.mintRoundShares(uint256) has external calls inside a loop: stakes[i] = ledger.stakeAt(members[i],round)
+    A view on StakeLedger, fixed at deployment, once per member of the round, at most N = 3.
+calls-loop: Scores._seat(address,uint256) has external calls inside a loop: s = ledger.stakeAt(next[j],r)
+    A view on StakeLedger, fixed at deployment, over the N = 3 seats.
+divide-before-multiply: Broker.redeemWinningTicket(ITicketBroker.Ticket,bytes,uint256) performs a multiplication on the result of a division:
+    paid / ONE * NODE_CUT + paid % ONE * NODE_CUT / ONE is exactly floor(paid * NODE_CUT / ONE), since paid = (paid / ONE) * ONE + paid % ONE; it is split so no product overflows.
+reentrancy-events: Reentrancy in StakeLedger.bond(address,uint256):
+    Every state change comes before the transfer, and the token is TestLPT, fixed at deployment, which calls no one; only the event follows it.
+reentrancy-events: Reentrancy in StakeLedger.withdrawUnbonded():
+    Every state change comes before the transfer, and the token is TestLPT, fixed at deployment, which calls no one; only the event follows it.
+uninitialized-local: Scores.scoreOf(address).s is a local variable never initialized
+    A memory array starts as zeros, and the insertion sort reads only the entries s[0..k) it has already written.
