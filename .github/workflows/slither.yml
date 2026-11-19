@@ -2,7 +2,8 @@
 # tools/versions pins, whenever the contracts or the pin change. Each
 # finding is fixed or accepted, with its reason, in contracts/slither.accepted
 # (contracts/slither). ./dev qualify runs the same script. A pull request
-# from a fork is safe here for the reasons verify.yml gives.
+# from a fork is handled as in verify.yml, which says what keeps a fork's
+# code off the private host's runner.
 name: slither
 
 on:
@@ -33,7 +34,8 @@ jobs:
   slither:
     name: slither
     # The runner, and a fork's pull request skipped on the private host
-    # only: see verify.yml. Neither line is edited per host.
+    # only, while this is the main branch's file: see verify.yml. Neither
+    # line is edited per host.
     if: github.server_url == 'https://github.com' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-24.04' || 'lp2-verify' }}
     timeout-minutes: 30

@@ -4,8 +4,12 @@
 # The same file runs on both hosts, unedited. Safe for a pull request from
 # a fork: it runs on
 # `pull_request`, never `pull_request_target`, reads no secrets, and its
-# token can only read. On the private host it skips a pull request from a
-# fork, so a fork's code never runs on that host's runner.
+# token can only read. On the private host the job's if: skips a pull
+# request from a fork, but only when the run uses the main branch's copy of
+# this file: there a pull request runs with its own copy, which a fork can
+# change. What keeps outside code off the private host's runner is that
+# only trusted accounts can open pull requests on that host; outside
+# contributors open theirs on GitHub.
 name: verify
 
 on:
@@ -25,8 +29,10 @@ jobs:
     # The host, told by github.server_url: on GitHub, a hosted runner, which
     # is thrown away after the job, so a fork's pull request runs too.
     # Anywhere else, an empty server_url included, the private host: its
-    # own runner (label lp2-verify), where a fork's code must never run, so
-    # the if: skips a fork's pull request. Neither line is edited per host.
+    # own runner (label lp2-verify), where a fork's code must never run. The
+    # if: skips a fork's pull request there, which holds only while this is
+    # the main branch's file (see the top of this file). Neither line is
+    # edited per host.
     if: github.server_url == 'https://github.com' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-24.04' || 'lp2-verify' }}
     timeout-minutes: 20

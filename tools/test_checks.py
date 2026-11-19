@@ -538,15 +538,92 @@ class ContractsCheck(Fakes):
             self.assertEqual(code, 1, out)
             self.assertIn("[FAIL: seeded]", out)
 
-    def test_settings_that_cannot_be_cleared_stop_the_check_before_forge(self):
-        # As the start without them finds them: still set, so not_run.
-        self.forge("exit 0", test='echo "[PASS] test_a() (gas: 1)"; echo ran >>"$LOG"; exit 0')
+    def qualify(self):
+        """contracts/qualify beside check, with a slither and seeded errors
+        that pass and keep the environment they were given in $LOG.<name>."""
+        shutil.copy(ROOT / "contracts" / "qualify", self.dir / "qualify")
+        for name in ("date", "tee"):
+            (self.bin / name).symlink_to(shutil.which(name))
+        (self.dir / "slither").write_text('#!/bin/sh\ncat /proc/$$/environ >"$LOG.slither"\n')
+        (self.dir / "slither").chmod(0o755)
+        (self.dir / "mutations.py").write_text(
+            "import os, shutil\nshutil.copy('/proc/self/environ', os.environ['LOG'] + '.mutations')\n")
+
+    def environ(self, name):
+        """The environment a fake was started with, as $LOG.<name> keeps it."""
+        entries = Path(f"{self.log}.{name}").read_bytes().split(b"\0")
+        return dict(e.decode().split("=", 1) for e in entries if e)
+
+    # The caller's own variables, none of them a Foundry setting: an empty
+    # one that this script once used as its own marker, one whose value has
+    # spaces, quotes, "=" and a line break, and one whose name sh cannot hold.
+    KEPT = {"LP2_FORGE_ENV_CLEARED": "", "MY_SETTING": "a b\n'c\"=d", "MY ODD NAME": "x y"}
+    # Foundry settings over several lines, and one whose name sh cannot hold.
+    MULTILINE = {"FOUNDRY_MATCH_TEST": "^$\nexport FOUNDRY_PROFILE=qualify", "DAPP_TEST": "a\nb",
+                 "FOUNDRY_ODD NAME": "1"}
+
+    def need_proc(self):
+        if not Path("/proc/self/environ").exists():
+            self.skipTest("reads a program's environment from /proc")
+
+    def test_python3_stopping_before_forge_is_not_run(self):
+        # python3 exits 1 in the step that would start forge: not_run, never
+        # a failed (1) or passed check, and forge never runs.
+        real = shutil.which("python3")
+        self.tool("python3", f'case "$*" in *execvpe*) exit 1 ;; esac\nexec "{real}" "$@"')
+        self.forge('echo ran >>"$LOG"; exit 0', test='echo ran >>"$LOG"; exit 1')
+        self.qualify()
         for script in ("check", "qualify"):
-            shutil.copy(ROOT / "contracts" / script, self.dir / script)
-            code, out = self.run_script(self.dir / script, FOUNDRY_SKIP="x", LP2_FORGE_ENV_CLEARED="1")
+            code, out = self.run_script(self.dir / script, FOUNDRY_SKIP="x")
             self.assertEqual(code, 2, out)
-            self.assertIn("still set", out)
-        self.assertEqual(self.logged(), "")
+            self.assertEqual(self.logged(), "", out)
+
+    def test_an_sh_on_the_path_never_stands_in_for_the_check(self):
+        self.tool("sh", "exit 0")
+        self.forge("exit 0", test='echo "[FAIL: seeded] test_a() (gas: 1)"; exit 1')
+        self.qualify()
+        for script in ("check", "qualify"):
+            code, out = self.run_script(self.dir / script, FOUNDRY_SKIP="x")
+            self.assertEqual(code, 1, out)
+
+    def test_other_variables_reach_forge_unchanged(self):
+        self.need_proc()
+        self.forge('cat /proc/$$/environ >"$LOG.fmt"',
+                   test='cat /proc/$$/environ >"$LOG.test"; echo "MoneyInvariants invariants (runs: 5)"'
+                        '; echo "[PASS] test_a() (gas: 1)"')
+        self.qualify()
+        for script in ("check", "qualify"):
+            self.run_script(self.dir / script, **self.KEPT, **self.MULTILINE)
+            for name in ("fmt", "test", "slither", "mutations") if script == "qualify" else ("fmt", "test"):
+                if script == "qualify" and name == "fmt":
+                    continue
+                env = self.environ(name)
+                for key, value in self.KEPT.items():
+                    self.assertEqual(env.get(key), value, f"{script}: {name}: {key}")
+
+    def test_foundry_settings_over_several_lines_are_removed(self):
+        self.need_proc()
+        self.forge('cat /proc/$$/environ >"$LOG.fmt"',
+                   test='cat /proc/$$/environ >"$LOG.test"; echo "MoneyInvariants invariants (runs: 5)"'
+                        '; echo "[PASS] test_a() (gas: 1)"')
+        self.qualify()
+        for script in ("check", "qualify"):
+            self.run_script(self.dir / script, **self.MULTILINE)
+            names = ("test", "slither", "mutations") if script == "qualify" else ("fmt", "test")
+            for name in names:
+                settings = {k: v for k, v in self.environ(name).items() if k.startswith(("FOUNDRY_", "DAPP_"))}
+                own = {"FOUNDRY_PROFILE": "qualify"} if (script, name) == ("qualify", "test") else {}
+                self.assertEqual(settings, own, f"{script}: {name}")
+
+    def test_a_forge_failure_fails(self):
+        # Through the clearing, forge's own exit 1 for a failing test is a
+        # failed check: 1, not 0 and not not_run.
+        self.forge("exit 0", test='echo "[FAIL: seeded] test_a() (gas: 1)"; exit 1')
+        self.qualify()
+        for script in ("check", "qualify"):
+            code, out = self.run_script(self.dir / script, **self.MULTILINE)
+            self.assertEqual(code, 1, out)
+            self.assertIn("[FAIL: seeded]", out)
 
     def test_no_test_run_is_not_run(self):
         self.forge("exit 0", test='echo "No tests match the provided pattern"; exit 0')
@@ -554,9 +631,7 @@ class ContractsCheck(Fakes):
         self.assertEqual(code, 2, out)
 
     def test_qualify_clears_inherited_test_filters(self):
-        shutil.copy(ROOT / "contracts" / "qualify", self.dir / "qualify")
-        for name in ("date", "tee"):
-            (self.bin / name).symlink_to(shutil.which(name))
+        self.qualify()
         self.forge("exit 0", test=self.FILTERED + 'echo "MoneyInvariants invariants (runs: 5)"; exit 0')
         for tools in ("all", "no sed"):
             if tools == "no sed":
