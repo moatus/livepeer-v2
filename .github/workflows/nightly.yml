@@ -1,4 +1,5 @@
-# The heavy checks every night, and by hand from the Actions page:
+# The heavy checks every night on the private host, and by hand from the
+# Actions page on either host (on GitHub, by hand only):
 # ./dev qualify (long fuzz and invariant runs, slither, the seeded errors,
 # the Go vulnerability scan against that day's database), then the local
 # demo. A failure here is reported, not a block: no change waits for it.
@@ -19,10 +20,12 @@ concurrency:
 jobs:
   nightly:
     name: qualify and demo
-    # The runner: see verify.yml. Change this line and nothing else; no
-    # pull request runs this workflow. The demo needs docker and the
-    # network (demo/run).
-    runs-on: lp2-verify
+    # The runner: see verify.yml. No pull request runs this workflow. The
+    # schedule is the private host's: on GitHub (and only there) the
+    # scheduled run is skipped. The demo needs docker and the network
+    # (demo/run).
+    if: github.event_name != 'schedule' || github.server_url != 'https://github.com'
+    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-24.04' || 'lp2-verify' }}
     timeout-minutes: 240
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2

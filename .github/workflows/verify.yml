@@ -1,10 +1,11 @@
 # The fast checks, on every push and on every pull request: ./dev verify,
 # then the Go vulnerability scan. It reports; it does not stop a push.
 #
-# Safe for a pull request from a fork: it runs on `pull_request`, never
-# `pull_request_target`, reads no secrets, and its token can only read.
-# While the job runs on the private host's runner, it skips a pull request
-# from a fork, so a fork's code never runs there.
+# The same file runs on both hosts, unedited. Safe for a pull request from
+# a fork: it runs on
+# `pull_request`, never `pull_request_target`, reads no secrets, and its
+# token can only read. On the private host it skips a pull request from a
+# fork, so a fork's code never runs on that host's runner.
 name: verify
 
 on:
@@ -21,11 +22,13 @@ concurrency:
 jobs:
   verify:
     name: verify
-    # The runner: the private host's has this label. A fork's code must
-    # never run on it, so the if: skips a fork's pull request. On a hosted
-    # runner, such as ubuntu-24.04, change runs-on and delete the if:.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: lp2-verify
+    # The host, told by github.server_url: on GitHub, a hosted runner, which
+    # is thrown away after the job, so a fork's pull request runs too.
+    # Anywhere else, an empty server_url included, the private host: its
+    # own runner (label lp2-verify), where a fork's code must never run, so
+    # the if: skips a fork's pull request. Neither line is edited per host.
+    if: github.server_url == 'https://github.com' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-24.04' || 'lp2-verify' }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
