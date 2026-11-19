@@ -14,7 +14,7 @@ run_clean() {
     python3 -I -S run-clean "$started/started" "$@"
     s=$?
     [ -e "$started/started" ] || { echo "$*: not_run (python3 exited $s before starting it)"; s=2; }
-    rm -rf "$started"
+    rm -rf -- "$started"
     return $s
 }
 # Every contract and test laid out as forge fmt lays it out (foundry.toml,
