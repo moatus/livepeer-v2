@@ -17,11 +17,16 @@ it spans or whatever it holds, is taken for a variable. A variable whose
 name is not a valid shell name (one with a space, say) is not carried: sh
 drops it before this script starts.
 
-<started-file> is written just before <program> starts, which then replaces
-this process, so its exit status is the program's own. When the file is
-missing afterwards, python3 stopped before starting the program (its own
-startup failure is exit 1, like a failed test), and run_clean reports 2,
-not_run. This script exits 2 itself when it cannot start the program.
+<started-file>, a new path for each call, is written just before <program>
+starts, which then replaces this process, so its exit status is the
+program's own. When the file is missing afterwards, python3 stopped before
+starting the program (its own startup failure is exit 1, like a failed
+test), and run_clean reports 2, not_run. This script exits 2 itself when it
+cannot start the program.
+
+python3 may change LC_CTYPE for the program it starts (C to C.UTF-8, PEP
+538). Of the programs started here only forge is not Python, and forge
+does not use the locale.
 """
 import os
 import re

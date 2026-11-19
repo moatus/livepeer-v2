@@ -10,12 +10,11 @@ mkdir -p cache
 # Every program that runs forge is started by run_clean, with no FOUNDRY_ or
 # DAPP_ variable from the caller: see contracts/run-clean.
 run_clean() {
-    rm -f cache/.started && [ ! -e cache/.started ] ||
-        { echo "$*: not_run (cache/.started cannot be removed)"; return 2; }
-    python3 -I -S run-clean cache/.started "$@"
+    started=$(mktemp -d) || { echo "$*: not_run (mktemp could not make a folder)"; return 2; }
+    python3 -I -S run-clean "$started/started" "$@"
     s=$?
-    [ -e cache/.started ] ||
-        { echo "$*: not_run (python3 exited $s before starting it)"; return 2; }
+    [ -e "$started/started" ] || { echo "$*: not_run (python3 exited $s before starting it)"; s=2; }
+    rm -rf "$started"
     return $s
 }
 # Every contract and test laid out as forge fmt lays it out (foundry.toml,

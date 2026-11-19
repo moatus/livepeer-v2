@@ -21,7 +21,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 # What the scripts under test need from the machine besides the faked tools.
-UTILS = ("sh", "env", "dirname", "cat", "grep", "sed", "mkdir", "rm", "mv", "ln",
+UTILS = ("sh", "env", "dirname", "cat", "grep", "sed", "mkdir", "mktemp", "rm", "mv", "ln",
          "uname", "sha256sum", "tar", "python3")
 
 
@@ -578,6 +578,22 @@ class ContractsCheck(Fakes):
             code, out = self.run_script(self.dir / script, FOUNDRY_SKIP="x")
             self.assertEqual(code, 2, out)
             self.assertEqual(self.logged(), "", out)
+
+    def test_each_start_has_its_own_marker(self):
+        # A marker another start could write (check and qualify at once, in
+        # one checkout) must never count as this one's: each start's marker
+        # path is new, and is gone afterwards.
+        real = shutil.which("python3")
+        self.tool("python3", f'[ "$3" = run-clean ] && echo "$4" >>"$LOG"\nexec "{real}" "$@"')
+        self.forge("exit 0", test='echo "MoneyInvariants invariants (runs: 5)"; echo "[PASS] test_a() (gas: 1)"')
+        self.qualify()
+        for script in ("check", "qualify"):
+            self.run_script(self.dir / script)
+        markers = self.logged().split()
+        self.assertEqual(len(markers), 5, markers)  # check: fmt, test; qualify: runs, slither, seeded errors
+        self.assertEqual(len(set(markers)), len(markers), markers)
+        for marker in markers:
+            self.assertFalse(Path(marker).exists(), marker)
 
     def test_an_sh_on_the_path_never_stands_in_for_the_check(self):
         self.tool("sh", "exit 0")
