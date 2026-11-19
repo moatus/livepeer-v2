@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+"""Starts a program that runs forge, with no Foundry setting from the caller.
+
+    run-clean <started-file> [NAME=value...] <program> [argument...]
+
+Forge takes settings from any FOUNDRY_ or DAPP_ variable (test filters,
+FOUNDRY_SKIP, fuzz runs, the output folder...). None comes from the caller:
+the whole suite runs as foundry.toml sets it up, and contracts/check and
+contracts/qualify set what they need themselves. So each program there that
+runs forge (forge itself, slither, the seeded errors, check's python steps)
+is started through this script, by their run_clean function.
+
+<program> runs with every FOUNDRY_ and DAPP_ variable removed, the
+NAME=value settings given here added, and every other variable as the
+caller set it. Variables are read by name, so no value, however many lines
+it spans or whatever it holds, is taken for a variable. A variable whose
+name is not a valid shell name (one with a space, say) is not carried: sh
+drops it before this script starts.
+
+<started-file> is written just before <program> starts, which then replaces
+this process, so its exit status is the program's own. When the file is
+missing afterwards, python3 stopped before starting the program (its own
+startup failure is exit 1, like a failed test), and run_clean reports 2,
+not_run. This script exits 2 itself when it cannot start the program.
+"""
+import os
+import re
+import sys
+
+try:
+    started, args, settings = sys.argv[1], sys.argv[2:], {}
+    while args and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", args[0], re.S):
+        name, value = args.pop(0).split("=", 1)
+        settings[name] = value
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("FOUNDRY_", "DAPP_"))}
+    env.update(settings)
+    open(started, "w").close()
+    os.execvpe(args[0], args, env)
+except BaseException as e:
+    print(f"{sys.argv[2:]}: not_run (could not start it without FOUNDRY_ and DAPP_ variables: {e!r})",
+          file=sys.stderr)
+sys.exit(2)

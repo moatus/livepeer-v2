@@ -7,46 +7,12 @@ command -v python3 >/dev/null 2>&1 || { echo "python3 is not installed (./dev do
 cd "$(dirname "$0")"
 command -v forge >/dev/null 2>&1 || { echo "forge is not installed (./dev doctor)"; exit 2; }
 mkdir -p cache
-# Forge takes settings from any FOUNDRY_ or DAPP_ variable (test filters,
-# FOUNDRY_SKIP, fuzz runs, the output folder...). None comes from the
-# caller: the whole suite runs as foundry.toml sets it up, and this script
-# sets what it needs itself. So every program here that runs forge is
-# started by run_clean:
-#   run_clean [NAME=value...] <program> [argument...]
-# runs <program> with no FOUNDRY_ or DAPP_ variable from the caller, the
-# NAME=value settings given added, and every other variable as the caller
-# set it. python3 reads the environment by name, so no value, however many
-# lines it spans or whatever it holds, is taken for a variable. sh keeps no
-# variable whose name it cannot hold (one with a space, say); on Linux,
-# python3 adds those back from what this script was started with. The
-# program's exit status comes back unchanged; 2 (not_run) when python3
-# stopped before starting it, so a python3 that fails is never a result.
+# Every program that runs forge is started by run_clean, with no FOUNDRY_ or
+# DAPP_ variable from the caller: see contracts/run-clean.
 run_clean() {
     rm -f cache/.started && [ ! -e cache/.started ] ||
         { echo "$*: not_run (cache/.started cannot be removed)"; return 2; }
-    python3 -I -S -c 'import os, re, sys
-try:
-    shell, started, args = sys.argv[1], sys.argv[2], sys.argv[3:]
-    settings = {}
-    while args and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", args[0], re.S):
-        name, value = args.pop(0).split("=", 1)
-        settings[os.fsencode(name)] = os.fsencode(value)
-    env = dict(os.environb)
-    try:
-        with open(f"/proc/{shell}/environ", "rb") as f:
-            for entry in f.read().split(b"\0"):
-                name, sep, value = entry.partition(b"=")
-                if name and sep and name not in env and not re.fullmatch(rb"[A-Za-z_][A-Za-z0-9_]*", name):
-                    env[name] = value
-    except OSError:
-        pass
-    env = {k: v for k, v in env.items() if not k.startswith((b"FOUNDRY_", b"DAPP_"))}
-    env.update(settings)
-    open(started, "w").close()
-    os.execvpe(args[0], args, env)
-except BaseException as e:
-    print(f"{sys.argv[3:]}: not_run (could not start it without FOUNDRY_ and DAPP_ variables: {e!r})", file=sys.stderr)
-sys.exit(2)' "$$" cache/.started "$@"
+    python3 -I -S run-clean cache/.started "$@"
     s=$?
     [ -e cache/.started ] ||
         { echo "$*: not_run (python3 exited $s before starting it)"; return 2; }

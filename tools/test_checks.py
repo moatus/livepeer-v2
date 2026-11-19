@@ -436,6 +436,7 @@ class Mutations(Fakes):
         # The real contracts/check, with a forge fmt --check that stops.
         self.forge(check=9)
         shutil.copy(ROOT / "contracts" / "check", self.check)
+        shutil.copy(ROOT / "contracts" / "run-clean", self.check.parent / "run-clean")
         code, out = self.main("abi: extra public function on Broker")
         self.assertEqual(code, 2, out)
         self.assertIn("NOTRUN", out)
@@ -480,6 +481,7 @@ class ContractsCheck(Fakes):
         self.dir = self.tmp / "contracts"
         self.dir.mkdir()
         shutil.copy(ROOT / "contracts" / "check", self.dir / "check")
+        shutil.copy(ROOT / "contracts" / "run-clean", self.dir / "run-clean")
 
     def forge(self, check, test="exit 0"):
         self.tool("forge", 'case "$1" in\n'
@@ -555,12 +557,11 @@ class ContractsCheck(Fakes):
         return dict(e.decode().split("=", 1) for e in entries if e)
 
     # The caller's own variables, none of them a Foundry setting: an empty
-    # one that this script once used as its own marker, one whose value has
-    # spaces, quotes, "=" and a line break, and one whose name sh cannot hold.
-    KEPT = {"LP2_FORGE_ENV_CLEARED": "", "MY_SETTING": "a b\n'c\"=d", "MY ODD NAME": "x y"}
-    # Foundry settings over several lines, and one whose name sh cannot hold.
-    MULTILINE = {"FOUNDRY_MATCH_TEST": "^$\nexport FOUNDRY_PROFILE=qualify", "DAPP_TEST": "a\nb",
-                 "FOUNDRY_ODD NAME": "1"}
+    # one that this script once used as its own marker, and one whose value
+    # has spaces, quotes, "=" and a line break.
+    KEPT = {"LP2_FORGE_ENV_CLEARED": "", "MY_SETTING": "a b\n'c\"=d"}
+    # Foundry settings over several lines.
+    MULTILINE = {"FOUNDRY_MATCH_TEST": "^$\nexport FOUNDRY_PROFILE=qualify", "DAPP_TEST": "a\nb"}
 
     def need_proc(self):
         if not Path("/proc/self/environ").exists():
@@ -570,7 +571,7 @@ class ContractsCheck(Fakes):
         # python3 exits 1 in the step that would start forge: not_run, never
         # a failed (1) or passed check, and forge never runs.
         real = shutil.which("python3")
-        self.tool("python3", f'case "$*" in *execvpe*) exit 1 ;; esac\nexec "{real}" "$@"')
+        self.tool("python3", f'case "$*" in *execvpe*|*run-clean*) exit 1 ;; esac\nexec "{real}" "$@"')
         self.forge('echo ran >>"$LOG"; exit 0', test='echo ran >>"$LOG"; exit 1')
         self.qualify()
         for script in ("check", "qualify"):
