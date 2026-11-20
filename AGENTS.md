@@ -81,11 +81,40 @@ Every change takes the same path, at a size that fits it.
 A stage closes on the demo's output, reconciled against the independent
 calculator, after the heavy checks have run on that commit.
 
+## The change summary
+
+A change that was reviewed is described by one summary, in one layout,
+printed by `./dev summary`. It fits on a screen, and the detail behind each
+line opens on a click. It describes the change. It never tells a reader
+what to do.
+
+- **The table** is generated: the seams touched, with each sensitive seam
+  marked (one whose Review column in `SEAMS.md` says `owner`, such as money,
+  authority and the contract interfaces); whether a rule or a contract
+  interface changed; what was verified; what was not run; the review.
+- **Verified** is a list of claims, each with the evidence that ran for it.
+  A claim with no evidence is not in the list.
+- **Not run** is every check that exists and did not run on this commit.
+- **Design choices and assumptions** is what the checks cannot settle: a
+  choice the change makes, or something it takes on trust. The checks can
+  show that money moved as specified; they cannot show that the
+  specification is the right one. Each item is one line that states a fact
+  about the change, with its detail folded below.
+- **Review** counts the independent reviews, the blocking findings and the
+  notes. A note is closed, or it is listed as open. None is dropped.
+
+The seams, doors and checks in it come from git, `SEAMS.md` and a fresh run,
+so anyone can generate them again from the commit. The rest is written by
+whoever built and reviewed the change, in a file passed with `--written`:
+a `# ` title, a lead sentence, and the sections `What this changes`,
+`Verified`, `Design choices and assumptions` and `Review`. The first plain
+line of `Verified` and of `Review` is what the table shows.
+
 ## What is here
 
 | Path | Holds |
 |---|---|
-| `dev`, `tools/` | The checks and the change report |
+| `dev`, `tools/` | The checks, the change report and the change summary |
 | `SEAMS.md` | The seam map the checks and the report read |
 | `rulebook/` | The rules, one entry per rule, each citing the litepaper page |
 | `vectors/` | The shared examples: inputs and the exact numbers they must produce |
@@ -152,6 +181,7 @@ For work that changes code, or a document someone will build from.
 | `./dev doctor` | Says what this machine has and lacks, and holds each tool to the version `tools/versions` pins | 0 ok; 1 a fix is needed |
 | `./dev verify` | The fast checks, on every change: every file belongs to a seam, the door rules, and each component's `check` | 0 passed; 1 failed; 2 `not_run` |
 | `./dev review [--base <ref>] [--checks]` | Prints the change report a reviewer reads, generated from git and `SEAMS.md`. Runs the structure checks only; `--checks` adds each component's `check` | 0 printed; 64 usage |
+| `./dev summary [--base <ref>] [--checks] [--written <file>]` | Prints the change summary. Runs the structure checks only; `--checks` adds each component's `check`; `--written` adds the written half | 0 printed; 64 usage |
 | `./dev qualify` | The heavy checks, when a stage closes (and on the host every night): `verify` plus each component's `qualify` | 0 passed; 1 failed; 2 `not_run` |
 | `./dev demo` | The one-command demo | The demo's own; 2 while it is not built |
 

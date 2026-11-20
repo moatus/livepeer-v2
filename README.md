@@ -226,6 +226,7 @@ it reads its settings from.
 ./dev doctor    # what this machine has and lacks
 ./dev verify    # the fast checks
 ./dev review    # the change report for the current work
+./dev summary   # the one-screen summary of a change: seams, checks, open questions
 ```
 
 ## How the code is arranged

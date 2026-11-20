@@ -9,9 +9,10 @@ important. Each seam is one location, so "was it touched" is answered by git.
 Where possible the compiler or the chain refuses to let it be crossed
 anywhere else.
 
-`./dev verify` and `./dev review` read the two tables between the markers
-below. They are the single source: the report a reviewer reads is generated
-from them. Keep the table shape, and do not put a `|` inside a cell.
+`./dev verify`, `./dev review` and `./dev summary` read the two tables
+between the markers below. They are the single source: the report a reviewer
+reads and the summary of a change are generated from them. Keep the table
+shape, and do not put a `|` inside a cell.
 
 ## The seam map
 

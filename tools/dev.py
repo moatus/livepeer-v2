@@ -19,6 +19,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -362,15 +363,15 @@ def cmd_doctor(_args) -> int:
     return 1 if bad else 0
 
 
-def cmd_review(args) -> int:
-    if not git("rev-parse", "--verify", "--quiet", f"{args.base}^{{commit}}", check=False).strip():
-        print(f"review: no commit named {args.base}", file=sys.stderr)
-        return 64
+def changed(named_base: str) -> SimpleNamespace | None:
+    """What the candidate changed since its base, read from git and SEAMS.md.
+    None when no commit has that name."""
+    if not git("rev-parse", "--verify", "--quiet", f"{named_base}^{{commit}}", check=False).strip():
+        return None
     head = git("rev-parse", "HEAD").strip()
-    base = git("merge-base", args.base, "HEAD").strip()
+    base = git("merge-base", named_base, "HEAD").strip()
     dirty = bool(git("status", "--porcelain").strip())
     rows = seams()
-    base_rows = seams_at(base)
 
     # What changed: committed since the base, plus anything not yet committed.
     counts: dict[str, list[int]] = {}
@@ -386,12 +387,6 @@ def cmd_review(args) -> int:
             counts[path] = [len((ROOT / path).read_text(errors="ignore").splitlines()), 0]
             status[path] = "new"
 
-    messages = git("log", "--format=%B%x01", f"{base}..HEAD")
-    rules = sorted(set(re.findall(r"\b[RD]-\d{2}\b", messages)))
-    specs = sorted(set(re.findall(r"^Spec:\s*(.+)$", messages, re.M)))
-    asks = re.findall(r"^Needs-owner:\s*(.+)$", messages, re.M)
-    rulings = sorted(set(re.findall(r"D-\d{2}", " ".join(re.findall(r"^Council:\s*(.+)$", messages, re.M)))))
-
     by_seam: dict[str, list[str]] = {}
     unowned = []
     for path in sorted(counts):
@@ -400,7 +395,82 @@ def cmd_review(args) -> int:
             unowned.append(path)
         else:
             by_seam.setdefault(seam["seam"], []).append(path)
-    touched = [row for row in rows if row["seam"] in by_seam]
+    return SimpleNamespace(
+        head=head, base=base, dirty=dirty, rows=rows, counts=counts, status=status, by_seam=by_seam,
+        unowned=unowned, touched=[row for row in rows if row["seam"] in by_seam],
+        messages=git("log", "--format=%B%x01", f"{base}..HEAD"),
+    )
+
+
+def declarations(change: SimpleNamespace) -> list[str]:
+    """Every function, event and error line added or removed in the declared
+    interface files."""
+    interface_paths = next((row["patterns"] for row in change.rows if row["seam"] == "interfaces"), [])
+    declared = re.compile(r"\b(function|event|error)\s+\w+")
+    delta = []
+    for path in sorted(change.counts):
+        if not any(path.startswith(p) for p in interface_paths):
+            continue
+        if change.status.get(path) == "new" and path not in git("ls-files", "--", path):
+            lines = ["+" + l for l in (ROOT / path).read_text(errors="ignore").splitlines()]
+        else:
+            lines = git("diff", "-U0", "--no-renames", change.base, "--", path).splitlines()
+        for line in lines:
+            if line[:1] in "+-" and not line.startswith(("+++", "---")) and declared.search(line):
+                delta.append(f"- `{line[0]} {line[1:].strip()}` ({path})")
+    return delta
+
+
+def door_results() -> list[tuple[str, str]]:
+    out = []
+    for hit in door_hits(files()):
+        if hit["outside"]:
+            result = f"**BROKEN**: {len(hit['outside'])} outside `{hit['allowed']}` ({', '.join(hit['outside'][:5])})"
+        elif hit["inside"]:
+            result = f"{hit['inside']} site(s), all inside `{hit['allowed']}`"
+        else:
+            result = "0 sites (nothing built behind this door yet)"
+        out.append((hit["rule"], result))
+    return out
+
+
+def checks_not_run(change: SimpleNamespace) -> list[tuple[str, str, str]]:
+    """The heavy checks and the demo reconciliation: check, status, where it
+    runs. A heavy check has a result only from a ./dev qualify of this commit."""
+    record = qualify_record()
+    kept = json.loads(record.read_text()) if record.is_file() else {}
+    out = []
+    if kept.get("commit") == change.head and not change.dirty:
+        for name, state, *why in kept["results"]:
+            if name.endswith("/qualify"):
+                reason = f": {cell(why[0])}" if why and why[0] else ""
+                out.append((name, f"`{state}` on this commit{reason}", "`./dev qualify`"))
+    else:
+        for folder in QUALIFY_DIRS:
+            out.append((f"{folder}/qualify (heavy checks)", "`not_run`", "`./dev qualify`, when the stage closes"))
+        for folder, reason in NO_QUALIFY.items():
+            if (ROOT / folder).is_dir():
+                out.append((f"{folder}/qualify", f"`n/a`: {reason}", ""))
+    out.append(("Demo reconciled against the calculator", "`not_run` by this report",
+                "`./dev demo`, at landing when behaviour changed, and at stage close"))
+    return out
+
+
+def cmd_review(args) -> int:
+    change = changed(args.base)
+    if change is None:
+        print(f"review: no commit named {args.base}", file=sys.stderr)
+        return 64
+    head, base, dirty, rows, counts, status = (change.head, change.base, change.dirty, change.rows,
+                                               change.counts, change.status)
+    by_seam, unowned, touched, messages = change.by_seam, change.unowned, change.touched, change.messages
+    base_rows = seams_at(base)
+
+    rules = sorted(set(re.findall(r"\b[RD]-\d{2}\b", messages)))
+    specs = sorted(set(re.findall(r"^Spec:\s*(.+)$", messages, re.M)))
+    asks = re.findall(r"^Needs-owner:\s*(.+)$", messages, re.M)
+    rulings = sorted(set(re.findall(r"D-\d{2}", " ".join(re.findall(r"^Council:\s*(.+)$", messages, re.M)))))
+
     frozen = [row["seam"] for row in touched if row["freeze"] == "yes"]
     owned = [row["seam"] for row in touched if row["review"] == "owner"]
     # Nothing here waits for the owner. An owner-routed seam is reported to
@@ -496,19 +566,7 @@ def cmd_review(args) -> int:
 
     out("## Contract surface")
     out()
-    interface_paths = next((row["patterns"] for row in rows if row["seam"] == "interfaces"), [])
-    declared = re.compile(r"\b(function|event|error)\s+\w+")
-    delta = []
-    for path in sorted(counts):
-        if not any(path.startswith(p) for p in interface_paths):
-            continue
-        if status.get(path) == "new" and path not in git("ls-files", "--", path):
-            lines = ["+" + l for l in (ROOT / path).read_text(errors="ignore").splitlines()]
-        else:
-            lines = git("diff", "-U0", "--no-renames", base, "--", path).splitlines()
-        for line in lines:
-            if line[:1] in "+-" and not line.startswith(("+++", "---")) and declared.search(line):
-                delta.append(f"- `{line[0]} {line[1:].strip()}` ({path})")
+    delta = declarations(change)
     if delta:
         out("Declarations added (+) or removed (-) in the declared interface files:")
         for line in delta:
@@ -527,14 +585,8 @@ def cmd_review(args) -> int:
     out()
     out("| Rule | Result |")
     out("|---|---|")
-    for hit in door_hits(files()):
-        if hit["outside"]:
-            result = f"**BROKEN**: {len(hit['outside'])} outside `{hit['allowed']}` ({', '.join(hit['outside'][:5])})"
-        elif hit["inside"]:
-            result = f"{hit['inside']} site(s), all inside `{hit['allowed']}`"
-        else:
-            result = "0 sites (nothing built behind this door yet)"
-        out(f"| {hit['rule']} | {result} |")
+    for rule, result in door_results():
+        out(f"| {rule} | {result} |")
     out()
 
     out("## Checks run on this candidate")
@@ -555,22 +607,10 @@ def cmd_review(args) -> int:
 
     out("## Checks not run")
     out()
-    record = qualify_record()
-    kept = json.loads(record.read_text()) if record.is_file() else {}
     out("| Check | Status | Where it runs |")
     out("|---|---|---|")
-    if kept.get("commit") == head and not dirty:
-        for name, state, *why in kept["results"]:
-            if name.endswith("/qualify"):
-                reason = f": {cell(why[0])}" if why and why[0] else ""
-                out(f"| {name} | `{state}` on this commit{reason} | `./dev qualify` |")
-    else:
-        for folder in QUALIFY_DIRS:
-            out(f"| {folder}/qualify (heavy checks) | `not_run` | `./dev qualify`, when the stage closes |")
-        for folder, reason in NO_QUALIFY.items():
-            if (ROOT / folder).is_dir():
-                out(f"| {folder}/qualify | `n/a`: {reason} | |")
-    out("| Demo reconciled against the calculator | `not_run` by this report | `./dev demo`, at landing when behaviour changed, and at stage close |")
+    for name, state, where in checks_not_run(change):
+        out(f"| {name} | {state} | {where} |".replace("|  |", "| |"))
     out()
 
     out("## For you to read")
@@ -600,6 +640,263 @@ def cmd_review(args) -> int:
     return 0
 
 
+# --- the change summary -----------------------------------------------------
+
+WRITTEN_SECTIONS = ("What this changes", "Verified", "Design choices and assumptions", "Review")
+LISTED = re.compile(r"^(\||[-*] |\d+\. )")
+NUMBERED = re.compile(r"^(\d+)\.\s+(.*)$")
+
+
+def headline(body: list[str]) -> tuple[str, list[str]]:
+    """A section's first line when it is a plain sentence, and the rest. The
+    sentence is what the table at the top of the summary shows."""
+    for at, line in enumerate(body):
+        if line.strip():
+            if LISTED.match(line.strip()):
+                return "", body
+            return line.strip(), body[at + 1:]
+    return "", body
+
+
+def written(path: Path) -> dict | str:
+    """The written half of a summary: a title, a lead and the named sections.
+    Returns the reason as a string when the file cannot be used."""
+    if not path.is_file():
+        return f"no file at {path}"
+    lines = path.read_text().splitlines()
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    if not lines or not lines[0].startswith("# "):
+        return f"{path.name} must start with its title, as a line beginning '# '"
+    parts: dict = {"title": lines[0][2:].strip(), "lead": [], "sections": {}}
+    into = parts["lead"]
+    for line in lines[1:]:
+        if line.startswith("## "):
+            name = line[3:].strip()
+            if name not in WRITTEN_SECTIONS:
+                return f"{path.name}: no section is called '{name}'. The sections are: {'; '.join(WRITTEN_SECTIONS)}"
+            if name in parts["sections"]:
+                return f"{path.name}: the section '{name}' appears twice"
+            into = parts["sections"][name] = []
+        else:
+            into.append(line.rstrip())
+    return parts
+
+
+def trimmed(lines: list[str]) -> list[str]:
+    text = "\n".join(lines).strip("\n")
+    return text.split("\n") if text.strip() else []
+
+
+def fold(title: str, body: list[str]) -> list[str]:
+    """A section the reader opens with a click. The blank lines are what let
+    the Markdown inside it render."""
+    return ["<details>", f"<summary>{title}</summary>", "", *trimmed(body), "", "</details>", ""]
+
+
+def cmd_summary(args) -> int:
+    change = changed(args.base)
+    if change is None:
+        print(f"summary: no commit named {args.base}", file=sys.stderr)
+        return 64
+    text = None
+    if args.written:
+        text = written(Path(args.written))
+        if isinstance(text, str):
+            print(f"summary: {text}", file=sys.stderr)
+            return 64
+    sections = text["sections"] if text else {}
+    head, base, counts, by_seam = change.head, change.base, change.counts, change.by_seam
+
+    out = print
+    out(f"## {text['title'] if text else git('log', '-1', '--format=%s').strip()}")
+    out()
+    named = sorted(set(re.findall(r"\b[RD]-\d{2}\b", change.messages)))
+    rules, decisions = [n for n in named if n[0] == "R"], [n for n in named if n[0] == "D"]
+    out(f"`{head[:7]}`" + (" **plus uncommitted changes**" if change.dirty else "") + f" on `{base[:7]}`"
+        + (f" · rules {', '.join(rules)}" if rules else "")
+        + (f" · decisions {', '.join(decisions)}" if decisions else ""))
+    out()
+    if not counts:
+        out("Nothing has changed since the base.")
+        return 0
+    lead = trimmed(text["lead"]) if text else []
+    if lead:
+        out(f"**{' '.join(line.strip() for line in lead if line.strip())}**")
+        out()
+
+    # A seam is sensitive when the map routes it to the owner, here or at the
+    # base, so a change that edits SEAMS.md cannot unmark itself.
+    base_rows = seams_at(base)
+
+    def at_base(path: str, key: str, value: str) -> bool:
+        row = seam_of(path, base_rows)
+        return bool(row) and row[key] == value
+
+    sensitive = {row["seam"] for row in change.touched
+                 if row["review"] == "owner" or any(at_base(p, "review", "owner") for p in by_seam[row["seam"]])}
+    frozen = [row for row in change.touched
+              if row["freeze"] == "yes" or any(at_base(p, "freeze", "yes") for p in by_seam[row["seam"]])]
+    added = sum(n[0] for n in counts.values())
+    removed = sum(n[1] for n in counts.values())
+    touches = [f"**{row['seam']} (sensitive)**" if row["seam"] in sensitive else row["seam"] for row in change.touched]
+    if change.unowned:
+        touches.append(f"**{len(change.unowned)} file(s) no seam owns**")
+    touches.append(f"{len(counts)} file{'s' if len(counts) != 1 else ''}, +{added} −{removed}")
+
+    delta = declarations(change)
+    if frozen:
+        said = []
+        for row in frozen:
+            count = len(by_seam[row["seam"]])
+            item = f"{row['seam']} ({count} file{'s' if count != 1 else ''}"
+            if row["seam"] == "interfaces" and delta:
+                plus = sum(1 for line in delta if line.startswith("- `+"))
+                item += f", +{plus} −{len(delta) - plus} declarations"
+            said.append(item + ")")
+        surface = "**Changed**: " + " · ".join(said)
+    else:
+        surface = "Unchanged"
+
+    results = run_verify(components=args.checks)
+    code = code_for(results)
+    kind = "fast" if args.checks else "structure"
+    if code == 1:
+        ran = f"**{kind} checks failed**"
+    elif code == 2:
+        ran = f"{kind} checks incomplete: {sum(1 for _, state, _ in results if state == NOT_RUN)} not run"
+    else:
+        ran = f"{kind} checks pass"
+    heavy = checks_not_run(change)
+    passed = sum(1 for _, state, _ in heavy if f"`{PASSED}`" in state)
+    failed = sum(1 for _, state, _ in heavy if f"`{FAILED}`" in state)
+    skipped = [name.split("/")[0] for name, state, _ in heavy if f"`{NOT_RUN}`" in state and "/qualify" in name]
+    not_run = [] if args.checks else ["component checks"]
+    not_run += [name.replace("/", " ") for name, state, _ in results if state == NOT_RUN]
+    if skipped:
+        not_run.append(f"heavy checks ({', '.join(skipped)})")
+    not_run += [name[0].lower() + name[1:] for name, state, _ in heavy
+                if f"`{NOT_RUN}`" in state and "/qualify" not in name]
+    missed = " · ".join(not_run)
+
+    claims, proof = headline(sections.get("Verified", []))
+    claim_rows = [line for line in proof if line.strip().startswith("|")]
+    verified = ([f"{len(claim_rows) - 2} claim{'s' if len(claim_rows) != 3 else ''}"] if len(claim_rows) > 2 else []) + [ran]
+    if passed:
+        verified.append(f"{passed} heavy check{'s' if passed != 1 else ''} pass")
+    if failed:
+        verified.append(f"**{failed} heavy check{'s' if failed != 1 else ''} failed**")
+    if claims:
+        verified.append(claims)
+    reviewed, review_notes = headline(sections.get("Review", []))
+
+    out("| | |")
+    out("|---|---|")
+    out(f"| **Touches** | {' · '.join(touches)} |")
+    out(f"| **Interfaces and rules** | {surface} |")
+    out(f"| **Verified** | {cell(' · '.join(verified))} |")
+    out(f"| **Not run** | {cell(missed[0].upper() + missed[1:]) if missed else 'Nothing'} |")
+    out(f"| **Review** | {cell(reviewed) if reviewed else 'Not recorded here'} |")
+    out()
+
+    out("### Design choices and assumptions")
+    out()
+    choices = trimmed(sections.get("Design choices and assumptions", []))
+    items: list[tuple[str, str, list[str]]] = []
+    opening = []
+    for line in choices:
+        start = NUMBERED.match(line)
+        if start:
+            items.append((start.group(1), start.group(2), []))
+        elif items:
+            items[-1][2].append(line.strip())
+        else:
+            opening.append(line)
+    if "Design choices and assumptions" not in sections:
+        out("*Not written for this change.*")
+    for line in trimmed(opening):
+        out(line)
+    if opening and items:
+        out()
+    for number, line, _ in items:
+        out(f"{number}. {line}")
+    out()
+
+    def folded(title: str, body: list[str]) -> None:
+        for line in fold(title, body):
+            out(line)
+
+    what = trimmed(sections.get("What this changes", []))
+    if what:
+        folded("What this changes", what)
+
+    body = ["| Seam | What crosses it | Files | Lines | Sensitive seam |", "|---|---|---|---|---|"]
+    for row in change.touched:
+        paths = by_seam[row["seam"]]
+        body.append(f"| {row['seam']} | {row['what crosses it']} | {len(paths)} |"
+                    f" +{sum(counts[p][0] for p in paths)} −{sum(counts[p][1] for p in paths)} |"
+                    f" {'**yes**' if row['seam'] in sensitive else 'no'} |")
+    body.append("")
+    for row in change.touched:
+        if row["seam"] not in sensitive:
+            continue
+        body.append(f"**{row['seam']}**")
+        body += [f"- `{path}` ({change.status.get(path, 'changed')}, +{counts[path][0]} −{counts[path][1]})"
+                 for path in by_seam[row["seam"]][:20]]
+        if len(by_seam[row["seam"]]) > 20:
+            body.append(f"- and {len(by_seam[row['seam']]) - 20} more")
+        body.append("")
+    if change.unowned:
+        body.append("**Files no seam owns**")
+        body += [f"- `{path}`" for path in change.unowned[:20]]
+        body.append("")
+    if delta:
+        body.append("**Interfaces.** Declarations added (+) or removed (−) in the declared interface files:")
+        body += delta
+    elif (ROOT / "contracts").is_dir():
+        body.append("**Interfaces.** No declaration line changed in the declared interface files.")
+    body.append("")
+    body.append("**Doors.** A door rule says a kind of action may appear in one place only.")
+    body.append("")
+    body += ["| Rule | Result |", "|---|---|"] + [f"| {rule} | {result} |" for rule, result in door_results()]
+    folded("Seams and doors", body)
+
+    count = len(claim_rows) - 2
+    body = trimmed(proof) + [""] if trimmed(proof) else []
+    body.append("Checks this summary ran" + ("" if args.checks else " (the structure checks only)") + ":")
+    body.append("")
+    body += ["| Check | Result |", "|---|---|"]
+    for name, state, detail in results:
+        why = note(state, detail)
+        body.append(f"| {name} | {state}{f' ({cell(why)})' if why else ''} |")
+    folded(f"Verified: the {count} claim{'s' if count != 1 else ''} and their evidence" if count > 0
+           else "Verified: the checks that ran", body)
+
+    body = ["| Check | Status | When it runs |", "|---|---|---|"]
+    if not args.checks:
+        body.append("| Each component's own check (build and tests) | `not_run` by this summary |"
+                    " `./dev verify`, on every change |")
+    body += [f"| {name} | {state.replace('this report', 'this summary')} | {where} |".replace("|  |", "| |")
+             for name, state, where in heavy]
+    folded("Checks not run, and when they run", body)
+
+    if any(detail for _, _, detail in items):
+        body = []
+        for number, line, detail in items:
+            body.append(f"{number}. **{line}**")
+            if trimmed(detail):
+                body += ["", *(f"   {more}" if more else "" for more in trimmed(detail)), ""]
+        folded("Design choices and assumptions: detail on each", body)
+
+    if trimmed(review_notes):
+        folded("Review notes", review_notes)
+
+    out(f"*Shows what changed, what was checked and what was not. It does not say the change is right."
+        f" The table and the seam, door and check sections are generated: `./dev summary --base {base[:7]}`"
+        f" at `{head[:7]}`.*")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="./dev", description="The one front door. Commands: AGENTS.md")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -609,6 +906,11 @@ def main() -> int:
     review.add_argument("--base", default="main")
     review.add_argument("--checks", action="store_true", help="also run each component's check (build and tests)")
     review.set_defaults(run=cmd_review)
+    summary = commands.add_parser("summary", help="the one-screen summary of a change")
+    summary.add_argument("--base", default="main")
+    summary.add_argument("--checks", action="store_true", help="also run each component's check (build and tests)")
+    summary.add_argument("--written", metavar="FILE", help="the written half: title, lead and the named sections")
+    summary.set_defaults(run=cmd_summary)
     commands.add_parser("qualify", help="the heavy checks, when a stage closes").set_defaults(run=cmd_qualify)
     demo = commands.add_parser("demo", help="the one-command demo")
     demo.add_argument("rest", nargs=argparse.REMAINDER)

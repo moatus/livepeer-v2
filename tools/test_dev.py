@@ -285,6 +285,168 @@ class Review(Fixture):
         self.assertEqual(code, 64)
 
 
+WRITTEN = """# Registry pays the fee once
+
+Charges the registration fee at the first call only.
+The amount is unchanged.
+
+## What this changes
+
+- A second registration is refused before any token moves.
+
+## Verified
+
+3 of 3 seeded errors caught
+
+| Claim | Evidence |
+|---|---|
+| The fee is taken once | A second call is refused and the balance is unchanged |
+| A refused call moves nothing | Balance read before and after |
+
+## Design choices and assumptions
+
+1. The fee is read at call time · `Registry.sol:40`
+   A fee changed between two calls applies to the later one.
+2. The token is trusted not to call back
+
+## Review
+
+2 independent · 0 blocking · 1 note open
+
+Each reviewer re-ran the checks.
+
+| Note | Status |
+|---|---|
+| The token is trusted | Open (item 2) |
+"""
+
+
+class Summary(Fixture):
+    def money_change(self):
+        self.add("contracts/check", PASS, executable=True)
+        self.add("contracts/src/money/Registry.sol", "contract Registry {}\n")
+        self.add("calculator/check", PASS, executable=True)
+        self.add("calculator/fee.py", "FEE = 1\n")
+        self.commit("Charge the fee once (R-07)")
+
+    def test_a_sensitive_seam_is_marked_and_the_rest_are_not(self):
+        self.money_change()
+        code, out = self.dev("summary", "--base", "HEAD~1")
+        self.assertEqual(code, 0, out)
+        self.assertIn("| **Touches** | **money (sensitive)** · contracts · calculator · 4 files, +6 −0 |", out)
+        self.assertIn("| **Interfaces and rules** | Unchanged |", out)
+        self.assertIn("| money | Minting LPT, and holding or moving USDC | 1 | +1 −0 | **yes** |", out)
+        self.assertIn("- `contracts/src/money/Registry.sol` (new, +1 −0)", out)
+        self.assertIn("· rules R-07", out)
+
+    def test_a_rule_or_interface_change_shows_as_changed(self):
+        self.add("contracts/check", PASS, executable=True)
+        self.add("rulebook/R-03.md", "# R-03 Emission\n")
+        self.add("contracts/interfaces/IRegistry.sol", "interface IRegistry {\n  function enrol(address node) external;\n}\n")
+        self.commit("Add R-03 and the registry interface")
+        _, out = self.dev("summary", "--base", "HEAD~1")
+        self.assertIn("| **Interfaces and rules** | **Changed**: rules (1 file) · interfaces (1 file, +1 −0 declarations) |", out)
+        self.assertIn("`+ function enrol(address node) external;`", out)
+
+    def test_a_change_cannot_unmark_a_sensitive_seam_by_editing_the_map(self):
+        seams = self.repo / "SEAMS.md"
+        text = seams.read_text()
+        row = "| money | Minting LPT, and holding or moving USDC | `contracts/src/money/` | owner |"
+        self.assertIn(row, text)
+        seams.write_text(text.replace(row, row.replace("| owner |", "| agent |")))
+        self.add("contracts/check", PASS, executable=True)
+        self.add("contracts/src/money/Registry.sol", "contract Registry {}\n")
+        self.commit("Registry, and the money seam quietly made ordinary")
+        _, out = self.dev("summary", "--base", "HEAD~1")
+        self.assertIn("**money (sensitive)**", out)
+
+    def test_the_written_half_fills_the_table_and_its_detail_is_folded(self):
+        self.money_change()
+        self.add("../written.md", WRITTEN)
+        code, out = self.dev("summary", "--base", "HEAD~1", "--written", "../written.md")
+        self.assertEqual(code, 0, out)
+        self.assertIn("## Registry pays the fee once\n", out)
+        self.assertIn("**Charges the registration fee at the first call only. The amount is unchanged.**", out)
+        self.assertIn("| **Verified** | 2 claims · structure checks pass · 3 of 3 seeded errors caught |", out)
+        self.assertIn("| **Review** | 2 independent · 0 blocking · 1 note open |", out)
+        open_part, folded = out.split("<details>", 1)
+        self.assertIn("1. The fee is read at call time · `Registry.sol:40`\n2. The token is trusted not to call back\n", open_part)
+        self.assertNotIn("A fee changed between two calls", open_part)
+        self.assertIn("<summary>Verified: the 2 claims and their evidence</summary>", folded)
+        self.assertIn("| The fee is taken once | A second call is refused and the balance is unchanged |", folded)
+        self.assertIn("1. **The fee is read at call time · `Registry.sol:40`**\n\n   A fee changed between two calls", folded)
+        self.assertIn("<summary>Review notes</summary>\n\nEach reviewer re-ran the checks.", folded)
+        self.assertIn("| The token is trusted | Open (item 2) |", folded)
+
+    def test_without_the_written_half_the_summary_says_what_is_missing(self):
+        self.money_change()
+        code, out = self.dev("summary", "--base", "HEAD~1")
+        self.assertEqual(code, 0, out)
+        self.assertIn("## Charge the fee once (R-07)\n", out)
+        self.assertIn("| **Verified** | structure checks pass |", out)
+        self.assertIn("| **Review** | Not recorded here |", out)
+        self.assertIn("*Not written for this change.*", out)
+
+    def test_a_check_that_was_not_asked_for_is_listed_as_not_run(self):
+        self.money_change()
+        _, out = self.dev("summary", "--base", "HEAD~1")
+        self.assertIn("| **Not run** | Component checks · heavy checks (contracts, programs) · demo reconciled against the calculator |", out)
+        self.assertIn("| Each component's own check (build and tests) | `not_run` by this summary |", out)
+        _, out = self.dev("summary", "--base", "HEAD~1", "--checks")
+        self.assertIn("| **Verified** | fast checks pass |", out)
+        self.assertIn("| **Not run** | Heavy checks (contracts, programs) · demo reconciled against the calculator |", out)
+        self.assertIn("| contracts/check | passed |", out)
+
+    def test_a_check_that_could_not_run_is_never_shown_as_passed(self):
+        self.add("contracts/check", CANNOT, executable=True)
+        self.add("contracts/src/money/Registry.sol", "contract Registry {}\n")
+        self.commit("Registry")
+        _, out = self.dev("summary", "--base", "HEAD~1", "--checks")
+        self.assertIn("| **Verified** | fast checks incomplete: 1 not run |", out)
+        self.assertIn("| **Not run** | Contracts check · heavy checks (contracts, programs)", out)
+        self.assertNotIn("checks pass", out)
+
+    def test_a_failing_check_is_shown_as_failed(self):
+        self.add("contracts/check", FAIL, executable=True)
+        self.add("contracts/src/money/Registry.sol", "contract Registry {}\n")
+        self.commit("Registry")
+        _, out = self.dev("summary", "--base", "HEAD~1", "--checks")
+        self.assertIn("| **Verified** | **fast checks failed** |", out)
+        self.assertNotIn("checks pass", out)
+
+    def test_a_recorded_heavy_run_counts_as_verified(self):
+        self.add("programs/check", PASS, executable=True)
+        self.add("programs/qualify", PASS, executable=True)
+        self.commit("Programs with heavy checks")
+        code, out = self.dev("qualify")
+        self.assertEqual(code, 0, out)
+        _, out = self.dev("summary", "--base", "HEAD~1", "--checks")
+        self.assertIn("| **Verified** | fast checks pass · 1 heavy check pass |", out)
+        self.assertIn("| **Not run** | Demo reconciled against the calculator |", out)
+
+    def test_the_summary_describes_the_change_and_not_who_handles_it(self):
+        self.money_change()
+        self.git("commit", "-q", "--amend", "-m", "Charge the fee once\n\nNeeds-owner: Confirm the fee.")
+        self.add("../written.md", WRITTEN)
+        _, out = self.dev("summary", "--base", "HEAD~1", "--written", "../written.md")
+        for word in ("owner", "Routing", "Checkpoint", "For you to read", "Confirm the fee", "council"):
+            self.assertNotIn(word, out)
+
+    def test_a_section_the_summary_does_not_have_is_a_usage_error(self):
+        self.money_change()
+        self.add("../written.md", WRITTEN.replace("## Review", "## Reviews"))
+        code, out = self.dev("summary", "--base", "HEAD~1", "--written", "../written.md")
+        self.assertEqual(code, 64)
+        self.assertIn("no section is called 'Reviews'", out)
+        self.add("../written.md", "No title here\n")
+        code, out = self.dev("summary", "--base", "HEAD~1", "--written", "../written.md")
+        self.assertEqual(code, 64)
+        code, _ = self.dev("summary", "--base", "HEAD~1", "--written", "../absent.md")
+        self.assertEqual(code, 64)
+        code, _ = self.dev("summary", "--base", "no-such-branch")
+        self.assertEqual(code, 64)
+
+
 class Qualify(Fixture):
     def test_with_no_heavy_checks_it_reports_not_run(self):
         code, out = self.dev("qualify")
