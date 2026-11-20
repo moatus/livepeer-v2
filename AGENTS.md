@@ -68,13 +68,19 @@ Every change takes the same path, at a size that fits it.
    own before any code that implements it.
 2. **An agent builds** in its own worktree, against the frozen rules, on
    its own local chain.
-3. **A different agent reviews.** A change meant to stay is read by a model
+3. **It is a pull request.** Every change, whatever its size, is a pull
+   request into `main`, and its description is the change summary
+   `./dev summary` prints. The host runs `./dev verify` on it.
+4. **A different agent reviews.** A change meant to stay is read by a model
    from a different family than the one that built it, with the change
-   report `./dev review` generates from git and `SEAMS.md`. A real defect
-   it finds is closed by a check, so it cannot come back unnoticed.
-4. **It lands** once `./dev verify` passes. The host runs the same check
-   again on every push.
-5. **The owner reads afterwards.** A change to a seam that `SEAMS.md` marks
+   report `./dev review` generates from git and `SEAMS.md`. Each round of
+   the review is posted on the pull request. A real defect it finds is
+   closed by a check, so it cannot come back unnoticed.
+5. **It lands by fast-forward** once the host's check has passed and, for
+   a change that is reviewed, the reviewer has approved that same commit.
+   `main` takes no direct push, so the commits on it are exactly the ones
+   that were checked.
+6. **The owner reads afterwards.** A change to a seam that `SEAMS.md` marks
    `owner` lands as its own commit and is reported with the commit before
    it, so there is always a point to go back to.
 
@@ -83,10 +89,10 @@ calculator, after the heavy checks have run on that commit.
 
 ## The change summary
 
-A change that was reviewed is described by one summary, in one layout,
-printed by `./dev summary`. It fits on a screen, and the detail behind each
-line opens on a click. It describes the change. It never tells a reader
-what to do.
+Every change is described by one summary, in one layout, printed by
+`./dev summary`. It is the description of the change's pull request. It
+fits on a screen, and the detail behind each line opens on a click. It
+describes the change. It never tells a reader what to do.
 
 - **The table** is generated: the seams touched, with each sensitive seam
   marked (one whose Review column in `SEAMS.md` says `owner`, such as money,
@@ -104,8 +110,9 @@ what to do.
   what they found and had fixed before it landed.
 
 The seams, doors and checks in it come from git, `SEAMS.md` and a fresh run,
-so anyone can generate them again from the commit. The rest is written by
-whoever built and reviewed the change, in a file passed with `--written`:
+so anyone can generate them again from the commit, and a small change
+needs nothing more. For a change that was reviewed, the rest is written by
+whoever built and reviewed it, in a file passed with `--written`:
 a `# ` title, a lead sentence, and the sections `What this changes`,
 `Verified`, `Design choices and assumptions` and `Review`. The first plain
 line of `Verified` joins its row of the table.
@@ -187,10 +194,11 @@ For work that changes code, or a document someone will build from.
 
 ## Commits
 
-Every change that lands has passed `./dev verify`, and the host runs it
-again on every push (`.github/workflows/verify.yml`), so a change that
-skipped it shows as failed on its commit. `main` only moves forward: it is
-never force-pushed.
+Every change lands through a pull request into `main`. The host runs
+`./dev verify` on it (`.github/workflows/verify.yml`), and `main` accepts
+the merge only when that check has passed on the commit being merged.
+`main` only moves forward: a merge is a fast-forward, and it is never
+pushed to directly or force-pushed.
 
 A commit message says what changed and why, and ends with these trailers
 where they apply. Together they are the public record of how the change
