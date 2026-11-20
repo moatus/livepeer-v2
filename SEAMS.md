@@ -22,13 +22,14 @@ a row here.
 
 - **Review** says who must look when the seam changes. `owner` means the
   change is reported to the owner with a checkpoint. It lands as its own
-  change after the agent review, or on the owner's own approval, and the
-  change report names the last commit before it, so the owner can read it
-  afterwards and go back if it should have gone another way. It does not wait for the owner. `council`
-  means the change proceeds
-  on a council ruling that its commits name (`Council: D-03`) and the owner
-  reviews the ruling later; with no ruling named, or no record of it, the
-  change waits for a ruling. `agent` means the agent review is enough.
+  change after the agent review, or without one when the owner asked for
+  the change or approved it, and the change report names the last commit
+  before it, so the owner can read it afterwards and go back if it should
+  have gone another way. It does not wait for the owner. `council` means
+  the change proceeds on a council ruling that its commits name
+  (`Council: D-03`) and the owner reviews the ruling later; with no ruling
+  named, or no record of it, the change waits for a ruling. `agent` means
+  the agent review is enough.
 - **Freeze** marks the seams that define what is being built. A change to one
   is a freeze change: it is made on its own, before the code that implements
   it, and it follows an approved spec or a council ruling.
@@ -82,7 +83,7 @@ itself is correct.
 | maths | Reward maths is written as functions the compiler forbids from reading or changing state, so the calculation cannot mint or pay. | The compiler refuses |
 | node | The node reads the chain through one narrow interface. Our changes sit in their own directories of the fork, and every changed upstream file has a ledger entry in `nodefork/`. | A check fails when an upstream file differs without an entry, once the fork exists |
 | deployment | One manifest per testnet version lists the rulebook version, addresses, node commit and every stand-in in use. | A file, read by people |
-| factory | A change to a check, to this map or to a guide is reviewed by an agent or approved by the owner, and reported to the owner either way, so a check cannot be weakened quietly. | Read from git on every change |
+| factory | A change to a check, to this map or to a guide is reviewed by an agent, or is one the owner asked for or approved, and is reported to the owner either way, so a check cannot be weakened quietly. | Read from git on every change |
 
 "Once the contracts exist" is literal. Today the repository holds the factory
 and nothing else. The door rules and the coverage rule run now and are shown

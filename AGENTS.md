@@ -80,10 +80,10 @@ Every change takes the same path, at a size that fits it.
    agent review.
 5. **It lands by fast-forward.** `main` takes no direct push. The host
    merges a pull request only when its branch is up to date with `main`,
-   the check has passed on its last commit, and no reviewer's request for
-   changes is open. A change that is reviewed also has the reviewer's
-   approval of that same commit. So `main` always points at a commit the
-   host checked.
+   the check has passed on its last commit, and no request for changes from
+   a reviewer the host lists is open. A change that is reviewed also has
+   the reviewer's approval of that same commit. So `main` always points at
+   a commit the host checked.
 6. **The owner reads afterwards.** A change to a seam that `SEAMS.md` marks
    `owner` lands as its own pull request and is reported with the commit
    before it, so there is always a point to go back to.
@@ -95,9 +95,10 @@ calculator, after the heavy checks have run on that commit.
 
 Every change is described by one summary, in one layout, printed by
 `./dev summary`. It is the description of the change's pull request. Its
-top is a table of five rows and a list of one-line items, and the detail
-behind each line opens on a click. It describes the change. It never tells
-a reader what to do.
+top is a table of five rows, followed by the design choices and assumptions
+as one-line items when they are written. The sections below are folded, and
+each opens on a click. It describes the change. It never tells a reader
+what to do.
 
 - **The table** is generated: the seams touched, with each sensitive seam
   marked (one whose Review column in `SEAMS.md` says `owner`, such as money,
