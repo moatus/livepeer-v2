@@ -75,14 +75,18 @@ Every change takes the same path, at a size that fits it.
    from a different family than the one that built it, with the change
    report `./dev review` generates from git and `SEAMS.md`. Each round of
    the review is posted on the pull request. A real defect it finds is
-   closed by a check, so it cannot come back unnoticed.
-5. **It lands by fast-forward** once the host's check has passed and, for
-   a change that is reviewed, the reviewer has approved that same commit.
-   `main` takes no direct push, so the commits on it are exactly the ones
-   that were checked.
+   closed by a check, so it cannot come back unnoticed. A small change with
+   an obvious result, and a change the owner asked for or approved, take no
+   agent review.
+5. **It lands by fast-forward.** `main` takes no direct push. The host
+   merges a pull request only when its branch is up to date with `main`,
+   the check has passed on its last commit, and no reviewer's request for
+   changes is open. A change that is reviewed also has the reviewer's
+   approval of that same commit. So `main` always points at a commit the
+   host checked.
 6. **The owner reads afterwards.** A change to a seam that `SEAMS.md` marks
-   `owner` lands as its own commit and is reported with the commit before
-   it, so there is always a point to go back to.
+   `owner` lands as its own pull request and is reported with the commit
+   before it, so there is always a point to go back to.
 
 A stage closes on the demo's output, reconciled against the independent
 calculator, after the heavy checks have run on that commit.
@@ -90,24 +94,27 @@ calculator, after the heavy checks have run on that commit.
 ## The change summary
 
 Every change is described by one summary, in one layout, printed by
-`./dev summary`. It is the description of the change's pull request. It
-fits on a screen, and the detail behind each line opens on a click. It
-describes the change. It never tells a reader what to do.
+`./dev summary`. It is the description of the change's pull request. Its
+top is a table of five rows and a list of one-line items, and the detail
+behind each line opens on a click. It describes the change. It never tells
+a reader what to do.
 
 - **The table** is generated: the seams touched, with each sensitive seam
   marked (one whose Review column in `SEAMS.md` says `owner`, such as money,
   authority and the contract interfaces); whether a rule or a contract
   interface changed; what was verified; what was not run; the review.
-- **Verified** is a list of claims, each with the evidence that ran for it.
-  A claim with no evidence is not in the list.
+- **Verified** is the checks that ran. For a change that was reviewed it is
+  also a list of claims, each with the evidence that ran for it. A claim
+  with no evidence is not in the list.
 - **Not run** is every check that exists and did not run on this commit.
 - **Design choices and assumptions** is what the checks cannot settle: a
   choice the change makes, or something it takes on trust. The checks can
   show that money moved as specified; they cannot show that the
   specification is the right one. Each item is one line that states a fact
   about the change, with its detail folded below.
-- **Review** is one line: how many independent reviews the change had, and
-  what they found and had fixed before it landed.
+- **Review** is one line. For a change that was reviewed it says how many
+  independent reviews the change had, and what they found and had fixed
+  before it landed. For any other change it says that none is recorded.
 
 The seams, doors and checks in it come from git, `SEAMS.md` and a fresh run,
 so anyone can generate them again from the commit, and a small change
@@ -196,7 +203,8 @@ For work that changes code, or a document someone will build from.
 
 Every change lands through a pull request into `main`. The host runs
 `./dev verify` on it (`.github/workflows/verify.yml`), and `main` accepts
-the merge only when that check has passed on the commit being merged.
+the merge only when that check has passed on the pull request's last
+commit.
 `main` only moves forward: a merge is a fast-forward, and it is never
 pushed to directly or force-pushed.
 
