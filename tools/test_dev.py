@@ -311,13 +311,7 @@ The amount is unchanged.
 
 ## Review
 
-2 independent · 0 blocking · 1 note open
-
-Each reviewer re-ran the checks.
-
-| Note | Status |
-|---|---|
-| The token is trusted | Open (item 2) |
+2 independent reviews · 2 rounds · 1 defect found and fixed
 """
 
 
@@ -368,15 +362,14 @@ class Summary(Fixture):
         self.assertIn("## Registry pays the fee once\n", out)
         self.assertIn("**Charges the registration fee at the first call only. The amount is unchanged.**", out)
         self.assertIn("| **Verified** | 2 claims · structure checks pass · 3 of 3 seeded errors caught |", out)
-        self.assertIn("| **Review** | 2 independent · 0 blocking · 1 note open |", out)
+        self.assertIn("| **Review** | 2 independent reviews · 2 rounds · 1 defect found and fixed |", out)
         open_part, folded = out.split("<details>", 1)
         self.assertIn("1. The fee is read at call time · `Registry.sol:40`\n2. The token is trusted not to call back\n", open_part)
         self.assertNotIn("A fee changed between two calls", open_part)
         self.assertIn("<summary>Verified: the 2 claims and their evidence</summary>", folded)
         self.assertIn("| The fee is taken once | A second call is refused and the balance is unchanged |", folded)
         self.assertIn("1. **The fee is read at call time · `Registry.sol:40`**\n\n   A fee changed between two calls", folded)
-        self.assertIn("<summary>Review notes</summary>\n\nEach reviewer re-ran the checks.", folded)
-        self.assertIn("| The token is trusted | Open (item 2) |", folded)
+        self.assertNotIn("Review", folded)
 
     def test_without_the_written_half_the_summary_says_what_is_missing(self):
         self.money_change()
@@ -438,6 +431,10 @@ class Summary(Fixture):
         code, out = self.dev("summary", "--base", "HEAD~1", "--written", "../written.md")
         self.assertEqual(code, 64)
         self.assertIn("no section is called 'Reviews'", out)
+        self.add("../written.md", WRITTEN + "\nThe first reviewer found the fee was charged twice.\n")
+        code, out = self.dev("summary", "--base", "HEAD~1", "--written", "../written.md")
+        self.assertEqual(code, 64)
+        self.assertIn("Review is one line", out)
         self.add("../written.md", "No title here\n")
         code, out = self.dev("summary", "--base", "HEAD~1", "--written", "../written.md")
         self.assertEqual(code, 64)

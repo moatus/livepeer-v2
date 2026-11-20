@@ -100,15 +100,15 @@ what to do.
   show that money moved as specified; they cannot show that the
   specification is the right one. Each item is one line that states a fact
   about the change, with its detail folded below.
-- **Review** counts the independent reviews, the blocking findings and the
-  notes. A note is closed, or it is listed as open. None is dropped.
+- **Review** is one line: how many independent reviews the change had, and
+  what they found and had fixed before it landed.
 
 The seams, doors and checks in it come from git, `SEAMS.md` and a fresh run,
 so anyone can generate them again from the commit. The rest is written by
 whoever built and reviewed the change, in a file passed with `--written`:
 a `# ` title, a lead sentence, and the sections `What this changes`,
 `Verified`, `Design choices and assumptions` and `Review`. The first plain
-line of `Verified` and of `Review` is what the table shows.
+line of `Verified` joins its row of the table.
 
 ## What is here
 

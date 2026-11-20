@@ -706,6 +706,11 @@ def cmd_summary(args) -> int:
             print(f"summary: {text}", file=sys.stderr)
             return 64
     sections = text["sections"] if text else {}
+    reviewed, more = headline(sections.get("Review", []))
+    if trimmed(more) or ("Review" in sections and not reviewed):
+        print("summary: Review is one line: how many independent reviews the change had, and what they"
+              " found and had fixed before it landed", file=sys.stderr)
+        return 64
     head, base, counts, by_seam = change.head, change.base, change.counts, change.by_seam
 
     out = print
@@ -788,7 +793,6 @@ def cmd_summary(args) -> int:
         verified.append(f"**{failed} heavy check{'s' if failed != 1 else ''} failed**")
     if claims:
         verified.append(claims)
-    reviewed, review_notes = headline(sections.get("Review", []))
 
     out("| | |")
     out("|---|---|")
@@ -887,9 +891,6 @@ def cmd_summary(args) -> int:
             if trimmed(detail):
                 body += ["", *(f"   {more}" if more else "" for more in trimmed(detail)), ""]
         folded("Design choices and assumptions: detail on each", body)
-
-    if trimmed(review_notes):
-        folded("Review notes", review_notes)
 
     out(f"*Shows what changed, what was checked and what was not. It does not say the change is right."
         f" The table and the seam, door and check sections are generated: `./dev summary --base {base[:7]}`"
