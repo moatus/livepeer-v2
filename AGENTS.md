@@ -103,7 +103,7 @@ what to do.
 - **The table** is generated: the seams touched, with each sensitive seam
   marked (one whose Review column in `SEAMS.md` says `owner`, such as money,
   authority and the contract interfaces); whether a rule or a contract
-  interface changed; what was verified; what was not run; the review.
+  interface changed; what was verified; what was not run; the agent team.
 - **Verified** is the checks that ran. For a change that was reviewed it is
   also a list of claims, each with the evidence that ran for it. A claim
   with no evidence is not in the list.
@@ -113,17 +113,19 @@ what to do.
   show that money moved as specified; they cannot show that the
   specification is the right one. Each item is one line that states a fact
   about the change, with its detail folded below.
-- **Review** is one line. For a change that was reviewed it says how many
-  independent reviews the change had, and what they found and had fixed
-  before it landed. For any other change it says that none is recorded.
+- **Agent team** is one line: how many AI agents took part in the change,
+  counting each one that directed, analysed, built or reviewed it; the
+  models they ran on; and what review found and had fixed before it
+  landed. When that line is not written, the row says that none is
+  recorded.
 
 The seams, doors and checks in it come from git, `SEAMS.md` and a fresh run,
-so anyone can generate them again from the commit, and a small change
-needs nothing more. For a change that was reviewed, the rest is written by
-whoever built and reviewed it, in a file passed with `--written`:
+so anyone can generate them again from the commit. The rest is written by
+whoever built and reviewed the change, in a file passed with `--written`:
 a `# ` title, a lead sentence, and the sections `What this changes`,
-`Verified`, `Design choices and assumptions` and `Review`. The first plain
-line of `Verified` joins its row of the table.
+`Verified`, `Design choices and assumptions` and `Agent team`. A small
+change needs only the title and `Agent team`. The first plain line of
+`Verified` joins its row of the table.
 
 ## What is here
 

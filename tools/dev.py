@@ -642,7 +642,7 @@ def cmd_review(args) -> int:
 
 # --- the change summary -----------------------------------------------------
 
-WRITTEN_SECTIONS = ("What this changes", "Verified", "Design choices and assumptions", "Review")
+WRITTEN_SECTIONS = ("What this changes", "Verified", "Design choices and assumptions", "Agent team")
 LISTED = re.compile(r"^(\||[-*] |\d+\. )")
 NUMBERED = re.compile(r"^(\d+)\.\s+(.*)$")
 
@@ -706,10 +706,10 @@ def cmd_summary(args) -> int:
             print(f"summary: {text}", file=sys.stderr)
             return 64
     sections = text["sections"] if text else {}
-    reviewed, more = headline(sections.get("Review", []))
-    if trimmed(more) or ("Review" in sections and not reviewed):
-        print("summary: Review is one line: how many independent reviews the change had, and what they"
-              " found and had fixed before it landed", file=sys.stderr)
+    team, more = headline(sections.get("Agent team", []))
+    if trimmed(more) or ("Agent team" in sections and not team):
+        print("summary: Agent team is one line: how many agents took part in the change, the models they"
+              " ran on, and what review found and had fixed before it landed", file=sys.stderr)
         return 64
     head, base, counts, by_seam = change.head, change.base, change.counts, change.by_seam
 
@@ -800,7 +800,7 @@ def cmd_summary(args) -> int:
     out(f"| **Interfaces and rules** | {surface} |")
     out(f"| **Verified** | {cell(' · '.join(verified))} |")
     out(f"| **Not run** | {cell(missed[0].upper() + missed[1:]) if missed else 'Nothing'} |")
-    out(f"| **Review** | {cell(reviewed) if reviewed else 'Not recorded here'} |")
+    out(f"| **Agent team** | {cell(team) if team else 'Not recorded here'} |")
     out()
 
     out("### Design choices and assumptions")

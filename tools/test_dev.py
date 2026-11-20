@@ -309,9 +309,9 @@ The amount is unchanged.
    A fee changed between two calls applies to the later one.
 2. The token is trusted not to call back
 
-## Review
+## Agent team
 
-2 independent reviews · 2 rounds · 1 defect found and fixed
+4 agents · models: Opus, Sol · 1 defect found and fixed
 """
 
 
@@ -362,14 +362,14 @@ class Summary(Fixture):
         self.assertIn("## Registry pays the fee once\n", out)
         self.assertIn("**Charges the registration fee at the first call only. The amount is unchanged.**", out)
         self.assertIn("| **Verified** | 2 claims · structure checks pass · 3 of 3 seeded errors caught |", out)
-        self.assertIn("| **Review** | 2 independent reviews · 2 rounds · 1 defect found and fixed |", out)
+        self.assertIn("| **Agent team** | 4 agents · models: Opus, Sol · 1 defect found and fixed |", out)
         open_part, folded = out.split("<details>", 1)
         self.assertIn("1. The fee is read at call time · `Registry.sol:40`\n2. The token is trusted not to call back\n", open_part)
         self.assertNotIn("A fee changed between two calls", open_part)
         self.assertIn("<summary>Verified: the 2 claims and their evidence</summary>", folded)
         self.assertIn("| The fee is taken once | A second call is refused and the balance is unchanged |", folded)
         self.assertIn("1. **The fee is read at call time · `Registry.sol:40`**\n\n   A fee changed between two calls", folded)
-        self.assertNotIn("Review", folded)
+        self.assertNotIn("Agent team", folded)
 
     def test_without_the_written_half_the_summary_says_what_is_missing(self):
         self.money_change()
@@ -377,7 +377,7 @@ class Summary(Fixture):
         self.assertEqual(code, 0, out)
         self.assertIn("## Charge the fee once (R-07)\n", out)
         self.assertIn("| **Verified** | structure checks pass |", out)
-        self.assertIn("| **Review** | Not recorded here |", out)
+        self.assertIn("| **Agent team** | Not recorded here |", out)
         self.assertIn("*Not written for this change.*", out)
 
     def test_a_check_that_was_not_asked_for_is_listed_as_not_run(self):
@@ -427,14 +427,14 @@ class Summary(Fixture):
 
     def test_a_section_the_summary_does_not_have_is_a_usage_error(self):
         self.money_change()
-        self.add("../written.md", WRITTEN.replace("## Review", "## Reviews"))
+        self.add("../written.md", WRITTEN.replace("## Agent team", "## Review"))
         code, out = self.dev("summary", "--base", "HEAD~1", "--written", "../written.md")
         self.assertEqual(code, 64)
-        self.assertIn("no section is called 'Reviews'", out)
+        self.assertIn("no section is called 'Review'", out)
         self.add("../written.md", WRITTEN + "\nThe first reviewer found the fee was charged twice.\n")
         code, out = self.dev("summary", "--base", "HEAD~1", "--written", "../written.md")
         self.assertEqual(code, 64)
-        self.assertIn("Review is one line", out)
+        self.assertIn("Agent team is one line", out)
         self.add("../written.md", "No title here\n")
         code, out = self.dev("summary", "--base", "HEAD~1", "--written", "../written.md")
         self.assertEqual(code, 64)
