@@ -1,0 +1,192 @@
+{
+  "testnet": "public-run-421614",
+  "about": "Written by demo/public-run for its run on chain 421614, from public-arbitrum-sepolia.json. The addresses, accounts and source commit are this run's.",
+  "spec": "S-05 and S-06",
+  "rulebook": "rulebook/october-main-text-v2.md",
+  "vectors": "vectors/october-main-text-v2.json",
+  "contracts": [
+    {
+      "contract": "Controller",
+      "source": "contracts/src/authority/Controller.sol",
+      "node_name": "the --controller-address",
+      "address": "0x3056761B313678EC76B118BFa04b68c5Fc3b757E"
+    },
+    {
+      "contract": "Registry",
+      "source": "contracts/src/authority/Registry.sol",
+      "node_name": "BondingManager",
+      "address": "0x4116CB41569ee6739e1ADb8f3fF2b98F3856609A"
+    },
+    {
+      "contract": "RoundClock",
+      "source": "contracts/src/clock/RoundClock.sol",
+      "node_name": "RoundsManager",
+      "address": "0x445E9b7B9559E961226e567fb18d4dAE46D9c0B6"
+    },
+    {
+      "contract": "Broker",
+      "source": "contracts/src/money/Broker.sol",
+      "node_name": "TicketBroker",
+      "address": "0x691006d3A624a40d755586395e1CdDA09D497442"
+    },
+    {
+      "contract": "MockUSDC",
+      "source": "contracts/src/money/MockUSDC.sol",
+      "node_name": "none",
+      "address": "0x800387b2fFd42547B83dd1A8023F5e934B9D91C2"
+    },
+    {
+      "contract": "TestLPT",
+      "source": "contracts/src/money/TestLPT.sol",
+      "node_name": "none",
+      "address": "0x55Bcf29C7Be7964799F20988E3d5Db774Ad1878C"
+    },
+    {
+      "contract": "StakeLedger",
+      "source": "contracts/src/money/StakeLedger.sol",
+      "node_name": "none",
+      "address": "0xA46a6AB1C9aA36A6b5fAE691A8DE163BA0660F22"
+    },
+    {
+      "contract": "Scores",
+      "source": "contracts/src/scores/Scores.sol",
+      "node_name": "none: Claims reads it as both its score source and its validator set",
+      "address": "0x7E97B3212Fd599e850B80EC74e1224592be568EF"
+    },
+    {
+      "contract": "Claims",
+      "source": "contracts/src/money/Claims.sol",
+      "node_name": "none",
+      "address": "0x59B927d16F898375DE7643687E8344f3Fc3c45F7"
+    }
+  ],
+  "node": {
+    "source": "https://github.com/livepeer/node",
+    "commit": "e2b331958a5704016310153a7d33b7a634758f38",
+    "changes": "none: the unmodified node, configured by flags alone",
+    "programs": [
+      "livepeer-orchestrator",
+      "livepeer-signer"
+    ]
+  },
+  "model": {
+    "name": "SmolLM2-135M-Instruct, Q8_0 GGUF",
+    "url": "https://huggingface.co/bartowski/SmolLM2-135M-Instruct-GGUF/resolve/09816acd5d99df7be770d85ea30822623dab342c/SmolLM2-135M-Instruct-Q8_0.gguf",
+    "sha256": "5a1395716f7913741cc51d98581b9b1228d80987a9f7d3664106742eb06bba83",
+    "server_image": "ghcr.io/ggml-org/llama.cpp@sha256:7751a6c0dc3d019c231d42678abbb0fac1a13a24c17c956109ed27533139f280"
+  },
+  "chain": {
+    "kind": "Arbitrum Sepolia, a public test chain (D-14)",
+    "chain_id": 421614,
+    "round_length_blocks": 50,
+    "round_clock": "block.number, which on Arbitrum is close to the L1 block number (about one every 12 s), and the node's clock is the header's l1BlockNumber: one round of 50 blocks is about 10 minutes. Round 1 starts with the clock's deployment; a fee earned in round 2 or 3 may be claimed from the start of round 9 or 10, about 80 or 90 minutes after it, before delays"
+  },
+  "deployment": {
+    "deployed": true,
+    "chain_id": 421614,
+    "deployed_at_block": 331292296,
+    "deployer": "0xf9488C52115B683560cB93591a6F07353b9Fb913",
+    "source_commit": "0c1801a292bcabf7862d7f072ed5540c4901025b",
+    "accounts": {
+      "N": "0x5372a9784C60F1577a1591f565dA86C3b77A1751",
+      "P": "0x7182F3176d918720f44Fa5c681453aA2fb3e271A",
+      "V": "0xCa9748982505957c20B4e167bA8F443B6A8D2C0A",
+      "Keeper": "0x10d04D0A713Eba80f8965a36251C79857E42b2d6"
+    },
+    "treasury": "0xe05240934a6a7d4011f56f8cc4b408ced9617811"
+  },
+  "price": {
+    "job_price_usd": "0.999999",
+    "unit": "fixed",
+    "wei_per_usd": "1000000",
+    "ticket_win_prob": "115792089237316195423570985008687907853269984665640564039457584007913129639934",
+    "ticket_face": "the job price in micro-USDC plus 1: one ticket of 1 USDC a job"
+  },
+  "signer_limits": {
+    "max_ticket_ev": "2000000",
+    "max_batch_ev": "20000000",
+    "max_fixed_price_usd": "1",
+    "max_hourly_price_usd": "3600"
+  },
+  "lpt": {
+    "genesis_supply_wei": "10000000000000000000000000",
+    "decimals": 18
+  },
+  "stand_ins": [
+    {
+      "stand_in": "Role accounts made by the run",
+      "for": "Operators who hold their own keys",
+      "value": "The deployer's key is the owner's, given by a keystore path outside the repository. The node N, the payer P, the validator V and the keeper are keys the run makes and keeps only in its state directory, each paid its gas money by the deployer at the start"
+    },
+    {
+      "stand_in": "MockUSDC",
+      "for": "USDC",
+      "value": "An ERC-20 with six decimals that anyone may mint (contracts/src/money/MockUSDC.sol). On a public chain anyone can mint it, so the run's figure of all USDC in existence holds only while nobody outside the run has minted any; the run says so when it differs"
+    },
+    {
+      "stand_in": "Fixed rate --wei-per-usd 1000000",
+      "for": "A price feed",
+      "value": "The node prices in wei of the chain's native token. With 1,000,000 of its units to the dollar, one unit is one micro-USDC, so 1 USDC = 1 USD and the node's amounts are micro-USDC"
+    },
+    {
+      "stand_in": "Every ticket wins",
+      "for": "Probabilistic micropayments",
+      "value": "Win probability 2^256 - 2, the largest the node accepts, and a face of the job price + 1 micro-USDC (0.999999 USD = 999,999, so 1,000,000: one ticket of 1 USDC a job). Each job settles one ticket and overpays 1 micro-USDC (D-06)"
+    },
+    {
+      "stand_in": "The signer's ticket limits in micro-USDC",
+      "for": "Limits in wei of ETH",
+      "value": "--max-ticket-ev 2000000 and --max-batch-ev 20000000, read as micro-USDC because of the fixed rate above"
+    },
+    {
+      "stand_in": "50-block rounds",
+      "for": "The paper's round in time (p. 7)",
+      "value": "RoundLength = 50 blocks of the block number the node reads (R-18): on Arbitrum the L1 block number, so about 10 minutes a round; a round lasts longer when nobody starts the next one"
+    },
+    {
+      "stand_in": "Tiny model",
+      "for": "Real AI work",
+      "value": "SmolLM2-135M-Instruct served by llama.cpp; its answers are not checked, and a settled ticket does not show the work was done"
+    },
+    {
+      "stand_in": "No governance",
+      "for": "Parameter changes under D-12",
+      "value": "No contract has an owner key; the Controller's names and every parameter are fixed at deployment"
+    },
+    {
+      "stand_in": "No buyback",
+      "for": "The buyback and burn of LPT (D-13, stage 4)",
+      "value": "The network half of each fee is held in the Broker (networkHeld) and nothing draws it; no LPT is bought or burned"
+    },
+    {
+      "stand_in": "Test LPT",
+      "for": "LPT",
+      "value": "An ERC-20 with 18 decimals (contracts/src/money/TestLPT.sol) that only Claims, fixed at deployment, may mint"
+    },
+    {
+      "stand_in": "Genesis supply of 10,000,000 test LPT",
+      "for": "Today's LPT supply",
+      "value": "Created once by the token's constructor for the deployer, outside every round's issuance (R-09); holders are given LPT from it by transfer (the ledger case's grant_lpt), never by a mint"
+    },
+    {
+      "stand_in": "Treasury address",
+      "for": "The treasury (R-10)",
+      "value": "An address the run makes up and whose key nobody holds, fixed in Claims at deployment; it receives each round's treasury amount and what the validator division leaves"
+    },
+    {
+      "stand_in": "Scripted validators",
+      "for": "Validators who judge work (R-11, R-13)",
+      "value": "One validator, V, a registered node with 1,000 test LPT of its own, run by programs/validators from demo/public-validators.script: it opts in in round 2 and is the only member from round 3; it never votes, so every node keeps score 1. The S-06 division of each round's validator amount is paid to it"
+    },
+    {
+      "stand_in": "ValidatorSetSize 3",
+      "for": "The paper's 33 seats (p. 4; D-35)",
+      "value": "Scores seats at most 3 members, a constant fixed at deployment; the public run seats one"
+    },
+    {
+      "stand_in": "Keeper",
+      "for": "Whoever starts rounds and mints each round's validator and treasury amounts",
+      "value": "lp2-keeper with a throwaway key; anyone may do either (R-10, R-18), so a stopped keeper delays them and loses nothing"
+    }
+  ]
+}

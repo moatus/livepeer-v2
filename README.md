@@ -229,6 +229,12 @@ it reads its settings from.
 ./dev summary   # the one-screen summary of a change: seams, checks, open questions
 ```
 
+`demo/public-run` deploys the stage 3 system to a chain it does not
+control, such as Arbitrum Sepolia, from an RPC URL and a deployer keystore
+you give it. It runs the team's node through one paid job and one reward
+cycle in real time, then reconciles every figure against the calculator.
+`demo/PUBLIC.md` says what to set, what it costs and how long it takes.
+
 ## How the code is arranged
 
 - `rulebook/` holds the rules, each citing the litepaper's page, and

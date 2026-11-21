@@ -1,0 +1,4 @@
+# The public run's scripted validator (demo/public.py): V opts in in round 2,
+# once its bond of round 1 counts, and is a member from round 3. It never
+# votes. Lines are "round validator opt-in" or "round validator target score".
+2 V opt-in

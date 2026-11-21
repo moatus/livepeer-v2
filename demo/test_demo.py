@@ -13,9 +13,14 @@ named with its log.
 import ast
 import copy
 import json
+import os
 import shutil
+import signal
 import socket
+import subprocess
+import sys
 import tempfile
+import textwrap
 import time
 import unittest
 from pathlib import Path
@@ -34,6 +39,40 @@ VECTORS3 = json.loads((ROOT / MANIFEST3["vectors"]).read_text())
 LEDGER3 = [c for c in VECTORS3["cases"] if c["kind"] == "ledger"]
 VALIDATORS3 = [c for c in VECTORS3["cases"] if c["kind"] == "validators"]
 PAY3 = [c for c in VECTORS3["cases"] if c["kind"] == "validator-pay"]
+
+
+class RPCBatchTests(unittest.TestCase):
+    def test_batches_split_in_order_and_retry_when_rate_limited(self):
+        response = mock.MagicMock()
+        response.__enter__.return_value = response
+        # The first batch is refused with 429, then with one error object
+        # for the whole batch (status 200), as some endpoints rate-limit.
+        batches, refusals = [], iter(["429", "error", None, None])
+
+        def open_request(req, *, timeout):
+            batch = json.loads(req.data)
+            batches.append(batch)
+            if batch[0]["method"] == "eth_sendRawTransaction":
+                raise common.urllib.error.URLError("connection reset")
+            refusal = next(refusals)
+            if refusal == "429":
+                raise common.urllib.error.HTTPError(common.RPC, 429, "rate limited", {}, None)
+            response.read.return_value = json.dumps({"error": {"code": -32005, "message": "limit"}} if refusal else [
+                {"id": call["id"], "result": call["params"][0]} for call in reversed(batch)
+            ])
+            return response
+
+        with mock.patch.object(common, "BATCH", 2), \
+             mock.patch.object(common.urllib.request, "urlopen", side_effect=open_request), \
+             mock.patch.object(common.time, "sleep") as sleep:
+            results = common.rpc_batch([("eth_getBlockByNumber", [n, True]) for n in range(3)])
+            self.assertEqual([r["result"] for r in results], [0, 1, 2])
+            self.assertEqual([len(batch) for batch in batches], [2, 2, 2, 1])
+            self.assertEqual([c.args[0] for c in sleep.call_args_list], list(common.RETRY_WAITS[:2]))
+            # A send whose answer was lost may have landed: it is not sent again.
+            with self.assertRaises(common.urllib.error.URLError):
+                common.rpc("eth_sendRawTransaction", ["0x"])
+        self.assertEqual(len(batches), 5)
 
 
 def records_and_views(case):
@@ -86,6 +125,17 @@ class CaseWriter(unittest.TestCase):
         records = [{"fields": {"action": "observe", "payer": "P", "node": "N"}, "block": 5, "index": None, "round": 2, "seq": 0},
                    {"fields": {"action": "register", "node": "N"}, "block": 5, "index": 3, "round": 2, "seq": 1}]
         self.assertEqual([r["fields"]["action"] for r in ledgercase.order(records)], ["register", "observe"])
+
+    def test_a_transaction_is_in_the_round_at_its_index(self):
+        # A redemption at index 0 of a block whose index 1
+        # starts round 3 was put in round 3, the round after the whole block.
+        started = [{"blockNumber": hex(b), "transactionIndex": hex(i), "topics": ["0x", hex(r)]}
+                   for b, i, r in ((4, 0, 1), (10, 1, 2), (20, 1, 3))]
+        records = [{"block": b, "index": i} for b, i in ((20, 0), (20, 1), (20, 2), (20, None), (10, 0), (19, None))]
+        with mock.patch.object(common, "logs", lambda *a, **k: started), \
+                mock.patch.dict(common.C, {"RoundClock": "0x" + "22" * 20}):
+            common.set_rounds(records)
+        self.assertEqual([r["round"] for r in records], [2, 3, 3, 3, 1, 2])
 
     def test_a_round_going_backwards_is_refused(self):
         records = [{"fields": {"action": "register", "node": "N"}, "block": 5, "index": 0, "round": 3, "seq": 0},
@@ -238,6 +288,170 @@ class Manifest(unittest.TestCase):
         self.assertEqual(MANIFEST["chain"]["round_length_blocks"], int(VECTORS["parameters"]["round_length_blocks"]))
         self.assertEqual(MANIFEST["rulebook"], VECTORS["rulebook"])
 
+    def test_the_public_template_invents_no_address_and_runs_stage_3(self):
+        # The public testnet's template names no address before a
+        # run fills it, runs what stage 3 runs, and names its stand-ins.
+        public = json.loads((ROOT / "deployments" / "public-arbitrum-sepolia.json").read_text())
+        self.assertEqual([c["address"] for c in public["contracts"]], [None] * len(MANIFEST3["contracts"]))
+        self.assertFalse(public["deployment"]["deployed"])
+        self.assertEqual(public["chain"]["chain_id"], 421614)
+        for key in ("node", "model", "price", "signer_limits", "lpt", "rulebook", "vectors"):
+            with self.subTest(key=key):
+                self.assertEqual(public[key], MANIFEST3[key])
+        self.assertEqual([{k: v for k, v in c.items() if k != "address"} for c in public["contracts"]], MANIFEST3["contracts"])
+        named = {s["stand_in"].lower() for s in public["stand_ins"]}
+        for name in ("mockusdc", "test lpt", "scripted validators", "tiny model", "every ticket wins",
+                     "fixed rate --wei-per-usd 1000000", "50-block rounds", "keeper", "treasury address"):
+            with self.subTest(stand_in=name):
+                self.assertTrue(any(n.startswith(name) for n in named))
+
+
+
+class PublicState(unittest.TestCase):
+    """demo/public-run's state directory holds keys and sends money, so a
+    symlink must not lead a key elsewhere, and two runs must not share it."""
+
+    def setUp(self):
+        import public
+        self.public = public
+        self.dir = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        for patch in (mock.patch.object(public, "STATE_DIR", self.dir), mock.patch.object(public, "LOCK", None),
+                      mock.patch.object(common, "KEEP_FDS", ())):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def test_a_symlinked_keys_directory_is_refused(self):
+        elsewhere = self.dir / "elsewhere"
+        elsewhere.mkdir()
+        (self.dir / "keys").symlink_to(elsewhere)
+        with self.assertRaises(common.NotRun) as e:
+            self.public.private(self.dir / "keys" / "N" / "N")
+        self.assertIn("keys in the state directory is a symlink", str(e.exception))
+        self.assertEqual(self.public.private(self.dir / "pw"), self.dir / "pw")
+
+    def test_a_second_run_on_the_state_directory_is_refused(self):
+        self.public.lock()
+        self.addCleanup(self.public.LOCK.close)
+        held = self.public.LOCK
+        with self.assertRaises(common.NotRun) as e:
+            self.public.lock()
+        self.public.LOCK.close()
+        self.public.LOCK = held
+        self.assertIn(f"in use by process {os.getpid()}", str(e.exception))
+
+    @staticmethod
+    def reap(group: int) -> None:
+        # os.killpg, never the kill program: procps-ng 4.0.4 reads
+        # `kill -9 -<group>` as kill(-1, SIGKILL), every process the user has.
+        try:
+            os.killpg(group, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+    def test_a_program_left_by_a_killed_run_keeps_the_directory(self):
+        # A run killed with SIGKILL must not free the directory while its
+        # keeper runs on, or a second run could start a second keeper with
+        # the same key: the program holds the lock itself.
+        here = Path(__file__).resolve().parent
+        run = subprocess.Popen([sys.executable, "-B", "-c", textwrap.dedent(f"""
+            import sys, time
+            sys.path.insert(0, {str(here)!r})
+            from pathlib import Path
+            import common, public
+            public.STATE_DIR = common.RUN = Path({str(self.dir)!r})
+            (common.RUN / "logs").mkdir()
+            public.lock()
+            common.start("keeper", ["sleep", "60"])
+            public.note_holders()
+            print(common.PROCS["keeper"].pid, flush=True)
+            time.sleep(60)
+        """)], stdout=subprocess.PIPE, text=True)
+        child = int(run.stdout.readline())
+        self.addCleanup(self.reap, child)
+        os.kill(run.pid, signal.SIGKILL)
+        run.wait()
+        os.kill(child, 0)  # the run is gone, its keeper is not
+        with self.assertRaises(common.NotRun) as e:
+            self.public.lock()
+        self.addCleanup(self.public.LOCK.close)
+        self.assertIn(f"programs it started: keeper {child}", str(e.exception))
+        os.killpg(child, signal.SIGKILL)
+        end = time.time() + 10
+        while time.time() < end:
+            try:
+                os.kill(child, 0)
+                time.sleep(0.05)
+            except ProcessLookupError:
+                break
+        self.public.LOCK.close()
+        self.public.lock()  # once the keeper is gone, the directory is free
+        self.addCleanup(self.public.LOCK.close)
+
+
+class PublicSteps(unittest.TestCase):
+    """A step of demo/public-run is sent once: a run stopped while sending it
+    does not send it again, since it may have landed."""
+
+    def setUp(self):
+        import public
+        self.public = public
+        state = {"done": {"deploy": {"contracts": {"Registry": "0xc", "Broker": "0xd"}}}, "sent": [], "sending": None}
+        for patch in (mock.patch.dict(public.STATE, state, clear=True), mock.patch.object(public, "save", lambda: None),
+                      mock.patch.object(common, "SENT", state["sent"])):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def test_a_step_is_sent_once_and_its_sends_are_kept(self):
+        self.public.step("bond", lambda: common.SENT.extend(["0xa", "0xb"]) and None)
+        self.public.step("bond", lambda: self.fail("sent again"))
+        self.assertEqual((self.public.STATE["done"]["bond"], self.public.STATE["sending"]), (True, None))
+        self.assertEqual(self.public.STATE["sent"], ["0xa", "0xb"])
+
+    def test_a_step_stopped_while_sending_is_refused(self):
+        with self.assertRaises(RuntimeError):
+            self.public.step("fund", lambda: (_ for _ in ()).throw(RuntimeError("killed")))
+        self.assertEqual(self.public.STATE["sending"], "fund")
+        with self.assertRaises(common.NotRun) as e:
+            self.public.step("fund", lambda: self.fail("sent again"))
+        self.assertIn("stopped while sending step 'fund'", str(e.exception))
+
+    def test_a_chain_without_the_contracts_is_refused(self):
+        codes = {"0xc": "0x60", "0xd": "0x"}
+        with mock.patch.object(common, "rpc_batch", lambda calls: [{"result": codes[p[0]]} for _, p in calls]):
+            with self.assertRaises(common.NotRun) as e:
+                self.public.check_deployment()
+        self.assertIn("no code at this state's Broker", str(e.exception))
+
+
+class PagedLogs(unittest.TestCase):
+    """Hosted endpoints cap eth_getLogs' range, so the logs are read
+    LOG_PAGE blocks at a time, giving the same logs."""
+
+    def test_the_logs_are_read_in_pages(self):
+        asked = []
+        found = {3: "a", 4999: "b", 5000: "c", 12345: "d"}
+
+        def chain(calls):
+            out = []
+            for i, (m, p) in enumerate(calls):
+                if m == "eth_getBlockByNumber":
+                    out.append({"id": i, "result": {"number": hex(12345)}})
+                else:
+                    a, b = int(p[0]["fromBlock"], 16), int(p[0]["toBlock"], 16)
+                    asked.append((a, b))
+                    out.append({"id": i, "result": [{"blockNumber": hex(n), "data": d} for n, d in sorted(found.items())
+                                                    if a <= n <= b]})
+            return out
+        with mock.patch.object(common, "rpc_batch", chain), mock.patch.object(common, "FROM_BLOCK", 3), \
+                mock.patch.dict(common.SELECTORS, {"E()": "0x" + "ee" * 32}):
+            self.assertEqual([lg["data"] for lg in common.logs("0xc", "E()")], ["a", "b", "c", "d"])
+            self.assertEqual(asked, [(3, 5002), (5003, 10002), (10003, 12345)])
+            asked.clear()
+            with mock.patch.object(common, "LOG_PAGE", 1000):
+                self.assertEqual([lg["data"] for lg in common.logs("0xc", "E()", 5000)], ["a", "b", "c"])
+            self.assertEqual(len(asked), 5)
+            self.assertEqual(asked[-1], (4003, 5000))
 
 
 def free_port() -> int:

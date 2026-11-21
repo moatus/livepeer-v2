@@ -44,7 +44,7 @@ import time
 import common
 common.use("stage-3-local.json")
 from common import *  # noqa: E402,F401,F403
-from common import RUN, MANIFEST, PARAMS, CASES, VECTORS, PORT, RPC, C, ADDR, KEY, NAMES, RECORDS, FAILURES  # noqa: E402
+from common import MANIFEST, PARAMS, CASES, VECTORS, PORT, C, ADDR, KEY, NAMES, RECORDS, FAILURES  # noqa: E402
 import ledgercase  # noqa: E402
 import validatorcases  # noqa: E402
 
@@ -107,12 +107,13 @@ def stake(who: str, fields: dict, *argv: str, want: str | None = None) -> dict:
     """A step sent by lp2-stake as `who`: a transaction, or a refusal the
     contract gave at a block, recorded with its code. `want` is the code the
     demo expects, or None for a step that takes effect."""
-    done = subprocess.run([str(RUN / "bin" / "lp2-stake"), "--rpc-url", RPC, "--keystore-file", str(KEYS[who]),
-                           "--keystore-password-file", str(RUN / "pw"), "--stake-ledger-address", C["StakeLedger"],
+    done = subprocess.run([str(common.RUN / "bin" / "lp2-stake"), "--rpc-url", common.RPC, "--keystore-file", str(KEYS[who]),
+                           "--keystore-password-file", str(common.RUN / "pw"), "--stake-ledger-address", C["StakeLedger"],
                            "--claims-address", C["Claims"], "--lpt-address", C["TestLPT"], *argv],
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, pass_fds=common.KEEP_FDS)
     out = done.stdout.strip().splitlines()
-    with open(RUN / "logs" / "lp2-stake.log", "a") as log:
+    common.SENT.extend(common.sent_by(done.stdout))
+    with open(common.RUN / "logs" / "lp2-stake.log", "a") as log:
         log.write(f"$ {who}: lp2-stake {' '.join(argv)}\n{done.stdout}{done.stderr}")
     last = out[-1] if out else ""
     if done.returncode == 0 and last.startswith("sent:"):
@@ -229,7 +230,7 @@ def runner_acts() -> dict[int, dict]:
     """What the scripted validators did with each line, from their log: the
     transaction they sent, or the code of the refusal and the block it was
     asked at."""
-    log = RUN / "logs" / "validators.log"
+    log = common.RUN / "logs" / "validators.log"
     out: dict[int, dict] = {}
     for text in (log.read_text().splitlines() if log.is_file() else []):
         if m := SENT.search(text):
@@ -288,10 +289,7 @@ def validators_run_case() -> tuple[dict, list[dict]]:
     observe step, against each validator's stake at the start of every round
     read from StakeLedger (a node is named once it has had stake)."""
     recs = validator_steps() + VRECORDS
-    blocks = sorted({r["block"] for r in recs})
-    rounds = dict(zip(blocks, round_batch(blocks)))
-    for r in recs:
-        r["round"] = rounds[r["block"]]
+    common.set_rounds(recs)
     ordered = ledgercase.order(recs)
     nodes = sorted({r["fields"]["node"] for r in recs if "node" in r["fields"]})
     stakes, ever = {}, set()
@@ -372,8 +370,8 @@ def compare(what: str, chain: dict, calc: dict) -> tuple[int, int]:
 # --- rounds -------------------------------------------------------------------
 
 def start_keeper() -> None:
-    start("keeper", [str(RUN / "bin" / "lp2-keeper"), "--rpc-url", RPC, "--keystore-file", str(KEYS["Keeper"]),
-                     "--keystore-password-file", str(RUN / "pw"), "--controller-address", C["Controller"],
+    start("keeper", [str(common.RUN / "bin" / "lp2-keeper"), "--rpc-url", common.RPC, "--keystore-file", str(KEYS["Keeper"]),
+                     "--keystore-password-file", str(common.RUN / "pw"), "--controller-address", C["Controller"],
                      "--claims-address", C["Claims"], "--poll", "1s"])
 
 
@@ -443,7 +441,7 @@ def main() -> int:
           face, int(cycle_step(action="redeem")["face_micro_usdc"]))
 
     start_chain()
-    pw = RUN / "pw"
+    pw = common.RUN / "pw"
     pw.write_text("pw-" + os.urandom(8).hex())
     pw.chmod(0o600)
     people = ["deployer", "N", "M", "K", "L", "W", "O", "D", "E", "F", "H", "P", *VALIDATORS, "Keeper", "Anyone"]
@@ -455,8 +453,8 @@ def main() -> int:
         if who not in ("deployer", "W"):
             KEYS[who] = keystore(who, pw)
     deploy_stage3()
-    (RUN / "addresses.json").write_text(json.dumps({"contracts": C, "accounts": dict(ADDR)}, indent=1))
-    say(f"  local chain on {RPC} (chain id {MANIFEST['chain']['chain_id']}); throwaway keys for nodes N, M, K and L, N's payout W,")
+    (common.RUN / "addresses.json").write_text(json.dumps({"contracts": C, "accounts": dict(ADDR)}, indent=1))
+    say(f"  local chain on {common.RPC} (chain id {MANIFEST['chain']['chain_id']}); throwaway keys for nodes N, M, K and L, N's payout W,")
     say("  holders O, D, E, F and H, payer P, validators V1 to V4, the keeper and an anyone; the treasury is an address with no key")
     say("  contracts: " + ", ".join(f"{k} {v}" for k, v in C.items()))
     check("RoundClock.roundLength() equals the shared examples' round length", call(C["RoundClock"], "roundLength()"),
@@ -498,9 +496,9 @@ def main() -> int:
     say(f"  P deposits {money(deposit)} micro-USDC and earmarks {money(face)} for each node: the node will not take a payer")
     say("  who has set nothing aside for it (stage 2's refusal 2), so ledger-cycle's payer, with no earmark, could not pay here")
 
-    names_file = RUN / "names.json"
+    names_file = common.RUN / "names.json"
     names_file.write_text(json.dumps({n: ADDR[n] for n in REGISTERED}))
-    start("validators", [str(RUN / "bin" / "lp2-validators"), "--rpc-url", RPC, "--keystore-password-file", str(pw),
+    start("validators", [str(common.RUN / "bin" / "lp2-validators"), "--rpc-url", common.RPC, "--keystore-password-file", str(pw),
                          "--controller-address", C["Controller"], "--scores-address", C["Scores"],
                          "--script", str(SCRIPT), "--names", str(names_file), "--poll", "1s",
                          *[f"--keystore={v}={KEYS[v]}" for v in VALIDATORS]])
@@ -789,7 +787,7 @@ def section_s06(ordered: list[dict], vcase: dict, pay_cases: list[dict], withdra
 
 def write_cases(file: str, cases: list[dict], what: str) -> None:
     """Cases the run wrote, checked by ./calculator/check."""
-    out = RUN / file
+    out = common.RUN / file
     out.write_text(json.dumps(validatorcases.document(VECTORS, cases), indent=1) + "\n")
     done = subprocess.run([str(common.ROOT / "calculator" / "check"), str(out)], capture_output=True, text=True)
     say(f"  wrote {out.relative_to(common.ROOT)}: {len(cases)} {cases[0]['kind']} case{'s' if len(cases) > 1 else ''}, {what}")

@@ -63,6 +63,11 @@ def open_log() -> None:
     LOG = open(RUN / "demo.log", "w")
 
 
+def where(path: Path) -> Path:
+    """A path as the run prints it: from the repository when it is inside it."""
+    return path.relative_to(ROOT) if path.is_relative_to(ROOT) else path
+
+
 def say(text: str = "") -> None:
     print(text, flush=True)
     if LOG:
@@ -84,12 +89,17 @@ def lpt(v) -> str:
 
 PROCS: dict[str, subprocess.Popen] = {}
 CONTAINERS: list[str] = []
+# Descriptors every program the run starts keeps open: none in the demo; in
+# demo/public.py the state directory's lock, so the lock is held for as long
+# as any program that may send with the run's keys is alive, even if the run
+# itself is killed.
+KEEP_FDS: tuple[int, ...] = ()
 
 
 def start(name: str, argv: list[str], cwd: Path | None = None) -> None:
     log = open(RUN / "logs" / f"{name}.log", "a")
     PROCS[name] = subprocess.Popen(argv, cwd=cwd, stdout=log, stderr=subprocess.STDOUT,
-                                   stdin=subprocess.DEVNULL, start_new_session=True)
+                                   stdin=subprocess.DEVNULL, start_new_session=True, pass_fds=KEEP_FDS)
 
 
 def wait_up(name: str, metrics: int, seconds: float = 60) -> None:
@@ -111,7 +121,7 @@ def wait_up(name: str, metrics: int, seconds: float = 60) -> None:
         time.sleep(0.2)
     lines = log.read_text(errors="replace").strip().splitlines() if log.is_file() else []
     how = f"exited with status {code} at startup" if code is not None else f"did not answer /healthz within {seconds:.0f} s"
-    shown = log.relative_to(ROOT) if log.is_relative_to(ROOT) else log
+    shown = where(log)
     raise Failed(f"{name} {how}: {lines[-1] if lines else '(its log is empty)'}; its log is {shown}")
 
 
@@ -149,7 +159,7 @@ def cleanup() -> None:
 
 
 def sh(argv: list[str], cwd: Path | None = None, check: bool = True, env: dict | None = None) -> str:
-    done = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, env=env)
+    done = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, env=env, pass_fds=KEEP_FDS)
     if check and done.returncode != 0:
         raise Failed(f"{' '.join(argv[:3])} ... failed: {(done.stderr or done.stdout).strip()[-600:]}")
     return done.stdout.strip()
@@ -293,7 +303,7 @@ def start_orchestrator(name: str, node: str, node_bin: Path, keyfile: Path, pw: 
     at the manifest's price."""
     price, chain = MANIFEST["price"], MANIFEST["chain"]
     d = RUN / name
-    d.mkdir()
+    d.mkdir(exist_ok=True)  # a resumed public run keeps the node's redeemer database
     (d / "runners.toml").write_text(f"""[[Runners]]
 ID = "llm"
 RunnerURL = "http://127.0.0.1:{PORT['model']}"
@@ -325,7 +335,7 @@ def start_signer(payer: str, node_bin: Path, keyfile: Path, pw: Path, port: int,
     """The unmodified node's signer for `payer`, allowed to pay the orchestrators on `orchs`."""
     price, chain, lim = MANIFEST["price"], MANIFEST["chain"], MANIFEST["signer_limits"]
     d = RUN / f"signer-{payer}"
-    d.mkdir()
+    d.mkdir(exist_ok=True)
     start(f"signer-{payer}", [str(node_bin / "livepeer-signer"), "--config=", "--network", "lp2-demo", "--data-dir", str(d),
                               "--listen", f"127.0.0.1:{port}", "--metrics-listen", f"127.0.0.1:{metrics}",
                               "--keystore-file", str(keyfile), "--keystore-password-file", str(pw),
@@ -352,17 +362,48 @@ RPC = f"http://127.0.0.1:{PORT['chain']}"
 # read it empty and exit (an empty file leaves the URL unset).
 RPC_FILE = RUN / "rpc-url"
 SELECTORS: dict[str, str] = {}
+# The first block worth reading: 0 on the demo's fresh chain, the deployment
+# block on a chain that was running before (demo/public.py). Logs and the
+# scan for strays start here.
+FROM_BLOCK = 0
+# Calls sent in one JSON-RPC batch; a hosted endpoint may take fewer.
+BATCH = 500
+# Methods that change nothing, so a batch of them is sent again after a
+# dropped connection or a server error. A batch refused with 429 (rate
+# limited) was not served, so any batch is sent again after one.
+_READ_METHODS = {
+    "eth_blockNumber", "eth_call", "eth_chainId", "eth_getBlockByNumber", "eth_getCode", "eth_getBalance",
+    "eth_getLogs", "eth_getTransactionByHash", "eth_getTransactionCount", "eth_getTransactionReceipt",
+}
+RETRY_WAITS = (1, 2, 4, 8, 15, 30)
 
 
 def rpc_batch(calls: list[tuple[str, list]]) -> list:
     out = []
-    for i in range(0, len(calls), 500):
-        chunk = calls[i:i + 500]
+    for i in range(0, len(calls), BATCH):
+        chunk = calls[i:i + BATCH]
         body = json.dumps([{"jsonrpc": "2.0", "id": j, "method": m, "params": p}
                            for j, (m, p) in enumerate(chunk)]).encode()
-        req = urllib.request.Request(RPC, data=body, headers={"content-type": "application/json"})
-        with urllib.request.urlopen(req, timeout=120) as r:
-            answers = sorted(json.loads(r.read()), key=lambda a: a["id"])
+        reads = all(m in _READ_METHODS for m, _ in chunk)
+        for wait in (*RETRY_WAITS, None):
+            req = urllib.request.Request(RPC, data=body, headers={"content-type": "application/json"})
+            try:
+                with urllib.request.urlopen(req, timeout=120) as r:
+                    answers = json.loads(r.read())
+                if isinstance(answers, list):
+                    answers.sort(key=lambda a: a["id"])
+                    break
+                # One error for the whole batch, such as a rate limit some
+                # endpoints answer with status 200.
+                if wait is None or not reads:
+                    raise Failed(f"the endpoint refused the batch: {answers.get('error', answers)}")
+            except urllib.error.HTTPError as e:
+                if wait is None or not (e.code == 429 or (reads and e.code >= 500)):
+                    raise
+            except (urllib.error.URLError, ConnectionError, TimeoutError):
+                if wait is None or not reads:
+                    raise
+            time.sleep(wait)
         out += answers
     return out
 
@@ -432,6 +473,18 @@ def receipt(tx: str, timeout: float = 30) -> dict:
     raise Failed(f"no receipt for {tx}")
 
 
+# Every transaction a helper program (lp2-stake, lp2-fund) reports it sent,
+# in order: demo/public.py keeps them with the run's own sends.
+SENT: list[str] = []
+
+
+def sent_by(output: str) -> list[str]:
+    """The transaction hashes a helper program's output reports, one on each
+    "approved:", "sent:" or "funded:" line."""
+    return [w.rstrip(")") for line in output.splitlines() if line.startswith(("approved:", "sent:", "funded:"))
+            for w in line.split() if w.startswith("0x") and len(w.rstrip(")")) == 66]
+
+
 def send(key: str, to: str, signature: str, *args, gas: int | None = None) -> dict:
     argv = ["cast", "send", "--json", "--rpc-url", RPC, "--private-key", key, to, signature, *map(str, args)]
     if gas:
@@ -445,9 +498,23 @@ def send(key: str, to: str, signature: str, *args, gas: int | None = None) -> di
     return r
 
 
+# Blocks asked for in one eth_getLogs: hosted endpoints cap the range, and a
+# public run spans tens of thousands of blocks (LP2_LOG_PAGE_BLOCKS overrides).
+LOG_PAGE = int(os.environ.get("LP2_LOG_PAGE_BLOCKS", "5000"))
+
+
 def logs(address: str, signature: str, upto: int | str = "latest") -> list[dict]:
-    tag = hex(upto) if isinstance(upto, int) else upto
-    return rpc("eth_getLogs", [{"address": address, "fromBlock": "0x0", "toBlock": tag, "topics": [topic(signature)]}])
+    """The contract's logs of this event from FROM_BLOCK through `upto`, in
+    chain order, read LOG_PAGE blocks at a time."""
+    end = upto if isinstance(upto, int) else int(rpc("eth_getBlockByNumber", [upto, False])["number"], 16)
+    pages = rpc_batch([("eth_getLogs", [{"address": address, "fromBlock": hex(a), "toBlock": hex(min(a + LOG_PAGE - 1, end)),
+                                         "topics": [topic(signature)]}]) for a in range(FROM_BLOCK, end + 1, LOG_PAGE)])
+    out = []
+    for page in pages:
+        if "error" in page:
+            raise Failed(f"eth_getLogs: {page['error']}")
+        out += page["result"]
+    return out
 
 
 # --- names, keys and records --------------------------------------------------
@@ -516,12 +583,20 @@ def deploy_stage2() -> None:
             raise Failed(f"the Controller does not answer {legacy} with the {ours}")
 
 
+# How forge signs as the deployer: the demo's throwaway key, or, when set
+# (demo/public.py), a keystore and its password file.
+DEPLOYER_SIGNER: list[str] = []
+CREATED: list[str] = []   # the hash of every contract creation, in order
+
+
 def forge_create(path: str, *args) -> str:
+    signer = DEPLOYER_SIGNER or ["--private-key", KEY["deployer"]]
     argv = ["forge", "create", "--root", str(ROOT / "contracts"), "--rpc-url", RPC,
-            "--private-key", KEY["deployer"], "--broadcast", path]
+            *signer, "--broadcast", path]
     if args:
         argv += ["--constructor-args", *map(str, args)]
     out = sh(argv)
+    CREATED.extend(line.split()[-1] for line in out.splitlines() if line.startswith("Transaction hash:"))
     return next(line.split()[-1] for line in out.splitlines() if line.startswith("Deployed to:"))
 
 
@@ -698,10 +773,8 @@ def assemble(extra: list[dict] | None = None) -> tuple[list[dict], dict]:
     for r in records:  # a replayed ticket keeps the id of its first redemption
         if r["fields"].get("ticket", "").startswith("0x"):
             r["fields"]["ticket"] = tickets[r["fields"]["ticket"]]
-    blocks = sorted({r["block"] for r in records})
-    rounds = dict(zip(blocks, round_batch(blocks)))
+    set_rounds(records)
     for r in records:
-        r["round"] = rounds[r["block"]]
         if "settled" in r and r["settled"]["round"] != r["round"]:
             raise Failed("a FeeSettled round differs from the clock's round at its block")
     ordered = ledgercase.order(records)
@@ -710,9 +783,36 @@ def assemble(extra: list[dict] | None = None) -> tuple[list[dict], dict]:
     return ordered, read_views(need, block_number(), case_steps)
 
 
-def round_batch(blocks: list[int]) -> list[int]:
-    answers = rpc_batch([("eth_call", [{"to": C["RoundClock"], "data": sel("currentRound()")}, hex(b)]) for b in blocks])
-    return [int(a["result"], 16) for a in answers]
+def set_rounds(records: list[dict]) -> None:
+    """Give each record the clock's round at its place on the chain."""
+    places = sorted({(r["block"], r["index"]) for r in records}, key=place_key)
+    rounds = dict(zip(places, round_batch(places)))
+    for r in records:
+        r["round"] = rounds[(r["block"], r["index"])]
+
+
+def place_key(place: tuple[int, int | None]) -> tuple[int, int]:
+    """A transaction is at (block, index); a read (index None) after every
+    transaction of its block."""
+    return place[0], place[1] if place[1] is not None else 1 << 62
+
+
+def round_batch(places: list[tuple[int, int | None]]) -> list[int]:
+    """The clock's round at each place, read from its RoundStarted logs: the
+    last round started at or before it. A transaction at index i sees only
+    the rounds started by transactions 0 to i of its block; a read (index
+    None) sees the round after the whole block. The same answer as
+    currentRound() there, without the past state a pruned node no longer
+    keeps."""
+    starts = sorted((int(lg["blockNumber"], 16), int(lg["transactionIndex"], 16), int(lg["topics"][1], 16))
+                    for lg in logs(C["RoundClock"], "RoundStarted(uint256,uint256,bytes32)"))
+    out = []
+    for place in places:
+        before = [r for at, i, r in starts if (at, i) <= place_key(place)]
+        if not before:
+            raise Failed(f"block {place[0]} is before the round clock was deployed")
+        out.append(before[-1])
+    return out
 
 
 def read_views(need: dict, block: int, case_steps: list[dict]) -> dict:
@@ -873,7 +973,7 @@ def scan(ordered: list[dict], targets: list[str], known_extra: set[str] = frozen
     """Every transaction to the named contracts is a step of the case."""
     known = {r["tx"].lower() for r in RECORDS if r.get("tx")} | {r["settled"]["tx"].lower() for r in ordered if "settled" in r}
     known |= {r["tx"].lower() for r in ordered if r.get("tx")} | {t.lower() for t in known_extra}
-    blocks = rpc_batch([("eth_getBlockByNumber", [hex(b), True]) for b in range(block_number() + 1)])
+    blocks = rpc_batch([("eth_getBlockByNumber", [hex(b), True]) for b in range(FROM_BLOCK, block_number() + 1)])
     to = {C[t].lower() for t in targets}
     stray = [t["hash"] for b in blocks for t in b["result"]["transactions"]
              if (t.get("to") or "").lower() in to and t["hash"].lower() not in known]
@@ -886,9 +986,9 @@ def write_case(case_id: str, ordered: list[dict], views: dict, members: dict | N
     out = RUN / "ledger-case.json"
     out.write_text(json.dumps(ledgercase.document(VECTORS, the_case), indent=1) + "\n")
     done = subprocess.run([str(ROOT / "calculator" / "check"), str(out)], capture_output=True, text=True)
-    say(f"  wrote {out.relative_to(ROOT)}: {len(the_case['inputs']['steps'])} steps, as sent and as the chain shows them")
+    say(f"  wrote {where(out)}: {len(the_case['inputs']['steps'])} steps, as sent and as the chain shows them")
     for line in done.stdout.strip().splitlines()[-2:]:
-        say(f"  ./calculator/check {out.relative_to(ROOT)}: {line[:150]}{' ...' if len(line) > 150 else ''}")
+        say(f"  ./calculator/check {where(out)}: {line[:150]}{' ...' if len(line) > 150 else ''}")
     check("the calculator reproduces the run's case", done.returncode, 0)
 
 
@@ -916,7 +1016,7 @@ def run_main(main) -> None:
 
 
 def finish(started: float, passed: str) -> int:
-    say(f"\nTook {time.time() - started:.0f} s. Logs, addresses and the case are in {RUN.relative_to(ROOT)}/.")
+    say(f"\nTook {time.time() - started:.0f} s. Logs, addresses and the case are in {where(RUN)}/.")
     if FAILURES:
         say(f"DEMO FAILED: {len(FAILURES)} check(s) failed:")
         for f in FAILURES:

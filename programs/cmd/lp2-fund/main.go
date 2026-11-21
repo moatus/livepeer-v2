@@ -90,9 +90,11 @@ func run(r request, rpcURL, keystoreFile, passwordFile string, controller, usdc 
 		return err
 	}
 	total := new(big.Int).Add(r.deposit, r.earmark)
-	if _, err := s.Send(ctx, usdc, "approve", broker, total); err != nil {
+	approved, err := s.Send(ctx, usdc, "approve", broker, total)
+	if err != nil {
 		return err
 	}
+	fmt.Printf("approved: the Broker may take %s (block %d, tx %s)\n", total, approved.BlockNumber, approved.TxHash)
 	receipt, err := s.Send(ctx, broker, "fund", r.deposit, r.node, r.earmark)
 	if err != nil {
 		return err
