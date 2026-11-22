@@ -14,8 +14,11 @@ rulebook and labelled as ours.
 Stage 3 is built: nodes are paid in mock USDC for real jobs, holders bond
 test LPT to them, scripted validators score them, and each round's LPT
 reward is claimed, split between a node and its holders, and minted under
-the round's ceiling. The buyback of LPT and parameter changes come in
-stage 4.
+the round's ceiling. Stage 4 is built and shown locally: the network's
+share of fees buys and burns test LPT, an announced parameter change
+counts seven rounds later, and after an operator key is rotated the old
+key is refused. A node restarted during settlement collects each payment
+once. Stage 4 has yet to be deployed on a public test chain.
 
 | Part | State |
 |---|---|
