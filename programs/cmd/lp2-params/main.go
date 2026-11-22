@@ -17,10 +17,12 @@
 // announce and withdraw ask the contract by a call first, at the newest
 // block, and send the transaction only when the call would succeed. A
 // refusal is printed as "refused: <CODE> at block <n>" with exit 3, and
-// nothing is sent. An announcement prints the round it counts from: the
-// current round + 7. show prints the values in force for ROUND (the
-// round, read from --round-clock-address, when none is given) and any
-// pending change; it signs nothing, so it needs no keystore.
+// nothing is sent. An announcement prints the round it counts from (the
+// current round + 7) as the transaction's own Announced event records it,
+// and a withdrawal the round from its Withdrawn event. show prints the
+// values in force for ROUND (the round, read from --round-clock-address,
+// when none is given) and any pending change; it signs nothing, so it
+// needs no keystore.
 package main
 
 import (
@@ -34,6 +36,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 
 	"lp2core/programs/chain"
@@ -212,7 +215,9 @@ func run(c command, rpcURL, keystoreFile, passwordFile string, at, clock common.
 		return true, nil
 	}
 	if c.verb == "withdraw" {
-		// The change withdrawn, read before it goes.
+		// The change withdrawn, read before it goes. The Withdrawn event
+		// has no values, so they are shown only when the change read is
+		// the one the transaction withdrew.
 		out, err := s.Call(ctx, at, "pending", c.group)
 		if err != nil {
 			return false, err
@@ -221,25 +226,57 @@ func run(c command, rpcURL, keystoreFile, passwordFile string, at, clock common.
 		if err != nil {
 			return false, err
 		}
-		fmt.Printf("withdrawn: %s %s, which would have counted from round %s; it never counts (block %d, tx %s)\n",
-			name(c.group), shown(c.group, out[0].([]*big.Int)), out[1].(*big.Int), r.BlockNumber, r.TxHash)
+		line, err := withdrawn(c, at, out[0].([]*big.Int), out[1].(*big.Int), r)
+		if err != nil {
+			return false, err
+		}
+		fmt.Println(line)
 		return false, nil
 	}
 	r, err := s.Send(ctx, at, "announce", args...)
 	if err != nil {
 		return false, err
 	}
-	out, err := s.Call(ctx, at, "pending", c.group)
+	line, err := announced(c, at, r)
 	if err != nil {
 		return false, err
 	}
-	recorded := ""
-	if name(c.group) == "schedule" {
-		recorded = fmt.Sprintf(" (recorded as position/half-life/start %s)", shown(c.group, out[0].([]*big.Int)))
-	}
-	fmt.Printf("announced: %s %s, counts from round %s%s (block %d, tx %s)\n",
-		name(c.group), shown(c.group, c.values), out[1].(*big.Int), recorded, r.BlockNumber, r.TxHash)
+	fmt.Println(line)
 	return false, nil
+}
+
+// announced is the line an announcement prints, from the Announced event
+// in the transaction's own receipt: the round it counts from and, for the
+// schedule, the triple Parameters recorded.
+func announced(c command, at common.Address, r *types.Receipt) (string, error) {
+	ev, err := chain.Logged(r, at, "Announced", common.BigToHash(c.group))
+	if err != nil {
+		return "", err
+	}
+	recorded, from := ev[0].([]*big.Int), ev[1].(*big.Int)
+	note := ""
+	if name(c.group) == "schedule" {
+		note = fmt.Sprintf(" (recorded as position/half-life/start %s)", shown(c.group, recorded))
+	}
+	return fmt.Sprintf("announced: %s %s, counts from round %s%s (block %d, tx %s)",
+		name(c.group), shown(c.group, c.values), from, note, r.BlockNumber, r.TxHash), nil
+}
+
+// withdrawn is the line a withdrawal prints. The round is the Withdrawn
+// event's, from the transaction's own receipt; the values are those read
+// before it was sent, shown only when they were read for that same round.
+func withdrawn(c command, at common.Address, before []*big.Int, beforeFrom *big.Int, r *types.Receipt) (string, error) {
+	ev, err := chain.Logged(r, at, "Withdrawn", common.BigToHash(c.group))
+	if err != nil {
+		return "", err
+	}
+	from := ev[0].(*big.Int)
+	values := "(values not read)"
+	if beforeFrom.Cmp(from) == 0 {
+		values = shown(c.group, before)
+	}
+	return fmt.Sprintf("withdrawn: %s %s, which would have counted from round %s; it never counts (block %d, tx %s)",
+		name(c.group), values, from, r.BlockNumber, r.TxHash), nil
 }
 
 // show prints the values in force for the round and any pending change.

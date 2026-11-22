@@ -55,7 +55,9 @@ const contractsABI = `[
  {"type":"function","name":"announce","stateMutability":"nonpayable","inputs":[{"name":"group","type":"uint256"},{"name":"values","type":"uint256[]"}],"outputs":[{"name":"countsFrom","type":"uint256"}]},
  {"type":"function","name":"withdraw","stateMutability":"nonpayable","inputs":[{"name":"group","type":"uint256"}],"outputs":[]},
  {"type":"function","name":"valuesAt","stateMutability":"view","inputs":[{"name":"group","type":"uint256"},{"name":"round","type":"uint256"}],"outputs":[{"name":"","type":"uint256[]"}]},
- {"type":"function","name":"pending","stateMutability":"view","inputs":[{"name":"group","type":"uint256"}],"outputs":[{"name":"values","type":"uint256[]"},{"name":"countsFrom","type":"uint256"}]}
+ {"type":"function","name":"pending","stateMutability":"view","inputs":[{"name":"group","type":"uint256"}],"outputs":[{"name":"values","type":"uint256[]"},{"name":"countsFrom","type":"uint256"}]},
+ {"type":"event","name":"Announced","anonymous":false,"inputs":[{"name":"group","type":"uint256","indexed":true},{"name":"values","type":"uint256[]","indexed":false},{"name":"countsFrom","type":"uint256","indexed":false}]},
+ {"type":"event","name":"Withdrawn","anonymous":false,"inputs":[{"name":"group","type":"uint256","indexed":true},{"name":"countsFrom","type":"uint256","indexed":false}]}
 ]`
 
 // Codes are the custom errors of contracts/interfaces, by name. A test
@@ -272,6 +274,41 @@ func (s *Session) Send(ctx context.Context, at common.Address, method string, ar
 		return receipt, fmt.Errorf("%s %s reverted", method, tx.Hash())
 	}
 	return receipt, nil
+}
+
+// Logged is the unindexed fields of the one `event` log that the contract
+// at `at` emitted in the receipt with the given indexed topics, decoded
+// as contracts/interfaces declares them. A receipt with none, or more
+// than one, is an error: what a transaction did is read from its own
+// logs, never from state read after it.
+func Logged(r *types.Receipt, at common.Address, event string, indexed ...common.Hash) ([]any, error) {
+	ev, ok := parsedABI.Events[event]
+	if !ok {
+		return nil, fmt.Errorf("no event %s", event)
+	}
+	var found []any
+	n := 0
+	for _, l := range r.Logs {
+		if l.Address != at || len(l.Topics) != 1+len(indexed) || l.Topics[0] != ev.ID {
+			continue
+		}
+		match := true
+		for i, t := range indexed {
+			match = match && l.Topics[1+i] == t
+		}
+		if !match {
+			continue
+		}
+		out, err := parsedABI.Unpack(event, l.Data)
+		if err != nil {
+			return nil, fmt.Errorf("%s log: %w", event, err)
+		}
+		found, n = out, n+1
+	}
+	if n != 1 {
+		return nil, fmt.Errorf("transaction %s logged %d %s events from %s, want 1", r.TxHash, n, event, at)
+	}
+	return found, nil
 }
 
 // Uint reads a view that returns one integer.

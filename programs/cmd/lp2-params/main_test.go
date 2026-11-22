@@ -4,7 +4,10 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
 const pool = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
@@ -67,5 +70,101 @@ func TestParseRefuses(t *testing.T) {
 		if _, err := parse(words); err == nil {
 			t.Errorf("parse(%v) accepted", words)
 		}
+	}
+}
+
+// receipt is a mined transaction's receipt holding the given logs.
+func receipt(logs ...*types.Log) *types.Receipt {
+	return &types.Receipt{BlockNumber: big.NewInt(240), TxHash: common.HexToHash("0xabc"), Logs: logs}
+}
+
+// eventLog is a log as Parameters emits it: the event's id, the group as
+// its one indexed topic, and the rest ABI-encoded as data.
+func eventLog(t *testing.T, at common.Address, event string, group int64, data ...any) *types.Log {
+	t.Helper()
+	sigs := map[string]string{"Announced": "Announced(uint256,uint256[],uint256)", "Withdrawn": "Withdrawn(uint256,uint256)"}
+	var args abi.Arguments
+	for _, d := range data {
+		ty := "uint256"
+		if _, ok := d.([]*big.Int); ok {
+			ty = "uint256[]"
+		}
+		typ, err := abi.NewType(ty, "", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		args = append(args, abi.Argument{Type: typ})
+	}
+	packed, err := args.Pack(data...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &types.Log{Address: at, Data: packed,
+		Topics: []common.Hash{crypto.Keccak256Hash([]byte(sigs[event])), common.BigToHash(big.NewInt(group))}}
+}
+
+func nums(v ...int64) []*big.Int {
+	out := make([]*big.Int, len(v))
+	for i, x := range v {
+		out[i] = big.NewInt(x)
+	}
+	return out
+}
+
+// The round an announcement prints is the one its own Announced event
+// records, whatever else the receipt holds and whatever pending reads
+// after it: here a later change (or none) is pending, and the line has
+// no state read to take it from.
+func TestAnnouncedReadsTheTransactionsOwnEvent(t *testing.T) {
+	at := common.HexToAddress("0x5FbDB2315678afecb367f032d93F642f64180aa3")
+	other := common.HexToAddress("0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512")
+	c, err := parse([]string{"announce", "schedule", "50000000000000000", "1000"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := receipt(
+		eventLog(t, other, "Announced", 3, nums(1, 2, 3), big.NewInt(99)),           // another contract
+		eventLog(t, at, "Announced", 2, nums(900000, 10000, 90000), big.NewInt(98)), // another group
+		eventLog(t, at, "Announced", 3, nums(7, 1000, 17), big.NewInt(18)),
+	)
+	got, err := announced(c, at, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "announced: schedule 50000000000000000/1000, counts from round 18 (recorded as position/half-life/start 7/1000/17) (block 240, tx 0x0000000000000000000000000000000000000000000000000000000000000abc)"
+	if got != want {
+		t.Fatalf("got  %s\nwant %s", got, want)
+	}
+	// No Announced event of its own, or two: the line is not made up.
+	if _, err := announced(c, at, receipt(r.Logs[0], r.Logs[1])); err == nil {
+		t.Error("printed an announcement its transaction did not log")
+	}
+	if _, err := announced(c, at, receipt(r.Logs[2], r.Logs[2])); err == nil {
+		t.Error("printed one of two Announced events")
+	}
+}
+
+func TestWithdrawnReadsTheTransactionsOwnEvent(t *testing.T) {
+	at := common.HexToAddress("0x5FbDB2315678afecb367f032d93F642f64180aa3")
+	c, err := parse([]string{"withdraw", "fee"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := receipt(eventLog(t, at, "Withdrawn", 1, big.NewInt(18)))
+	got, err := withdrawn(c, at, nums(300000), big.NewInt(18), r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "withdrawn: fee 300000, which would have counted from round 18; it never counts (block 240, tx 0x0000000000000000000000000000000000000000000000000000000000000abc)"; got != want {
+		t.Fatalf("got  %s\nwant %s", got, want)
+	}
+	// The change read before was not the one withdrawn: its round is the
+	// event's and its values are not claimed.
+	got, err = withdrawn(c, at, nums(400000), big.NewInt(25), r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "withdrawn: fee (values not read), which would have counted from round 18; it never counts (block 240, tx 0x0000000000000000000000000000000000000000000000000000000000000abc)"; got != want {
+		t.Fatalf("got  %s\nwant %s", got, want)
 	}
 }
