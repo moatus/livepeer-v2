@@ -3,8 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"math/big"
+	"os"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -12,8 +15,9 @@ import (
 )
 
 var (
-	clockAt  = common.HexToAddress("0xc1")
-	claimsAt = common.HexToAddress("0xc2")
+	clockAt   = common.HexToAddress("0xc1")
+	claimsAt  = common.HexToAddress("0xc2")
+	buybackAt = common.HexToAddress("0xc3")
 )
 
 // fakeChain is a round clock and Claims' share mint, as the rulebook has
@@ -21,9 +25,10 @@ var (
 // may be minted once, by anyone, any time after it has ended (R-10).
 type fakeChain struct {
 	round  uint64
-	over   bool            // the current round has lasted its length
-	minted map[uint64]bool // rounds whose shares are minted
-	sent   []string        // every transaction, in order
+	over   bool              // the current round has lasted its length
+	minted map[uint64]bool   // rounds whose shares are minted
+	sent   []string          // every transaction, in order
+	refuse map[string]string // the Buyback's refusal of buy or poke, if any
 }
 
 func (f *fakeChain) Try(_ context.Context, at common.Address, method string, args ...any) (string, error) {
@@ -42,6 +47,8 @@ func (f *fakeChain) Try(_ context.Context, at common.Address, method string, arg
 			return "ALREADY_CLAIMED", nil
 		}
 		return "", nil
+	case at == buybackAt && (method == "buy" || method == "poke"):
+		return f.refuse[method], nil
 	}
 	return "", fmt.Errorf("unexpected Try %s", method)
 }
@@ -59,6 +66,8 @@ func (f *fakeChain) Send(ctx context.Context, at common.Address, method string, 
 		r := args[0].(*big.Int).Uint64()
 		f.minted[r] = true
 		f.sent = append(f.sent, fmt.Sprintf("mint %d", r))
+	case "buy", "poke":
+		f.sent = append(f.sent, method)
 	}
 	return &types.Receipt{BlockNumber: big.NewInt(1)}, nil
 }
@@ -135,5 +144,64 @@ func TestWithoutClaimsItOnlyStartsRounds(t *testing.T) {
 	tick(t, k)
 	if !slices.Equal(f.sent, []string{"start 2"}) {
 		t.Fatalf("sent %v, want only the round start", f.sent)
+	}
+}
+
+func newBuybackKeeper(f *fakeChain) *keeper {
+	return &keeper{ops: f, clock: clockAt, next: 1, buyback: buybackAt}
+}
+
+// logged runs fn and returns what it logged.
+func logged(fn func()) string {
+	var b strings.Builder
+	log.SetOutput(&b)
+	defer log.SetOutput(os.Stderr)
+	fn()
+	return b.String()
+}
+
+func TestItBuysAndPokesWhenBothWouldSucceed(t *testing.T) {
+	f := &fakeChain{round: 1, refuse: map[string]string{}}
+	tick(t, newBuybackKeeper(f))
+	if !slices.Equal(f.sent, []string{"buy", "poke"}) {
+		t.Fatalf("sent %v, want buy then poke", f.sent)
+	}
+}
+
+// In a backlog, SLIPPAGE between capped buys is a wait, not a fault: the
+// keeper sends nothing it would see refused, still pokes when poke would
+// succeed, and logs the wait once, not every tick.
+func TestSlippageIsAnExpectedWaitLoggedOnce(t *testing.T) {
+	f := &fakeChain{round: 1, refuse: map[string]string{"buy": "SLIPPAGE", "poke": "NOT_DUE"}}
+	k := newBuybackKeeper(f)
+	out := logged(func() {
+		tick(t, k)
+		tick(t, k)
+		f.refuse["poke"] = ""
+		tick(t, k)
+	})
+	if !slices.Equal(f.sent, []string{"poke"}) {
+		t.Fatalf("sent %v, want only the poke that would succeed", f.sent)
+	}
+	if n := strings.Count(out, "buy refused SLIPPAGE, as expected: waiting for the average to follow"); n != 1 {
+		t.Fatalf("logged the SLIPPAGE wait %d times, want once:\n%s", n, out)
+	}
+	if n := strings.Count(out, "poke refused NOT_DUE, as expected"); n != 1 {
+		t.Fatalf("logged NOT_DUE %d times, want once:\n%s", n, out)
+	}
+}
+
+// A pool the Buyback finds invalid, or one that delivers short, is a
+// fault: the tick fails, naming the code, and nothing is sent.
+func TestAFaultyPoolIsAnError(t *testing.T) {
+	for _, code := range []string{"POOL_INVALID", "LPT_SHORT"} {
+		f := &fakeChain{round: 1, refuse: map[string]string{"buy": code}}
+		_, err := newBuybackKeeper(f).tick(context.Background())
+		if err == nil || !strings.Contains(err.Error(), code) {
+			t.Fatalf("%s: tick returned %v, want an error naming it", code, err)
+		}
+		if len(f.sent) != 0 {
+			t.Fatalf("%s: sent %v, want nothing", code, f.sent)
+		}
 	}
 }

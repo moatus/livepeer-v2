@@ -49,7 +49,9 @@ const contractsABI = `[
  {"type":"function","name":"mintRoundShares","stateMutability":"nonpayable","inputs":[{"name":"round","type":"uint256"}],"outputs":[]},
  {"type":"function","name":"sharesMinted","stateMutability":"view","inputs":[{"name":"round","type":"uint256"}],"outputs":[{"name":"","type":"bool"}]},
  {"type":"function","name":"optIn","stateMutability":"nonpayable","inputs":[{"name":"node","type":"address"}],"outputs":[]},
- {"type":"function","name":"vote","stateMutability":"nonpayable","inputs":[{"name":"node","type":"address"},{"name":"target","type":"address"},{"name":"score","type":"uint256"}],"outputs":[]}
+ {"type":"function","name":"vote","stateMutability":"nonpayable","inputs":[{"name":"node","type":"address"},{"name":"target","type":"address"},{"name":"score","type":"uint256"}],"outputs":[]},
+ {"type":"function","name":"buy","stateMutability":"nonpayable","inputs":[],"outputs":[{"name":"usdcIn","type":"uint256"},{"name":"lptBought","type":"uint256"},{"name":"burned","type":"uint256"}]},
+ {"type":"function","name":"poke","stateMutability":"nonpayable","inputs":[],"outputs":[]}
 ]`
 
 // Codes are the custom errors of contracts/interfaces, by name. A test
@@ -62,7 +64,20 @@ var Codes = []string{
 	"NOT_OPTED_IN", "STAKE_TOO_LOW", "NOT_VALIDATOR",
 	"NOT_ADJUSTABLE", "SCHEDULE_RAISED", "VALUE_OUT_OF_RANGE", "IDENTITY_NOT_WHOLE",
 	"NOTHING_PENDING", "OPERATOR_INVALID",
-	"NOTHING_HELD", "NO_LIQUIDITY",
+	"NOTHING_HELD", "NO_LIQUIDITY", "ALREADY_BOUGHT", "TWAP_NOT_READY", "SLIPPAGE", "NOT_DUE",
+	"POOL_INVALID", "LPT_SHORT",
+}
+
+// codeArgs are the argument types of the custom errors that carry
+// arguments; a code not named here has none. Its selector is that of
+// name(types), and Code names it whatever the arguments.
+var codeArgs = map[string]string{
+	"ALREADY_BOUGHT": "uint256",
+	"TWAP_NOT_READY": "uint256,uint256",
+	"SLIPPAGE":       "uint256,uint256",
+	"NOT_DUE":        "uint256",
+	"POOL_INVALID":   "address",
+	"LPT_SHORT":      "uint256,uint256",
 }
 
 var parsedABI = func() abi.ABI {
@@ -76,17 +91,24 @@ var parsedABI = func() abi.ABI {
 // Code is the stable code a call was refused with: a custom error's name,
 // a revert text, or "" when the revert data is neither.
 func Code(revertData []byte) string {
-	if len(revertData) == 4 {
-		for _, c := range Codes {
-			if string(crypto.Keccak256([]byte(c + "()"))[:4]) == string(revertData) {
-				return c
-			}
+	for _, c := range Codes {
+		if len(revertData) == 4+32*argCount(codeArgs[c]) &&
+			string(crypto.Keccak256([]byte(c + "(" + codeArgs[c] + ")"))[:4]) == string(revertData[:4]) {
+			return c
 		}
 	}
 	if text, err := abi.UnpackRevert(revertData); err == nil {
 		return text
 	}
 	return ""
+}
+
+// argCount is the number of types in a comma-separated list.
+func argCount(types string) int {
+	if types == "" {
+		return 0
+	}
+	return strings.Count(types, ",") + 1
 }
 
 // RefusedCode is the stable code in an error from a call or a gas

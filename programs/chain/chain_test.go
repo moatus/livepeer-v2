@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/crypto"
@@ -12,8 +13,10 @@ import (
 
 func TestCodeNamesEachCustomError(t *testing.T) {
 	for _, c := range Codes {
-		if got := Code(crypto.Keccak256([]byte(c + "()"))[:4]); got != c {
-			t.Errorf("Code(selector of %s) = %q", c, got)
+		data := crypto.Keccak256([]byte(c + "(" + codeArgs[c] + ")"))[:4]
+		data = append(data, make([]byte, 32*argCount(codeArgs[c]))...)
+		if got := Code(data); got != c {
+			t.Errorf("Code(%s with its arguments) = %q", c, got)
 		}
 	}
 }
@@ -48,7 +51,7 @@ func TestCodesCoverEveryInterfaceError(t *testing.T) {
 	if err != nil || len(files) == 0 {
 		t.Fatalf("no interface files found: %v", err)
 	}
-	declared := regexp.MustCompile(`error ([A-Z_]+)\(\)`)
+	declared := regexp.MustCompile(`error ([A-Z_]+)\(([^)]*)\)`)
 	for _, f := range files {
 		src, err := os.ReadFile(f)
 		if err != nil {
@@ -57,6 +60,15 @@ func TestCodesCoverEveryInterfaceError(t *testing.T) {
 		for _, m := range declared.FindAllStringSubmatch(string(src), -1) {
 			if !slices.Contains(Codes, m[1]) {
 				t.Errorf("%s declares %s, which Codes does not name", filepath.Base(f), m[1])
+			}
+			var types []string
+			for _, p := range strings.Split(m[2], ",") {
+				if p = strings.TrimSpace(p); p != "" {
+					types = append(types, strings.Fields(p)[0])
+				}
+			}
+			if got := strings.Join(types, ","); got != codeArgs[m[1]] {
+				t.Errorf("%s declares %s(%s), but codeArgs has (%s)", filepath.Base(f), m[1], got, codeArgs[m[1]])
 			}
 		}
 	}
