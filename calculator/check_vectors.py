@@ -21,27 +21,6 @@ def decimal_strings(value):
     return value
 
 
-def differences(expected, actual, path="") -> list[str]:
-    """Each place the two differ, as `path: expected X, got Y`."""
-    if isinstance(expected, dict) and isinstance(actual, dict):
-        found = []
-        for key in sorted(set(expected) | set(actual)):
-            if key not in actual:
-                found.append(f"{path}.{key}: expected {json.dumps(expected[key])}, got nothing")
-            elif key not in expected:
-                found.append(f"{path}.{key}: expected nothing, got {json.dumps(actual[key])}")
-            else:
-                found += differences(expected[key], actual[key], f"{path}.{key}")
-        return found
-    if isinstance(expected, list) and isinstance(actual, list) and len(expected) == len(actual):
-        return [line for index, (e, a) in enumerate(zip(expected, actual))
-                for line in differences(e, a, f"{path}[{index}]")]
-    if expected == actual:
-        return []
-    return [f"{path or '.'}: expected {json.dumps(expected, sort_keys=True)}, "
-            f"got {json.dumps(actual, sort_keys=True)}"]
-
-
 RULEBOOKS = Path(__file__).resolve().parent.parent / "rulebook"
 
 
@@ -108,8 +87,8 @@ def check(path: Path) -> int:
                     raise ValueError("unknown ceiling output shape")
                 actual = {key: actual[key] for key in expected}
             if actual != expected:
-                raise ValueError("; ".join(differences(expected, actual))
-                                 or "outputs differ in type")
+                raise ValueError(f"expected {json.dumps(expected, sort_keys=True)}; "
+                                 f"got {json.dumps(actual, sort_keys=True)}")
         except (KeyError, TypeError, ValueError) as error:
             failures += 1
             print(f"FAIL {case['id']}: {error}")

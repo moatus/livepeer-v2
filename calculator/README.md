@@ -14,8 +14,7 @@ From the repository root:
 ```
 
 The check reports every case ID, compares every expected amount and refusal
-code, and fails on unknown kinds. A mismatch names each field that differs,
-as `path: expected X, got Y`. It exits 0 on agreement, 1 on a mismatch
+code, and fails on unknown kinds. It exits 0 on agreement, 1 on a mismatch
 or invalid case, and 2 when Python or the input file is unavailable. A
 scratch copy lets a reviewer change an expectation and see the check fail
 without editing the frozen vectors.
@@ -74,7 +73,10 @@ From v4, a `buyback` case replays R-16 against a fresh pool and Buyback:
 after v2 updates its cumulative price, and `poke` and `buy` follow rules 2
 to 8 with rule 11's refusal order. The case's times may start anywhere: only
 their differences enter a price, so a run at a chain's own block times is
-checked the same way. A step that breaks the case's shape (an unknown action
+checked the same way. The pool keeps time as v2 does, a uint32: the seconds
+since its last update count modulo 2^32, so a gap of 2^32 s or more adds
+only its remainder to the cumulative, while the Buyback's elapsed is the
+full difference (rule 3). A step that breaks the case's shape (an unknown action
 or field, a repeated step, a round below 1, a round or time that decreases,
 a swap on an empty pool or one that would receive nothing, a reserve past
 v2's 112 bits) raises `ValueError` with a `buyback input error` message,
@@ -82,5 +84,6 @@ since these are not rule refusals. No case changes the pool, so
 `POOL_INVALID` never arises, and an honest pool never gives `LPT_SHORT`.
 `test_buyback.py` covers what the four frozen cases leave unseparated:
 rule 5's exact rounding up, rule 6's bound, a refused buy recording nothing,
-`NOT_DUE`'s time, the refusal order, an odd face's network share and a burn
-share below 10^6.
+`NOT_DUE`'s time, the refusal order, a buy before any observation, the
+pool's uint32 time, a cumulative that wraps past 2^256 between two
+observations, an odd face's network share and a burn share below 10^6.

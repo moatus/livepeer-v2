@@ -905,9 +905,12 @@ class LptReplay:
 
 # R-16: the buyback. Amounts are integers: USDC in µUSDC, LPT in wei, a
 # price µUSDC per wei as UQ112x112. Python integers never wrap, so every
-# product is taken at full width; only the cumulative price is kept modulo
-# 2^256, as Uniswap v2 keeps it.
+# product is taken at full width. The pool keeps its cumulative price as
+# Uniswap v2 keeps it (rule 3): the sum modulo 2^256, and its time as a
+# uint32, so the seconds since its last update are counted modulo 2^32. The
+# Buyback's own elapsed (now - O.time) is not: rule 3 gives it in full.
 WORD = 1 << 256
+UINT32 = 1 << 32
 UINT112 = (1 << 112) - 1
 BUYBACK_ACTIONS = {
     "job": {"face_micro_usdc"},
@@ -929,9 +932,14 @@ class TestPool:
         return (self.usdc << 112) // self.lpt
 
     def cumulative_at(self, now: int) -> int:
-        """What a reader sees: the stored sum plus the time since the update."""
-        if now > self.last and self.usdc and self.lpt:
-            return (self.cumulative + self.price() * (now - self.last)) % WORD
+        """What a reader sees: the stored sum plus the time since the update.
+
+        v2's pair and its reader keep block times as uint32 and subtract them
+        modulo 2^32, so a gap of 2^32 s or more counts only its remainder.
+        """
+        held_for = (now - self.last) % UINT32
+        if held_for and self.usdc and self.lpt:
+            return (self.cumulative + self.price() * held_for) % WORD
         return self.cumulative
 
     def move(self, now: int, usdc_in: int, lpt_in: int, lpt_out: int) -> None:
