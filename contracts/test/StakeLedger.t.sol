@@ -62,9 +62,8 @@ contract StakeLedgerTest is LedgerRunnerV2 {
         stepsV2(id);
     }
 
-    /// Every ledger case is run here or in Claims.t.sol, but for
-    /// ledger-rotation, which is key rotation's (S-10 phase 4). A new case
-    /// fails this until someone runs it.
+    /// Every ledger case is run here or in Claims.t.sol. A new case fails
+    /// this until someone runs it.
     function test_every_ledger_case_is_run() external view {
         string[] memory ran = new string[](22);
         ran[0] = "ledger-demo";
@@ -91,7 +90,7 @@ contract StakeLedgerTest is LedgerRunnerV2 {
         ran[18] = "ledger-authority";
         ran[19] = "ledger-delays";
         ran[20] = "ledger-score-source";
-        // S-10 phase 4 runs it.
+        // Key rotation (S-10 phase 4).
         ran[21] = "ledger-rotation";
         string memory missing = ledgerCasesNotIn(ran);
         require(bytes(missing).length == 0, string.concat("ledger case not run:", missing));
@@ -385,7 +384,10 @@ contract StakeLedgerTest is LedgerRunnerV2 {
         // The calls ledger-stake does not make, and every view.
         register("N2");
         stepGas.push(vm.lastFrameGas().gasTotalUsed);
-        measure(who("N2"), address(registry), abi.encodeCall(Registry.setPayout, (who("W"))));
+        measure(who("N2"), address(registry), abi.encodeCall(Registry.setPayout, (who("N2"), who("W"))));
+        measure(who("N2"), address(registry), abi.encodeCall(Registry.setOperator, (who("N2"), who("K1"))));
+        measure(who("K1"), address(registry), abi.encodeCall(Registry.acceptOperator, (who("N2"))));
+        measure(who("N2"), address(registry), abi.encodeCall(Registry.setOperator, (who("N2"), who("K1"))));
         measure(p, address(ledger), abi.encodeCall(StakeLedger.setRewardCut, (p, 300_000)));
         measure(h, address(ledger), abi.encodeCall(StakeLedger.setRewardCut, (p, 1)));
         measure(p, address(ledger), abi.encodeCall(StakeLedger.setRewardCut, (p, 2_000_000)));
@@ -401,6 +403,8 @@ contract StakeLedgerTest is LedgerRunnerV2 {
         measure(h, address(registry), abi.encodeCall(Registry.mayActFor, (p, p)));
         measure(h, address(registry), abi.encodeCall(Registry.isRegistered, (p)));
         measure(h, address(registry), abi.encodeCall(Registry.payoutOf, (p)));
+        measure(h, address(registry), abi.encodeCall(Registry.operatorOf, (who("N2"))));
+        measure(h, address(registry), abi.encodeCall(Registry.proposedOperatorOf, (who("N2"))));
         measure(h, address(ledger), abi.encodeCall(StakeLedger.stakeAt, (p, 15)));
         measure(h, address(ledger), abi.encodeCall(StakeLedger.totalStakeAt, (12)));
         measure(h, address(ledger), abi.encodeCall(StakeLedger.bondAt, (h, p, 13)));

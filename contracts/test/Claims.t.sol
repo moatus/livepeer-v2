@@ -72,6 +72,14 @@ contract ClaimsTest is LedgerRunnerV2 {
         runV2("ledger-score-source");
     }
 
+    /// R-26 (S-10 phase 4): N's key rotates N to K1 to K2, then K2 to K3
+    /// through a replaced and a cleared proposal. The old keys and N's own
+    /// address are refused on every call for N, K2's claim pays W, and every
+    /// ticket pays N's payout across the rotations.
+    function test_ledger_rotation() external {
+        runV2("ledger-rotation");
+    }
+
     function runV2(string memory id) internal {
         deployStage3();
         stepsV2(id);

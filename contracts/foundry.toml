@@ -7,8 +7,14 @@ out = "out"
 cache_path = "cache"
 libs = []
 solc_version = "0.8.30"
-# The contract tests read the shared examples; nothing else on disk.
-fs_permissions = [{ access = "read", path = "../vectors" }]
+# The contract tests read the shared examples, and the six-list test
+# (test/Rotation.t.sol) reads every part's ABI from the build output, finding
+# the parts in src/; nothing else on disk.
+fs_permissions = [
+    { access = "read", path = "../vectors" },
+    { access = "read", path = "./src" },
+    { access = "read", path = "./out" },
+]
 # Each step of a shared case reads the examples file through cheatcodes,
 # and the gas a test may spend grows with that file (rulebook v4's is the
 # largest yet). The limit is the test's own, not a chain's.

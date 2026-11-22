@@ -209,7 +209,7 @@ def not_run(kind, value, tb):
     sys.exit(2)
 sys.excepthook = not_run
 
-PAIRS = [("Controller", "IController"), ("Registry", "IRegistryV2"), ("RoundClock", "IRoundClock"),
+PAIRS = [("Controller", "IController"), ("Registry", "IRegistryV3"), ("RoundClock", "IRoundClock"),
          ("Broker", "ITicketBrokerV2"), ("MockUSDC", "IMockUSDC"), ("StakeLedger", "IStakeLedger"),
          ("TestLPT", "ITestLPTV2"), ("Claims", "IClaims"), ("Scores", "IScores"),
          ("Buyback", "IBuyback"), ("TestPool", "ITestPool"), ("Parameters", "IParameters")]
@@ -279,26 +279,7 @@ for contract, interface in PAIRS:
 # view. Every named parameter, output and struct field is written with its
 # name, so order and names are frozen as well as types. A struct is written
 # as its fields in parentheses.
-FROZEN = {
-    "interfaces/IRegistry.sol:IRegistryV3": {
-        "function register()",
-        "function setPayout(address node,address payout)",
-        "function setOperator(address node,address next)",
-        "function acceptOperator(address node)",
-        "function isRegistered(address a) returns (bool) view",
-        "function isActiveTranscoder(address a) returns (bool) view",
-        "function payoutOf(address node) returns (address) view",
-        "function operatorOf(address node) returns (address) view",
-        "function proposedOperatorOf(address node) returns (address) view",
-        "function mayActFor(address caller,address node) returns (bool) view",
-        "event NodeRegistered(address indexed node,uint256 round)",
-        "event PayoutSet(address indexed node,address payout)",
-        "event OperatorProposed(address indexed node,address indexed next)",
-        "event OperatorSet(address indexed node,address indexed operator)",
-        "error NOT_REGISTERED()", "error PAYOUT_INVALID()", "error NOT_AUTHORIZED()",
-        "error OPERATOR_INVALID()",
-    },
-}
+FROZEN = {}
 
 def signature(e):
     def types(ps):

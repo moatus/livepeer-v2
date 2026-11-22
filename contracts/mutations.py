@@ -28,19 +28,20 @@ CL, RM, SL = "src/money/Claims.sol", "src/math/RewardMath.sol", "src/money/Stake
 V4 = "../vectors/october-main-text-v4.json"
 P = "src/authority/Parameters.sol"
 TP, PT = "src/money/TestPool.sol", "test/Parameters.t.sol"
+RT = "test/Rotation.t.sol"
 
 # name, [(file, old, new)], catching check[, fast_green]
 M = [
  # name, [(file, old, new)], command ('check' or forge --match-test regex)
  ("abi: extra public function on Broker", [(B, "    // --- internals", "    function extra() external {}\n\n    // --- internals")], "check"),
- ("abi: extra error on Registry, never reached", [(R, "        if (payout_ == broker) revert PAYOUT_INVALID();", "        if (payout_ == broker) revert PAYOUT_INVALID();\n        if (payout_ == address(1)) revert EXTRA();"), (R, "contract Registry is IRegistryV2 {", "error EXTRA();\n\ncontract Registry is IRegistryV2 {")], "check"),
+ ("abi: extra error on Registry, never reached", [(R, "        if (payout_ == broker) revert PAYOUT_INVALID();", "        if (payout_ == broker) revert PAYOUT_INVALID();\n        if (payout_ == address(1)) revert EXTRA();"), (R, "contract Registry is IRegistryV3 {", "error EXTRA();\n\ncontract Registry is IRegistryV3 {")], "check"),
  ("abi: interface function dropped from Registry (compiler)", [(R, "    function isActiveTranscoder(address a) external view returns (bool) {\n        return registered[a];\n    }\n", "")], "check"),
  ("release wait 2", [(B, "RELEASE_WAIT = 3", "RELEASE_WAIT = 2")], "test_ledger_release"),
  ("redemption does not clamp pending", [(B, "        if (b.pending < left) {", "        if (true) {")], "test_ledger_release"),
  ("node shown whole deposit", [(B, "Sender(d.amount - d.pending, 0)", "Sender(d.amount, 0)")], "test_ledger_release"),
  ("claimable ignores pending", [(B, "        return e.amount - e.pending;", "        return e.amount;")], "test_ledger_release"),
  ("payout ignored at redemption", [(B, "registry.payoutOf(t.recipient)", "t.recipient")], "test_ledger_payout"),
- ("setPayout stores nothing", [(R, "        payout[msg.sender] = payout_;\n", "")], "test_ledger_payout"),
+ ("setPayout stores nothing", [(R, "        payout[node] = payout_;\n", "")], "test_ledger_payout"),
  ("release does not lower the balance", [(B, "_set(msg.sender, node, b, b.amount - amount, 0, 0);", "_set(msg.sender, node, b, b.amount, 0, 0);")], "test_ledger_release"),
  ("cap of 100 nodes on earmark draws", [
     (R, "    mapping(address => bool) private registered;", "    mapping(address => bool) private registered;\n    uint256 public count;"),
@@ -58,7 +59,7 @@ M = [
  ("signature not checked", [(B, "        if (_signer(ticketHash, sig) != t.sender) revert TICKET_INVALID();\n", "")], "test_wrong_signature"),
  ("win test removed", [(B, "uint256(keccak256(abi.encodePacked(sig, recipientRand))) >= t.winProb", "false")], "test_losing_ticket"),
  ("kept revert text changed", [(B, '"ticket creationRound does not have a block hash"', '"no block hash"')], "test_round_not_started"),
- ("setPayout by unregistered accepted", [(R, "        if (!registered[msg.sender]) revert NOT_REGISTERED();\n", "")], "test_set_payout_by_unregistered"),
+ ("setPayout by unregistered accepted", [(R, "        if (!registered[node]) revert NOT_REGISTERED();\n        if (payout_ == broker)", "        if (payout_ == broker)")], "test_set_payout_by_unregistered"),
  ("payout to the Broker accepted", [(R, "        if (payout_ == broker) revert PAYOUT_INVALID();\n", "")], "test_payout_to_the_broker"),
  ("payout 0 kept as 0", [(R, "        return p == address(0) ? node : p;", "        return p;")], "test_payout_zero"),
  ("registering again resets the payout", [(R, "        if (registered[msg.sender]) return;", "        payout[msg.sender] = address(0);\n        if (registered[msg.sender]) return;")], "test_registering_again"),
@@ -186,6 +187,32 @@ M = [
  ("scores: the set size fixed at 3", [(S, "        if (n >= params.valuesAt(VALIDATOR_SET_SIZE, r)[0]) {", "        if (n >= 3) {")], "test_validators_set_size"),
  ("params: a buy reads group 9 now, not for its round", [(P, "        uint256[] memory b = _at(BUYBACK_VALUES, round);", "        uint256[] memory b = _at(BUYBACK_VALUES, clock.currentRound());")], "test_a_buy_reads_the_values_of_its_round"),
  ("broker: the node cut fixed at a half", [(B, "        uint256 cut = params.valuesAt(FEE, round)[0];", "        uint256 cut = 500_000;")], "test_ledger_authority|test_ledger_delays|test_parameters_"),
+ # Key rotation (spec S-10 phase 4, R-26): the old key refused everywhere,
+ # one proposal slot per node, holder funds only the caller's own, and the
+ # six lists read from the compiler's ABI.
+ ("rotation: setPayout without the authority check", [(R, "        if (msg.sender != operatorOf(node)) revert NOT_AUTHORIZED();\n", "")], "test_second_rotation_refuses|test_refusal_order_operator_and_payout"),
+ ("rotation: setPayout asks the node's own address", [(R, "        if (msg.sender != operatorOf(node)) revert NOT_AUTHORIZED();", "        if (msg.sender != node) revert NOT_AUTHORIZED();")], "test_second_rotation_refuses"),
+ ("rotation: setOperator without the authority check", [(R, "        if (msg.sender != current) revert NOT_AUTHORIZED();\n", "")], "test_second_rotation_refuses|test_refusal_order_operator_and_payout"),
+ ("rotation: acceptOperator does not empty the slot", [(R, "        delete proposed[node];\n", "")], "test_a_used_proposal"),
+ ("rotation: acceptOperator by any caller while a proposal waits", [(R, "if (slot == address(0) || msg.sender != slot) revert NOT_AUTHORIZED();", "if (slot == address(0)) revert NOT_AUTHORIZED();")], "test_a_replaced_proposal"),
+ ("rotation: an empty slot accepts its caller", [(R, "if (slot == address(0) || msg.sender != slot) revert NOT_AUTHORIZED();", "if (slot != address(0) && msg.sender != slot) revert NOT_AUTHORIZED();")], "test_a_cleared_proposal|test_a_used_proposal"),
+ ("rotation: proposing the current key leaves the slot", [(R, "address slot = next == current ? address(0) : next;", "address slot = next == current ? proposed[node] : next;")], "test_a_cleared_proposal"),
+ ("rotation: a new proposal does not replace the slot", [(R, "        proposed[node] = slot;\n", "        if (proposed[node] == address(0) || slot == address(0)) proposed[node] = slot;\n")], "test_a_replaced_proposal"),
+ ("rotation: mayActFor asks the node's own address", [(R, "        return caller == operatorOf(node);", "        return caller == node;")], "test_second_rotation_refuses|test_ledger_rotation|test_validators_rotation"),
+ ("rotation: mayActFor also lets the node's own address act", [(R, "        return caller == operatorOf(node);", "        return caller == operatorOf(node) || caller == node;")], "test_second_rotation_refuses"),
+ ("rotation: mayActFor also lets the previous key act", [
+    (R, "    mapping(address => address) private proposed;", "    mapping(address => address) private proposed;\n    mapping(address => address) private previous;"),
+    (R, "        delete proposed[node];\n", "        delete proposed[node];\n        previous[node] = operatorOf(node);\n"),
+    (R, "        return caller == operatorOf(node);", "        return caller == operatorOf(node) || caller == previous[node];")], "test_second_rotation_refuses"),
+ ("rotation: claim without mayActFor", [(CL, "        if (!registry.mayActFor(msg.sender, node)) revert IClaims.NOT_AUTHORIZED();\n", "")], "test_second_rotation_refuses"),
+ ("rotation: setRewardCut without mayActFor", [(SL, "    function setRewardCut(address node, uint256 cut) external {\n        if (!registry.mayActFor(msg.sender, node)) revert NOT_AUTHORIZED();", "    function setRewardCut(address node, uint256 cut) external {")], "test_second_rotation_refuses"),
+ ("rotation: optIn without mayActFor", [(S, "    function optIn(address node) external {\n        if (!registry.mayActFor(msg.sender, node)) revert NOT_AUTHORIZED();", "    function optIn(address node) external {")], "test_second_rotation_refuses"),
+ ("rotation: optOut without mayActFor", [(S, "    function optOut(address node) external {\n        if (!registry.mayActFor(msg.sender, node)) revert NOT_AUTHORIZED();", "    function optOut(address node) external {")], "test_second_rotation_refuses"),
+ ("rotation: vote without mayActFor", [(S, "    function vote(address node, address target, uint256 score) external {\n        if (!registry.mayActFor(msg.sender, node)) revert NOT_AUTHORIZED();", "    function vote(address node, address target, uint256 score) external {")], "test_second_rotation_refuses"),
+ ("rotation: the operator key unbonds the node's own bond", [(SL, "        Point[] storage staying = stayingPoints[msg.sender][node];\n        if (amount > _at(staying, now_)) revert AMOUNT_TOO_LARGE();\n        _sub(staying, now_, amount);\n        _countSub(now_, msg.sender, node, now_ + 1, amount);", "        address holder = registry.mayActFor(msg.sender, node) ? node : msg.sender;\n        Point[] storage staying = stayingPoints[holder][node];\n        if (amount > _at(staying, now_)) revert AMOUNT_TOO_LARGE();\n        _sub(staying, now_, amount);\n        _countSub(now_, holder, node, now_ + 1, amount);")], "test_holder_funds_move_only"),
+ ("six lists: a function on no list", [(R, "    function isRegistered(address a) external view returns (bool) {", "    function forget() external {\n        registered[msg.sender] = false;\n    }\n\n    function isRegistered(address a) external view returns (bool) {")], "test_every_state_changing_function"),
+ ("six lists: a function on two lists", [(RT, '        l = new string[](2);\n        (l[0], l[1]) = ("Parameters.announce", "Parameters.withdraw");', '        l = new string[](3);\n        (l[0], l[1], l[2]) = ("Parameters.announce", "Parameters.withdraw", "Registry.setPayout");')], "test_every_state_changing_function"),
+ ("six lists: a listed function the ABI does not have", [(RT, '        l = new string[](2);\n        (l[0], l[1]) = ("Parameters.announce", "Parameters.withdraw");', '        l = new string[](3);\n        (l[0], l[1], l[2]) = ("Parameters.announce", "Parameters.withdraw", "Parameters.cancel");')], "test_every_state_changing_function"),
 ]
 
 ROOT = pathlib.Path(__file__).resolve().parent

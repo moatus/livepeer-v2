@@ -27,6 +27,9 @@ func TestParseGivesEachActionItsCall(t *testing.T) {
 		{[]string{"withdraw-parts", node, "2,3"}, "claims", "withdrawParts", 2},
 		{[]string{"withdraw-validator-parts", node, "2"}, "claims", "withdrawValidatorParts", 2},
 		{[]string{"mint-shares", "2"}, "claims", "mintRoundShares", 1},
+		{[]string{"set-payout", node, other}, "registry", "setPayout", 2},
+		{[]string{"set-operator", node, other}, "registry", "setOperator", 2},
+		{[]string{"accept-operator", node}, "registry", "acceptOperator", 1},
 	} {
 		a, err := parse(c.words)
 		if err != nil {
@@ -67,6 +70,9 @@ func TestParseRefuses(t *testing.T) {
 		{"claim", node, "-1"},          // negative
 		{"withdraw-parts", node, "2,"}, // an empty round
 		{"withdraw-unbonded", "x"},     // too many
+		{"set-payout", node},           // no payout
+		{"set-operator", node, "K2"},   // not an address
+		{"accept-operator"},            // no node
 	} {
 		if _, err := parse(words); err == nil {
 			t.Errorf("parse(%v) accepted", words)

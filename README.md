@@ -147,9 +147,9 @@ it does, in this order, printing each step:
     what each claim read; and `validator-pay-cases.json`, one
     `validator-pay` case for each round whose shares were minted.
 
-The node, the keeper, `lp2-fund`, `lp2-stake` (which sends the bonds,
-claims, withdrawals, transfers, unbonds and rebonds with each person's
-throwaway key) and the scripted validators are the only things that send
+The node, the keeper, `lp2-fund`, `lp2-stake` (which sends N's payout and
+the bonds, claims, withdrawals, transfers, unbonds and rebonds with each
+person's throwaway key) and the scripted validators are the only things that send
 transactions; the demo itself only registers nodes, gives out test LPT and
 mines empty blocks where it would otherwise wait for the chain.
 

@@ -129,8 +129,13 @@ contract ScoresTest is Stage3 {
         validatorsCase("validators-set-size-withdrawn");
     }
 
-    /// Every score and validators case is run here, but for
-    /// validators-rotation, which is key rotation's (S-10 phase 4).
+    /// R-26 (S-10 phase 4): after V1 rotates to K1, V1's own vote, opt-out
+    /// and opt-in are refused and K1's count.
+    function test_validators_rotation() external {
+        validatorsCase("validators-rotation");
+    }
+
+    /// Every score and validators case is run here.
     function test_every_score_and_validators_case_is_run() external view {
         string[20] memory ran = [
             "score-none",
@@ -152,7 +157,7 @@ contract ScoresTest is Stage3 {
             "refusal-order-validators",
             "validators-set-size",
             "validators-set-size-withdrawn",
-            // S-10 phase 4 runs it.
+            // Key rotation (S-10 phase 4).
             "validators-rotation"
         ];
         string[] memory ids = abi.decode(vm.parseJson(vectors, ".cases[*].id"), (string[]));
@@ -281,7 +286,15 @@ contract ScoresTest is Stage3 {
             refused = as_(who("Anyone"), address(vset), abi.encodeCall(Scores.unseat, (who(str(s, ".node")))));
         } else if (eq(action, "vote")) {
             address n = who(str(s, ".node"));
-            refused = as_(n, address(vset), abi.encodeCall(Scores.vote, (n, who(str(s, ".target")), num(s, ".score"))));
+            address caller = has(s, ".caller") ? who(str(s, ".caller")) : n;
+            refused =
+                as_(caller, address(vset), abi.encodeCall(Scores.vote, (n, who(str(s, ".target")), num(s, ".score"))));
+        } else if (eq(action, "set_operator")) {
+            address n = who(str(s, ".node"));
+            address caller = has(s, ".caller") ? who(str(s, ".caller")) : n;
+            refused = setOperatorAs(caller, n, named(str(s, ".next")));
+        } else if (eq(action, "accept_operator")) {
+            refused = acceptOperatorAs(who(str(s, ".caller")), who(str(s, ".node")));
         } else if (eq(action, "announce")) {
             string[] memory raw = list(string.concat(s, ".values"));
             uint256[] memory values = new uint256[](raw.length);

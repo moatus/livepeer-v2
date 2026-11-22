@@ -81,7 +81,11 @@ abstract contract LedgerRunner is Stage2 {
             );
             refused = redeem(t, sig, rand);
         } else if (eq(action, "set_payout")) {
-            refused = setPayout(str(s, ".node"), who(str(s, ".payout")));
+            refused = setPayoutAs(callerOr(s), who(str(s, ".node")), named(str(s, ".payout")));
+        } else if (eq(action, "set_operator")) {
+            refused = setOperatorAs(callerOr(s), who(str(s, ".node")), named(str(s, ".next")));
+        } else if (eq(action, "accept_operator")) {
+            refused = acceptOperatorAs(who(str(s, ".caller")), who(str(s, ".node")));
         } else if (eq(action, "request_release")) {
             refused = requestRelease(str(s, ".payer"), optionalNode(s), num(s, ".amount_micro_usdc"));
         } else if (eq(action, "release")) {
@@ -247,6 +251,12 @@ abstract contract LedgerRunner is Stage2 {
     /// A release step names no node when it is about the deposit.
     function optionalNode(string memory s) internal view returns (address) {
         return vm.keyExistsJson(vectors, string.concat(s, ".node")) ? who(str(s, ".node")) : address(0);
+    }
+
+    /// The step's `caller`; a step that names none is made by its `node`
+    /// itself (R-26).
+    function callerOr(string memory s) internal view returns (address) {
+        return vm.keyExistsJson(vectors, string.concat(s, ".caller")) ? who(str(s, ".caller")) : who(str(s, ".node"));
     }
 
     function str(string memory at, string memory field) internal view returns (string memory) {

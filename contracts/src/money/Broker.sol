@@ -4,7 +4,7 @@ pragma solidity 0.8.30;
 import {ITicketBrokerV2} from "../../interfaces/ITicketBroker.sol";
 import {IRoundClock} from "../../interfaces/IRoundClock.sol";
 import {IMockUSDC} from "../../interfaces/IMockUSDC.sol";
-import {IRegistry} from "../../interfaces/IRegistry.sol";
+import {IRegistryV3} from "../../interfaces/IRegistry.sol";
 import {IParameters} from "../../interfaces/IParameters.sol";
 
 /// Holds all USDC: payer accounts, used tickets, fees per round and node,
@@ -25,7 +25,7 @@ contract Broker is ITicketBrokerV2 {
     uint256 private constant HALF_N = 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0;
 
     IMockUSDC private immutable usdc;
-    IRegistry private immutable registry;
+    IRegistryV3 private immutable registry;
     IRoundClock private immutable clock;
     /// Where the node cut is read, for the round a fee is redeemed in (R-03,
     /// R-25).
@@ -56,7 +56,7 @@ contract Broker is ITicketBrokerV2 {
     mapping(uint256 => uint256) public totalFees;
     uint256 public networkHeld;
 
-    constructor(IMockUSDC usdc_, IRegistry registry_, IRoundClock clock_, IParameters params_, address buyback_) {
+    constructor(IMockUSDC usdc_, IRegistryV3 registry_, IRoundClock clock_, IParameters params_, address buyback_) {
         require(address(params_) != address(0), "zero address");
         usdc = usdc_;
         registry = registry_;

@@ -1,7 +1,8 @@
 // lp2-stake sends one stage 3 action as the holder or node whose keystore
 // it is given: bonds and the moves after them (rulebook R-15), a node's
 // reward cut and its claim (R-24, R-12), a holder's withdrawal of its parts
-// (R-24), and a round's validator and treasury mint (R-10).
+// (R-24), a round's validator and treasury mint (R-10), and a node's payout
+// and operator key (R-01, R-26).
 //
 //	lp2-stake [flags] bond NODE AMOUNT_WEI
 //	lp2-stake [flags] unbond NODE AMOUNT_WEI
@@ -14,6 +15,15 @@
 //	lp2-stake [flags] withdraw-parts NODE ROUND[,ROUND...]
 //	lp2-stake [flags] withdraw-validator-parts NODE ROUND[,ROUND...]
 //	lp2-stake [flags] mint-shares ROUND
+//	lp2-stake [flags] set-payout NODE PAYOUT
+//	lp2-stake [flags] set-operator NODE NEXT
+//	lp2-stake [flags] accept-operator NODE
+//
+// set-cut, claim, set-payout and set-operator are the node's operator key's:
+// the node's own key until another key accepts. set-operator proposes NEXT,
+// replacing any proposal, and NEXT takes over only by its own
+// accept-operator; proposing the current key clears the proposal. A
+// rotation moves no bond and leaves the payout where it was.
 //
 // It asks the contract by a call first, at the newest block, and sends the
 // transaction only when the call would succeed. A refusal is printed as
@@ -40,7 +50,7 @@ import (
 // action is one parsed command: the contract it goes to and the call.
 type action struct {
 	name   string
-	target string // "ledger" or "claims"
+	target string // "ledger", "claims" or "registry"
 	method string
 	args   []any
 	bond   *big.Int // a bond's amount, approved first
@@ -67,6 +77,9 @@ func parse(words []string) (action, error) {
 		"withdraw-parts":           {"claims", "withdrawParts", "al"},
 		"withdraw-validator-parts": {"claims", "withdrawValidatorParts", "al"},
 		"mint-shares":              {"claims", "mintRoundShares", "n"},
+		"set-payout":               {"registry", "setPayout", "aa"},
+		"set-operator":             {"registry", "setOperator", "aa"},
+		"accept-operator":          {"registry", "acceptOperator", "a"},
 	}
 	shape, ok := shapes[name]
 	if !ok {
@@ -122,6 +135,7 @@ func main() {
 	passwordFile := flag.String("keystore-password-file", "", "the file holding the keystore's password")
 	ledger := flag.String("stake-ledger-address", "", "StakeLedger")
 	claims := flag.String("claims-address", "", "Claims")
+	registry := flag.String("registry-address", "", "Registry, for a payout or an operator key")
 	lpt := flag.String("lpt-address", "", "test LPT, for a bond's approval")
 	flag.Parse()
 
@@ -132,9 +146,10 @@ func main() {
 	if *rpcURL == "" || *keystoreFile == "" || *passwordFile == "" {
 		fail(fmt.Errorf("--rpc-url, --keystore-file and --keystore-password-file are required"))
 	}
-	addr := map[string]string{"ledger": *ledger, "claims": *claims}
+	addr := map[string]string{"ledger": *ledger, "claims": *claims, "registry": *registry}
 	if !common.IsHexAddress(addr[a.target]) {
-		fail(fmt.Errorf("%s needs --%s", a.name, map[string]string{"ledger": "stake-ledger-address", "claims": "claims-address"}[a.target]))
+		flags := map[string]string{"ledger": "stake-ledger-address", "claims": "claims-address", "registry": "registry-address"}
+		fail(fmt.Errorf("%s needs --%s", a.name, flags[a.target]))
 	}
 	if a.bond != nil && !common.IsHexAddress(*lpt) {
 		fail(fmt.Errorf("bond needs --lpt-address"))

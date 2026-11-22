@@ -122,11 +122,39 @@ abstract contract Stage2 {
         return "";
     }
 
-    /// `node` sets its payout. Returns the revert data, empty on success.
+    /// `node` sets its own payout, as its operator key until it rotates.
+    /// Returns the revert data, empty on success.
     function setPayout(string memory node, address payout) internal returns (bytes memory) {
-        vm.prank(who(node));
-        (bool ok, bytes memory ret) = address(registry).call(abi.encodeCall(Registry.setPayout, (payout)));
+        return setPayoutAs(who(node), who(node), payout);
+    }
+
+    /// `caller` sets `node`'s payout (R-01, R-26). Returns the revert data,
+    /// empty on success.
+    function setPayoutAs(address caller, address node, address payout) internal returns (bytes memory) {
+        vm.prank(caller);
+        (bool ok, bytes memory ret) = address(registry).call(abi.encodeCall(Registry.setPayout, (node, payout)));
         return ok ? bytes("") : ret;
+    }
+
+    /// `caller` proposes `next` as `node`'s operator key (R-26). Returns the
+    /// revert data, empty on success.
+    function setOperatorAs(address caller, address node, address next) internal returns (bytes memory) {
+        vm.prank(caller);
+        (bool ok, bytes memory ret) = address(registry).call(abi.encodeCall(Registry.setOperator, (node, next)));
+        return ok ? bytes("") : ret;
+    }
+
+    /// `caller` accepts the proposal for `node` (R-26). Returns the revert
+    /// data, empty on success.
+    function acceptOperatorAs(address caller, address node) internal returns (bytes memory) {
+        vm.prank(caller);
+        (bool ok, bytes memory ret) = address(registry).call(abi.encodeCall(Registry.acceptOperator, (node)));
+        return ok ? bytes("") : ret;
+    }
+
+    /// A name in the examples; `zero` is the address zero.
+    function named(string memory name) internal pure returns (address) {
+        return keccak256(bytes(name)) == keccak256("zero") ? address(0) : who(name);
     }
 
     /// `payer` asks to release `amount` from its deposit (node address(0))
@@ -191,7 +219,7 @@ abstract contract Stage2 {
     /// The stable code a call was refused with: a custom error's name, or
     /// the kept revert text.
     function code(bytes memory ret) internal pure returns (string memory) {
-        string[27] memory codes = [
+        string[28] memory codes = [
             "NOT_REGISTERED",
             "TICKET_EXPIRED",
             "TICKET_USED",
@@ -218,7 +246,8 @@ abstract contract Stage2 {
             "SCHEDULE_RAISED",
             "VALUE_OUT_OF_RANGE",
             "IDENTITY_NOT_WHOLE",
-            "NOTHING_PENDING"
+            "NOTHING_PENDING",
+            "OPERATOR_INVALID"
         ];
         if (ret.length == 4) {
             for (uint256 i = 0; i < codes.length; i++) {

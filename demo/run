@@ -6,8 +6,9 @@
   ./dev demo stage-2      stage 2 (S-09 section 1): the node paid in mock
                           USDC, with no stake
   ./dev demo buyback      the buyback (S-07 section 1): the network share
-                          buys test LPT from a test pool and burns it; no
-                          node, so no docker
+                          buys test LPT from a test pool and burns it,
+                          then Parameters (S-10 R-25) and a node's key
+                          rotation (R-26); no node, so no docker
 
 Exit 0 every figure equal and every behaviour seen; 1 a figure differed or
 a behaviour was missing; 2 the demo could not run (a tool, a download or a

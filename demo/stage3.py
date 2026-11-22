@@ -90,7 +90,7 @@ def stake(who: str, fields: dict, *argv: str, want: str | None = None) -> dict:
     demo expects, or None for a step that takes effect."""
     done = subprocess.run([str(common.RUN / "bin" / "lp2-stake"), "--rpc-url", common.RPC, "--keystore-file", str(KEYS[who]),
                            "--keystore-password-file", str(common.RUN / "pw"), "--stake-ledger-address", C["StakeLedger"],
-                           "--claims-address", C["Claims"], "--lpt-address", C["TestLPT"], *argv],
+                           "--claims-address", C["Claims"], "--registry-address", C["Registry"], "--lpt-address", C["TestLPT"], *argv],
                           capture_output=True, text=True, pass_fds=common.KEEP_FDS)
     out = done.stdout.strip().splitlines()
     common.SENT.extend(common.sent_by(done.stdout))
@@ -458,7 +458,7 @@ def main() -> int:
     say("\n2. Round 1: four nodes register, four holders bond test LPT to them, the payer funds")
     for n in REGISTERED:
         tx_step({"action": "register", "node": n}, n, C["Registry"], "register()")
-    tx_step({"action": "set_payout", "node": "N", "payout": "W"}, "N", C["Registry"], "setPayout(address)", a("W"))
+    stake("N", {"action": "set_payout", "node": "N", "payout": "W"}, "set-payout", a("N"), a("W"))
     cut = int(cycle_step(action="set_cut")["cut_millionths"])
     stake("N", {"action": "set_cut", "node": "N", "cut_millionths": cut}, "set-cut", a("N"), str(cut))
     grants = {h: amount(action="grant_lpt", to=h) for h in ("O", "D", "E", "F")} | \

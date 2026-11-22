@@ -18,6 +18,14 @@ interface Vm {
         address emitter;
     }
 
+    struct DirEntry {
+        string errorMessage;
+        string path;
+        uint64 depth;
+        bool isDir;
+        bool isSymlink;
+    }
+
     function roll(uint256 blockNumber) external;
     function warp(uint256 timestamp) external;
     function recordLogs() external;
@@ -29,6 +37,7 @@ interface Vm {
     function sign(uint256 privateKey, bytes32 digest) external pure returns (uint8 v, bytes32 r, bytes32 s);
     function projectRoot() external view returns (string memory);
     function readFile(string calldata path) external view returns (string memory);
+    function readDir(string calldata path, uint64 maxDepth) external view returns (DirEntry[] memory entries);
     function parseJson(string calldata json, string calldata key) external pure returns (bytes memory);
     function parseJsonString(string calldata json, string calldata key) external pure returns (string memory);
     function parseJsonBool(string calldata json, string calldata key) external pure returns (bool);

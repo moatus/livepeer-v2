@@ -2,7 +2,7 @@
 pragma solidity 0.8.30;
 
 import {IScores} from "../../interfaces/IScores.sol";
-import {IRegistryV2} from "../../interfaces/IRegistry.sol";
+import {IRegistryV3} from "../../interfaces/IRegistry.sol";
 import {IRoundClock} from "../../interfaces/IRoundClock.sol";
 import {IStakeLedger} from "../../interfaces/IStakeLedger.sol";
 import {IParameters} from "../../interfaces/IParameters.sol";
@@ -39,7 +39,7 @@ contract Scores is IScores {
     /// 10^6.
     uint256 private constant MAX_SCORE = 1_000_000;
 
-    IRegistryV2 private immutable registry;
+    IRegistryV3 private immutable registry;
     IRoundClock private immutable clock;
     IStakeLedger private immutable ledger;
     /// Where N is read, for the round a call runs in.
@@ -73,7 +73,7 @@ contract Scores is IScores {
     /// The last seating number given.
     uint64 private lastSeated;
 
-    constructor(IRegistryV2 registry_, IRoundClock clock_, IStakeLedger ledger_, IParameters params_) {
+    constructor(IRegistryV3 registry_, IRoundClock clock_, IStakeLedger ledger_, IParameters params_) {
         require(
             address(registry_) != address(0) && address(clock_) != address(0) && address(ledger_) != address(0)
                 && address(params_) != address(0),

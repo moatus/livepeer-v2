@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import {IStakeLedger} from "../../interfaces/IStakeLedger.sol";
 import {ITestLPT} from "../../interfaces/ITestLPT.sol";
-import {IRegistryV2} from "../../interfaces/IRegistry.sol";
+import {IRegistryV3} from "../../interfaces/IRegistry.sol";
 import {IRoundClock} from "../../interfaces/IRoundClock.sol";
 import {IParameters} from "../../interfaces/IParameters.sol";
 
@@ -41,7 +41,7 @@ contract StakeLedger is IStakeLedger {
     uint256 private constant MAX_CUT = 1_000_000;
 
     ITestLPT private immutable lpt;
-    IRegistryV2 private immutable registry;
+    IRegistryV3 private immutable registry;
     IRoundClock private immutable clock;
     /// Where u is read, for the round an unbond or transfer is made.
     IParameters private immutable params;
@@ -92,7 +92,7 @@ contract StakeLedger is IStakeLedger {
     /// holder => node it was counting for => its unbonds, in the order made.
     mapping(address => mapping(address => Unbond[])) private unbonds;
 
-    constructor(ITestLPT lpt_, IRegistryV2 registry_, IRoundClock clock_, IParameters params_) {
+    constructor(ITestLPT lpt_, IRegistryV3 registry_, IRoundClock clock_, IParameters params_) {
         require(
             address(lpt_) != address(0) && address(registry_) != address(0) && address(clock_) != address(0)
                 && address(params_) != address(0),
