@@ -151,20 +151,18 @@ func TestWithdrawnReadsTheTransactionsOwnEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := receipt(eventLog(t, at, "Withdrawn", 1, big.NewInt(18)))
-	got, err := withdrawn(c, at, nums(300000), big.NewInt(18), r)
+	got, err := withdrawn(c, at, r)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "withdrawn: fee 300000, which would have counted from round 18; it never counts (block 240, tx 0x0000000000000000000000000000000000000000000000000000000000000abc)"; got != want {
+	if want := "withdrawn: fee, the change that would have counted from round 18; it never counts (block 240, tx 0x0000000000000000000000000000000000000000000000000000000000000abc)"; got != want {
 		t.Fatalf("got  %s\nwant %s", got, want)
 	}
-	// The change read before was not the one withdrawn: its round is the
-	// event's and its values are not claimed.
-	got, err = withdrawn(c, at, nums(400000), big.NewInt(25), r)
-	if err != nil {
-		t.Fatal(err)
+	// Another group's or another contract's Withdrawn is not this one.
+	if _, err := withdrawn(c, at, receipt(eventLog(t, at, "Withdrawn", 2, big.NewInt(18)))); err == nil {
+		t.Error("printed another group's withdrawal")
 	}
-	if want := "withdrawn: fee (values not read), which would have counted from round 18; it never counts (block 240, tx 0x0000000000000000000000000000000000000000000000000000000000000abc)"; got != want {
-		t.Fatalf("got  %s\nwant %s", got, want)
+	if _, err := withdrawn(c, at, receipt(eventLog(t, common.HexToAddress("0x01"), "Withdrawn", 1, big.NewInt(18)))); err == nil {
+		t.Error("printed another contract's withdrawal")
 	}
 }

@@ -19,7 +19,8 @@
 // refusal is printed as "refused: <CODE> at block <n>" with exit 3, and
 // nothing is sent. An announcement prints the round it counts from (the
 // current round + 7) as the transaction's own Announced event records it,
-// and a withdrawal the round from its Withdrawn event. show prints the
+// and a withdrawal the group and round from its Withdrawn event, with no
+// values, since the event carries none. show prints the
 // values in force for ROUND (the round, read from --round-clock-address,
 // when none is given) and any pending change; it signs nothing, so it
 // needs no keystore.
@@ -215,18 +216,11 @@ func run(c command, rpcURL, keystoreFile, passwordFile string, at, clock common.
 		return true, nil
 	}
 	if c.verb == "withdraw" {
-		// The change withdrawn, read before it goes. The Withdrawn event
-		// has no values, so they are shown only when the change read is
-		// the one the transaction withdrew.
-		out, err := s.Call(ctx, at, "pending", c.group)
-		if err != nil {
-			return false, err
-		}
 		r, err := s.Send(ctx, at, "withdraw", c.group)
 		if err != nil {
 			return false, err
 		}
-		line, err := withdrawn(c, at, out[0].([]*big.Int), out[1].(*big.Int), r)
+		line, err := withdrawn(c, at, r)
 		if err != nil {
 			return false, err
 		}
@@ -262,21 +256,19 @@ func announced(c command, at common.Address, r *types.Receipt) (string, error) {
 		name(c.group), shown(c.group, c.values), from, note, r.BlockNumber, r.TxHash), nil
 }
 
-// withdrawn is the line a withdrawal prints. The round is the Withdrawn
-// event's, from the transaction's own receipt; the values are those read
-// before it was sent, shown only when they were read for that same round.
-func withdrawn(c command, at common.Address, before []*big.Int, beforeFrom *big.Int, r *types.Receipt) (string, error) {
+// withdrawn is the line a withdrawal prints, from the Withdrawn event in the
+// transaction's own receipt: the group and the round the change would have
+// counted from. The event carries no values, and a read before sending can
+// name another change (the authority may replace its pending change for the
+// same round in between), so the line names none.
+func withdrawn(c command, at common.Address, r *types.Receipt) (string, error) {
 	ev, err := chain.Logged(r, at, "Withdrawn", common.BigToHash(c.group))
 	if err != nil {
 		return "", err
 	}
 	from := ev[0].(*big.Int)
-	values := "(values not read)"
-	if beforeFrom.Cmp(from) == 0 {
-		values = shown(c.group, before)
-	}
-	return fmt.Sprintf("withdrawn: %s %s, which would have counted from round %s; it never counts (block %d, tx %s)",
-		name(c.group), values, from, r.BlockNumber, r.TxHash), nil
+	return fmt.Sprintf("withdrawn: %s, the change that would have counted from round %s; it never counts (block %d, tx %s)",
+		name(c.group), from, r.BlockNumber, r.TxHash), nil
 }
 
 // show prints the values in force for the round and any pending change.
