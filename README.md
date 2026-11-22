@@ -21,9 +21,9 @@ stage 4.
 |---|---|
 | Rulebook and shared examples | `october-main-text-v2`: stage 3's rules and 74 worked cases (v1, stage 2's, is kept) |
 | Independent calculator | Computes every shared example from the rulebook alone |
-| Contracts | Stage 2: Controller, Registry, RoundClock, Broker, MockUSDC. Stage 3: TestLPT, StakeLedger, Scores, Claims |
+| Contracts | Stage 2: Controller, Registry, RoundClock, Broker, MockUSDC. Stage 3: TestLPT, StakeLedger, Scores, Claims. Stage 4: Parameters, TestPool, Buyback |
 | Node integration | The unmodified node, configured by flags alone; no fork |
-| One-command demo | `./dev demo` (stage 3); `./dev demo stage-2` still runs stage 2's |
+| One-command demo | `./dev demo` (stage 3); `./dev demo stage-2` still runs stage 2's; `./dev demo stage-4` runs stage 4's; `./dev demo buyback` runs the buyback's walk |
 
 ## Run the demo
 
@@ -199,7 +199,36 @@ does, in this order, printing each step:
 The demo mines empty blocks where it would otherwise wait for the chain,
 for example the 40 blocks before the node redeems a ticket.
 
-### Both
+### Stage 4: buyback, authority changes and settlement recovery
+
+`./dev demo stage-4` starts a fresh local chain and runs paid jobs through
+the node. It shows an announced parameter change taking effect seven
+rounds later, a withdrawn change leaving the old value in force, and a
+new operator key claiming while the old key is refused. It restarts the
+node during settlement and checks that each payment is collected once.
+The keeper buys and burns test LPT. The demo checks the figures against
+the calculator.
+
+### The buyback
+
+`./dev demo buyback` runs the buyback's walk on a fresh local chain,
+with no node or model. It deploys stage 3's contracts with a Broker that
+pays its network share only to the Buyback, then the test pool, Parameters
+and the Buyback. It sends 7 test LPT to the Buyback beforehand. Each of the walk's
+22 steps (paid jobs, the pool's seeding, trades, pokes and buys) is a
+transaction at the walk's own time, and each line is checked against
+the shared examples: every buy's USDC in, LPT bought and burned, average price and
+bound, and every refusal by its code and arguments, step 20's `SLIPPAGE`
+included, printed as expected. It then checks that supply fell by exactly
+the LPT the Bought events burned, that the 7 LPT sent beforehand is still
+there, writes the run as a `buyback` case into a copy of the shared
+examples and runs `./calculator/check` on it. Last, it runs `lp2-keeper
+--once --buyback-address` twice: after round 9's buy it logs
+`ALREADY_BOUGHT` as expected and sends nothing; in round 10 its call would
+succeed, so it buys. Its stand-ins are named in
+`deployments/stage-4-local.json`.
+
+### Run results
 
 Each ends with `DEMO PASSED` and exit 0 when every figure is equal and every
 behaviour was seen, `DEMO FAILED` and exit 1 naming each figure or
@@ -212,7 +241,7 @@ started (`orchestrator-N.log`, `keeper.log`, `validators.log`, ...) are in
 `.cache/demo/run/`; check a case file again with, for example,
 `./calculator/check .cache/demo/run/validators-case.json`.
 
-Every stand-in a demo uses (the local chain, mock USDC, the fixed price,
+Every stand-in the stage 2 and 3 demos use (the local chain, mock USDC, the fixed price,
 every ticket winning, 50-block rounds, the tiny model, Parameters with no
 key (so every value is the deployment's) and no buyback, and from stage 3
 test LPT and its genesis supply, the treasury address, the scripted
