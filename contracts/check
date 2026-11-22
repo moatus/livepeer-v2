@@ -163,9 +163,10 @@ for contract, interface in PAIRS:
         print(f"abi: {contract} equals {interface}" + (f", less {', '.join(later)}" if later else ""))
 
 # Interfaces a freeze declares and no contract implements yet, each with its
-# whole surface as the spec gives it (S-10, 3.2). The phase that builds the
-# contract moves it to PAIRS and removes it here. Mutability is compared
-# exactly: a contract cannot implement a pure declaration with a view.
+# whole surface as the spec gives it (S-10 and S-07, 3.2). The phase that
+# builds the contract moves it to PAIRS and removes it here. Mutability is
+# compared exactly: a contract cannot implement a pure declaration with a
+# view. A struct is written as its fields' types in parentheses.
 FROZEN = {
     "interfaces/IParameters.sol:IParameters": {
         "function authority() returns (address) view",
@@ -174,6 +175,7 @@ FROZEN = {
         "function valuesAt(uint256,uint256) returns (uint256[]) view",
         "function pending(uint256) returns (uint256[],uint256) view",
         "function poolCodeHash() returns (bytes32) view",
+        "function buybackValuesAt(uint256) returns ((address,uint256,uint256,uint256,uint256)) view",
         "event Announced(uint256 indexed,uint256[],uint256)",
         "event Withdrawn(uint256 indexed,uint256)",
         "error NOT_AUTHORIZED()", "error NOT_ADJUSTABLE()", "error SCHEDULE_RAISED()",
@@ -198,10 +200,87 @@ FROZEN = {
         "error NOT_REGISTERED()", "error PAYOUT_INVALID()", "error NOT_AUTHORIZED()",
         "error OPERATOR_INVALID()",
     },
+    "interfaces/IBuybackValues.sol:IBuybackValues": {
+        "function buybackValuesAt(uint256) returns ((address,uint256,uint256,uint256,uint256)) view",
+    },
+    "interfaces/IBuyback.sol:IBuyback": {
+        "function buy() returns (uint256,uint256,uint256)",
+        "function poke()",
+        "function values() returns (address) view",
+        "function broker() returns (address) view",
+        "function lastBuyRound() returns (uint256) view",
+        "function observedPool() returns (address) view",
+        "function poolCodeHash() returns (bytes32) view",
+        "function observations() returns (uint256,uint256,uint256,uint256) view",
+        "event Bought(uint256 indexed,uint256,uint256,uint256,uint256,uint256,uint256)",
+        "event Observed(address indexed,uint256,uint256)",
+        "error ALREADY_BOUGHT(uint256)", "error NOTHING_HELD()", "error NO_LIQUIDITY()",
+        "error TWAP_NOT_READY(uint256,uint256)", "error SLIPPAGE(uint256,uint256)",
+        "error NOT_DUE(uint256)", "error POOL_INVALID(address)", "error LPT_SHORT(uint256,uint256)",
+    },
+    "interfaces/ITestPool.sol:ITestPool": {
+        "function token0() returns (address) view",
+        "function token1() returns (address) view",
+        "function getReserves() returns (uint112,uint112,uint32) view",
+        "function price0CumulativeLast() returns (uint256) view",
+        "function price1CumulativeLast() returns (uint256) view",
+        "function totalSupply() returns (uint256) view",
+        "function balanceOf(address) returns (uint256) view",
+        "function mint(address) returns (uint256)",
+        "function swap(uint256,uint256,address,bytes)",
+        "event Mint(address indexed,uint256,uint256)",
+        "event Swap(address indexed,uint256,uint256,uint256,uint256,address indexed)",
+        "event Sync(uint112,uint112)",
+    },
+    # ITestLPT and the burn; TestLPT implements ITestLPT until S-07's contracts phase.
+    "interfaces/ITestLPT.sol:ITestLPTV2": {
+        "function name() returns (string) view",
+        "function symbol() returns (string) view",
+        "function decimals() returns (uint8) view",
+        "function totalSupply() returns (uint256) view",
+        "function balanceOf(address) returns (uint256) view",
+        "function allowance(address,address) returns (uint256) view",
+        "function approve(address,uint256) returns (bool)",
+        "function transfer(address,uint256) returns (bool)",
+        "function transferFrom(address,address,uint256) returns (bool)",
+        "function mint(address,uint256)",
+        "function burn(uint256)",
+        "event Transfer(address indexed,address indexed,uint256)",
+        "event Approval(address indexed,address indexed,uint256)",
+        "error NOT_AUTHORIZED()",
+    },
+    # ITicketBroker and the draw; the Broker implements ITicketBroker until
+    # S-07's contracts phase.
+    "interfaces/ITicketBroker.sol:ITicketBrokerV2": {
+        "function fund(uint256,address,uint256)",
+        "function requestRelease(address,uint256)",
+        "function release(address)",
+        "function earmarkOf(address,address) returns (uint256,uint256,uint256) view",
+        "function getSenderInfo(address) returns ((uint256,uint256),(uint256,uint256)) view",
+        "function claimableReserve(address,address) returns (uint256) view",
+        "function usedTickets(bytes32) returns (bool) view",
+        "function redeemWinningTicket((address,address,uint256,uint256,uint256,bytes32,bytes),bytes,uint256)",
+        "function feesOf(uint256,address) returns (uint256) view",
+        "function totalFees(uint256) returns (uint256) view",
+        "function networkHeld() returns (uint256) view",
+        "function buyback() returns (address) view",
+        "function drawNetwork(uint256,address)",
+        "event Funded(address indexed,uint256,address indexed,uint256)",
+        "event ReleaseRequested(address indexed,address indexed,uint256,uint256)",
+        "event Released(address indexed,address indexed,uint256)",
+        "event FeeSettled(uint256 indexed,address indexed,address indexed,bytes32,uint256,uint256,uint256,address)",
+        "event NetworkDrawn(address indexed,uint256)",
+        "error NOT_REGISTERED()", "error TICKET_EXPIRED()", "error TICKET_USED()", "error TICKET_INVALID()",
+        "error NOTHING_TO_PAY()", "error AMOUNT_TOO_LARGE()", "error RELEASE_NOT_READY()",
+        "error NOT_AUTHORIZED()",
+    },
 }
 
 def signature(e):
-    types = lambda ps: ",".join(p["type"] + (" indexed" if p.get("indexed") else "") for p in ps)
+    def types(ps):
+        return ",".join(("(" + types(p["components"]) + ")" + p["type"][len("tuple"):]
+                         if p["type"].startswith("tuple") else p["type"])
+                        + (" indexed" if p.get("indexed") else "") for p in ps)
     text = f"{e['type']} {e['name']}({types(e.get('inputs', []))})"
     if e.get("outputs"):
         text += f" returns ({types(e['outputs'])})"

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
+import {IBuybackValues} from "./IBuybackValues.sol";
+
 /// The values governance may change, and the round each counts from
 /// (rulebook R-25). One authority, named at deployment, announces a change;
 /// it counts from 7 rounds after the round of the announcement, and until
@@ -17,16 +19,25 @@ pragma solidity 0.8.30;
 ///   5 VALIDATOR_SET_SIZE  (members)
 ///   6 SCORE_SOURCE        (address)
 ///   7 UNBONDING           (rounds)
-///   8 BUYBACK_CUTS        (burn, treasury, validators)
+///   8 BUYBACK_CUTS        (burn, treasury, validators): exactly
+///                         (10^6, 0, 0), else VALUE_OUT_OF_RANGE
 ///   9 BUYBACK_VALUES      (pool, twapSeconds, maxSlippagePpm, buyEveryRounds),
-///                         spec S-07's order
+///                         R-16's order: twapSeconds 1800 to 7200,
+///                         maxSlippagePpm 5000 to 50000, buyEveryRounds 1 to
+///                         840, else VALUE_OUT_OF_RANGE; a pool without
+///                         poolCodeHash, or whose two tokens are not this
+///                         deployment's MockUSDC and TestLPT in either order,
+///                         POOL_INVALID
 /// Any other number is refused with NOT_ADJUSTABLE. An address travels as
 /// uint256(uint160(a)).
 ///
-/// Spec S-07's freeze makes this IParameters is IBuybackValues and adds its
-/// buybackValuesAt(round), read from groups 8 and 9; this freeze holds and
-/// checks those groups only.
-interface IParameters {
+/// Parameters is the Buyback's values source (R-16): buybackValuesAt(round)
+/// returns group 9's pool, twapSeconds, maxSlippagePpm and buyEveryRounds
+/// in force for `round`, and group 8's burn share as burnPpm. Group 8's
+/// treasury and validator cuts are held and checked here and not returned:
+/// they are 0 while burn is 10^6. Both groups are checked when announced,
+/// as above; the pool is checked again by the Buyback at each use.
+interface IParameters is IBuybackValues {
     /// Named at deployment and never changed.
     function authority() external view returns (address);
 
@@ -68,7 +79,7 @@ interface IParameters {
     error VALUE_OUT_OF_RANGE();
     error IDENTITY_NOT_WHOLE();
     error NOTHING_PENDING();
-    /// Spec S-07's code: `pool` lacks the pinned code hash, or its two
-    /// tokens are not this deployment's MockUSDC and TestLPT.
+    /// `pool` lacks the pinned code hash, or its two tokens are not this
+    /// deployment's MockUSDC and TestLPT (R-25, R-16).
     error POOL_INVALID(address pool);
 }

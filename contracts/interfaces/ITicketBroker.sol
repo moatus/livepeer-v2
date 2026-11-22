@@ -92,3 +92,23 @@ interface ITicketBroker {
     // And the kept revert text "ticket creationRound does not have a block
     // hash", for a creation round not started, which the node treats as final.
 }
+
+/// The Broker as stage 4 reads it (rulebook october-main-text-v4, R-16):
+/// ITicketBroker and the Buyback's draw of the network share. It is declared
+/// beside ITicketBroker, not on it, because the Broker built so far
+/// implements ITicketBroker and has no draw; spec S-07's contracts phase
+/// builds it into the Broker, whose constructor then takes the Buyback's
+/// predicted address.
+interface ITicketBrokerV2 is ITicketBroker {
+    /// The Buyback, fixed at deployment.
+    function buyback() external view returns (address);
+
+    /// Only the Buyback: pays `amount` of the network share to `to` and
+    /// lowers networkHeld by it. Refused with NOT_AUTHORIZED from any other
+    /// address, then AMOUNT_TOO_LARGE above networkHeld.
+    function drawNetwork(uint256 amount, address to) external;
+
+    event NetworkDrawn(address indexed to, uint256 amount);
+
+    error NOT_AUTHORIZED();
+}
