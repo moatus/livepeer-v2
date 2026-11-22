@@ -564,7 +564,9 @@ def record(fields: dict, tx_receipt: dict | None = None, block: int | None = Non
 C: dict[str, str] = {}   # contract addresses
 
 
-def deploy_stage2() -> None:
+def deploy_stage2(buyback: str = ZERO) -> None:
+    """The stage 2 contracts. The Broker is given the one address that may
+    draw its network share (stage 4's Buyback); ZERO lets nobody draw."""
     create = forge_create
     C["RoundClock"] = create("src/clock/RoundClock.sol:RoundClock")
     C["MockUSDC"] = create("src/money/MockUSDC.sol:MockUSDC")
@@ -572,7 +574,7 @@ def deploy_stage2() -> None:
     # address the Broker will be created at: the deployer's next nonce.
     broker_at = next_address(1)
     C["Registry"] = create("src/authority/Registry.sol:Registry", C["RoundClock"], broker_at)
-    C["Broker"] = create("src/money/Broker.sol:Broker", C["MockUSDC"], C["Registry"], C["RoundClock"])
+    C["Broker"] = create("src/money/Broker.sol:Broker", C["MockUSDC"], C["Registry"], C["RoundClock"], buyback)
     if C["Broker"].lower() != broker_at.lower():
         raise Failed(f"the Broker landed at {C['Broker']}, not {broker_at} as the Registry was told")
     C["Controller"] = create("src/authority/Controller.sol:Controller", C["Registry"], C["RoundClock"], C["Broker"])
@@ -581,6 +583,23 @@ def deploy_stage2() -> None:
         got = call(C["Controller"], "getContract(bytes32)", sh(["cast", "keccak", legacy]))
         if got != int(C[ours], 16):
             raise Failed(f"the Controller does not answer {legacy} with the {ours}")
+
+
+def deploy_stage3(buyback: str = ZERO) -> None:
+    """Stage 2's contracts, then test LPT, StakeLedger, Scores and Claims.
+    The token is given the address Claims will have, its one minter."""
+    deploy_stage2(buyback)
+    claims_at = next_address(3)
+    C["TestLPT"] = forge_create("src/money/TestLPT.sol:TestLPT", claims_at, MANIFEST["lpt"]["genesis_supply_wei"])
+    C["StakeLedger"] = forge_create("src/money/StakeLedger.sol:StakeLedger", C["TestLPT"], C["Registry"], C["RoundClock"])
+    C["Scores"] = forge_create("src/scores/Scores.sol:Scores", C["Registry"], C["RoundClock"], C["StakeLedger"])
+    C["Claims"] = forge_create("src/money/Claims.sol:Claims", C["TestLPT"], C["Registry"], C["RoundClock"], C["Broker"],
+                               C["StakeLedger"], C["Scores"], C["Scores"], ADDR["Treasury"])
+    if C["Claims"].lower() != claims_at.lower():
+        raise Failed(f"Claims landed at {C['Claims']}, not {claims_at} as the token was told")
+    for n in ("Claims", "StakeLedger"):
+        NAMES[C[n].lower()] = n
+        ADDR[n] = C[n]
 
 
 # How forge signs as the deployer: the demo's throwaway key, or, when set

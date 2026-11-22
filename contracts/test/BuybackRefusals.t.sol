@@ -40,6 +40,10 @@ contract BuybackRefusalsTest is Stage4 {
         usdc.mint(address(foreign), 500_000e6);
         require(other.transfer(address(foreign), 100_000e18), "seed foreign");
         foreign.mint(address(this));
+        // Its tokens are immutables in its runtime code, so its code hash
+        // is not the pinned one: the hash alone refuses it, and the token
+        // check behind it is never reached by a TestPool.
+        require(address(foreign).codehash != address(pool).codehash, "another token, another code hash");
 
         address[3] memory bad = [address(liar), address(foreign), who("no code")];
         for (uint256 i = 0; i < bad.length; i++) {
@@ -148,6 +152,27 @@ contract BuybackRefusalsTest is Stage4 {
         require(poke().length == 0, "due");
         (uint256 c0, uint256 t0, uint256 c1, uint256 t1) = buyback.observations();
         require(t0 == T0 && t1 == T0 + HOUR && c1 - c0 == (uint256(500_000e6) << 112) / 100_000e18 * HOUR, "slots");
+    }
+
+    /// Rule 3's "as Uniswap v2 keeps it": the pool keeps block time as
+    /// uint32, so a gap of 2^32 s or more since its last update adds only
+    /// the remainder to its cumulative, in the pool and in the Buyback's
+    /// reading of it alike, while the Buyback's own elapsed is the whole gap.
+    function test_cumulative_wraps_as_v2() external {
+        deployStage4(GENESIS, true);
+        seed(pool, 500_000e6, 100_000e18);
+        require(poke().length == 0, "the first poke");
+        uint256 price = (uint256(500_000e6) << 112) / 100_000e18;
+        uint256 gap = 2 ** 32 + HOUR;
+        vm.warp(T0 + gap);
+        require(poke().length == 0, "due");
+        (uint256 c0, uint256 t0, uint256 c1, uint256 t1) = buyback.observations();
+        require(t1 - t0 == gap, "the Buyback's elapsed is the whole gap");
+        require(c1 - c0 == price * HOUR, "the Buyback reads the remainder");
+        swapIn(pool, 1e6);
+        (,, bool usdcIs0) = reserves(pool);
+        uint256 stored = usdcIs0 ? pool.price1CumulativeLast() : pool.price0CumulativeLast();
+        require(stored == price * HOUR, "the pool adds the remainder");
     }
 
     /// Draw: NOT_AUTHORIZED from any other address, the amount aside; then

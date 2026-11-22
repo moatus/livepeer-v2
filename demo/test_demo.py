@@ -307,6 +307,67 @@ class Manifest(unittest.TestCase):
 
 
 
+class BuybackCase(unittest.TestCase):
+    """demo/buyback.py's case writer and stage 4's manifest. Importing the
+    demo reads stage 4's manifest into common's shared state, so each test
+    puts that state back afterwards."""
+
+    def setUp(self):
+        for d in (common.MANIFEST, common.VECTORS, common.CASES, common.PARAMS):
+            p = mock.patch.dict(d)
+            p.start()
+            self.addCleanup(p.stop)
+        common.use("stage-4-local.json")
+        import buyback
+        self.b = buyback
+        self.walk = common.CASES["buyback-walk"]
+
+    def run_of(self, case):
+        """A case as the demo records it: each step with its own bought or
+        refused entry."""
+        bought = {e["step"]: e for e in case["expected"]["bought"]}
+        refused = {e["step"]: e for e in case["expected"]["refused"]}
+        run = []
+        for s in case["inputs"]["steps"]:
+            done = dict(s, shown="what the chain showed")
+            for key, entries in (("bought", bought), ("refused", refused)):
+                if s["step"] in entries:
+                    done[key] = {k: v for k, v in entries[s["step"]].items() if k != "step"}
+            run.append(done)
+        return run
+
+    def test_the_walk_is_written_back_exactly(self):
+        final = {k: int(v) for k, v in self.walk["expected"].items() if k not in ("bought", "refused")}
+        got = self.b.case_of("buyback-walk", int(self.walk["inputs"]["lpt_supply_wei"]), self.run_of(self.walk), final)
+        self.assertEqual(got, self.walk)
+
+    def test_the_run_is_added_beside_every_named_example(self):
+        case = copy.deepcopy(self.walk)
+        case["id"] = "buyback-demo-run"
+        doc = self.b.document(case)
+        self.assertEqual([c["id"] for c in doc["cases"]], [c["id"] for c in common.VECTORS["cases"]] + [case["id"]])
+        again = self.b.document(dict(case, expected={}))
+        self.assertEqual(len(again["cases"]), len(doc["cases"]))
+        self.assertEqual(again["cases"][-1]["expected"], {})
+
+    def test_only_not_due_is_told_from_the_walks_start(self):
+        self.assertEqual(self.b.shifted({"code": "NOT_DUE", "args": ["1003600"]}, 1_000_000),
+                         {"code": "NOT_DUE", "args": ["3600"]})
+        other = {"code": "TWAP_NOT_READY", "args": ["0", "3600"]}
+        self.assertEqual(self.b.shifted(other, 1_000_000), other)
+
+    def test_the_manifest_gives_the_walks_values_and_pool(self):
+        m = common.MANIFEST
+        self.assertEqual(m["rulebook"], common.VECTORS["rulebook"])
+        for k, v in m["buyback"].items():
+            with self.subTest(value=k):
+                self.assertEqual(v, common.PARAMS["buyback_" + k])
+        seed = next(s for s in self.walk["inputs"]["steps"] if s["action"] == "seed")
+        self.assertEqual((m["pool"]["seed_usdc_micro_usdc"], m["pool"]["seed_lpt_wei"]),
+                         (seed["usdc_micro_usdc"], seed["lpt_wei"]))
+        self.assertEqual(m["lpt"]["genesis_supply_wei"], self.walk["inputs"]["lpt_supply_wei"])
+
+
 class PublicState(unittest.TestCase):
     """demo/public-run's state directory holds keys and sends money, so a
     symlink must not lead a key elsewhere, and two runs must not share it."""

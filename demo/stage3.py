@@ -77,25 +77,6 @@ def amount(**match) -> int:
     return int(cycle_step(**match)["amount_wei"])
 
 
-# --- deployment ---------------------------------------------------------------
-
-def deploy_stage3() -> None:
-    """Stage 2's contracts, then test LPT, StakeLedger, Scores and Claims.
-    The token is given the address Claims will have, its one minter."""
-    deploy_stage2()
-    claims_at = next_address(3)
-    C["TestLPT"] = forge_create("src/money/TestLPT.sol:TestLPT", claims_at, MANIFEST["lpt"]["genesis_supply_wei"])
-    C["StakeLedger"] = forge_create("src/money/StakeLedger.sol:StakeLedger", C["TestLPT"], C["Registry"], C["RoundClock"])
-    C["Scores"] = forge_create("src/scores/Scores.sol:Scores", C["Registry"], C["RoundClock"], C["StakeLedger"])
-    C["Claims"] = forge_create("src/money/Claims.sol:Claims", C["TestLPT"], C["Registry"], C["RoundClock"], C["Broker"],
-                               C["StakeLedger"], C["Scores"], C["Scores"], ADDR["Treasury"])
-    if C["Claims"].lower() != claims_at.lower():
-        raise Failed(f"Claims landed at {C['Claims']}, not {claims_at} as the token was told")
-    for n in ("Claims", "StakeLedger"):
-        NAMES[C[n].lower()] = n
-        ADDR[n] = C[n]
-
-
 # --- steps --------------------------------------------------------------------
 
 def tx_step(fields: dict, who: str, to: str, signature: str, *args) -> dict:

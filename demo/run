@@ -5,6 +5,9 @@
                           LPT rewards, with the node paid in mock USDC
   ./dev demo stage-2      stage 2 (S-09 section 1): the node paid in mock
                           USDC, with no stake
+  ./dev demo buyback      the buyback (S-07 section 1): the network share
+                          buys test LPT from a test pool and burns it; no
+                          node, so no docker
 
 Exit 0 every figure equal and every behaviour seen; 1 a figure differed or
 a behaviour was missing; 2 the demo could not run (a tool, a download or a
@@ -19,11 +22,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 parser = argparse.ArgumentParser(prog="./dev demo", description=__doc__.splitlines()[0])
-parser.add_argument("stage", nargs="?", choices=("stage-2", "stage-3"), default="stage-3",
+parser.add_argument("stage", nargs="?", choices=("stage-2", "stage-3", "buyback"), default="stage-3",
                     help="which stage's demo to run (default stage-3)")
 stage = parser.parse_args().stage
 if stage == "stage-2":
     import stage2 as demo
+elif stage == "buyback":
+    import buyback as demo
 else:
     import stage3 as demo
 import common  # noqa: E402
