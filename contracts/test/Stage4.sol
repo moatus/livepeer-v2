@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {vm} from "./Vm.sol";
+import {vm, Vm} from "./Vm.sol";
 import {Stage2} from "./Stage2.sol";
 import {TestLPT} from "../src/money/TestLPT.sol";
 import {TestPool} from "../src/money/TestPool.sol";
@@ -76,8 +76,21 @@ contract ShortPool {
     }
 
     function swap(uint256 out0, uint256 out1, address to, bytes calldata) external {
-        if (out0 > 0) TestLPT(token0).transfer(to, out0 - 1);
-        if (out1 > 0) TestLPT(token1).transfer(to, out1 - 1);
+        if (out0 > 0) TestLPT(token0).transfer(to, delivered(out0));
+        if (out1 > 0) TestLPT(token1).transfer(to, delivered(out1));
+    }
+
+    function delivered(uint256 asked) internal pure virtual returns (uint256) {
+        return asked - 1;
+    }
+}
+
+/// As ShortPool, but it delivers one wei more than asked.
+contract OverPool is ShortPool {
+    constructor(address usdc, address lpt, uint112 ru, uint112 rl) ShortPool(usdc, lpt, ru, rl) {}
+
+    function delivered(uint256 asked) internal pure override returns (uint256) {
+        return asked + 1;
     }
 }
 
@@ -92,29 +105,29 @@ abstract contract Stage4 is Stage2 {
     ShortPool internal shortPool;
     uint256 private jobs;
 
-    /// The deployment the demo makes: FixedBuybackValues with the shared
-    /// examples' values.
-    function deployStage4(uint256 genesis) internal {
-        deployStage4(genesis, false);
-    }
+    /// deployStage4's options. With none, the deployment the demo makes:
+    /// FixedBuybackValues with the shared examples' values, and USDC as
+    /// the pool's token0.
+    uint256 internal constant STUB = 1; // the values source is a ValuesStub a test may change
+    uint256 internal constant SHORT = 2; // the round's pool is a ShortPool, and the Buyback is pinned to its hash
+    uint256 internal constant OVER = 4; // the same with an OverPool
+    uint256 internal constant LPT_FIRST = 8; // TestLPT's address sorts below MockUSDC's: LPT is token0
 
-    /// With `stub`, the values source is a ValuesStub a test may change.
-    function deployStage4(uint256 genesis, bool stub) internal {
-        deployStage4(genesis, stub, false);
-    }
-
-    /// With `short`, the round's pool is a ShortPool of 1,000 USDC and
-    /// 200 LPT, and the Buyback is pinned to its code hash.
-    function deployStage4(uint256 genesis, bool stub, bool short) internal {
+    /// A ShortPool or OverPool holds 1,000 USDC and 200 LPT of reserves.
+    function deployStage4(uint256 genesis, uint256 opts) internal {
+        bool misdelivers = opts & (SHORT | OVER) != 0;
         // deploy() creates five contracts; then the token, the pool, the
         // ShortPool if any, and the values source. The Buyback is next.
-        address at = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + (short ? 9 : 8));
+        address at = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + (misdelivers ? 9 : 8));
         deploy(at);
-        lpt = new TestLPT(who("Claims"), genesis);
+        lpt = newLpt(genesis, opts & LPT_FIRST != 0);
         pool = new TestPool(address(usdc), address(lpt));
+        require((pool.token0() == address(lpt)) == (opts & LPT_FIRST != 0), "the pool's token order");
         address round_ = address(pool);
-        if (short) {
-            shortPool = new ShortPool(address(usdc), address(lpt), 1000e6, 200e18);
+        if (misdelivers) {
+            shortPool = opts & OVER != 0
+                ? new OverPool(address(usdc), address(lpt), 1000e6, 200e18)
+                : new ShortPool(address(usdc), address(lpt), 1000e6, 200e18);
             round_ = address(shortPool);
         }
         IBuybackValues.BuybackValues memory v = IBuybackValues.BuybackValues(
@@ -124,7 +137,7 @@ abstract contract Stage4 is Stage2 {
             param("buyback_max_slippage_ppm"),
             param("buyback_every_rounds")
         );
-        source = stub
+        source = opts & STUB != 0
             ? IBuybackValues(address(new ValuesStub(v)))
             : IBuybackValues(
                 address(new FixedBuybackValues(v.pool, v.burnPpm, v.twapSeconds, v.maxSlippagePpm, v.buyEveryRounds))
@@ -132,6 +145,22 @@ abstract contract Stage4 is Stage2 {
         buyback = new Buyback(source, broker, clock, lpt, usdc, round_.codehash);
         require(address(buyback) == at, "Buyback at the address the Broker was given");
         register("N");
+    }
+
+    /// The test LPT, created with CREATE2 at the first salt whose address
+    /// sorts on the side of MockUSDC's that `first` asks for, so the pool's
+    /// token order is chosen, not left to the addresses.
+    function newLpt(uint256 genesis, bool first) private returns (TestLPT) {
+        bytes32 init = keccak256(abi.encodePacked(type(TestLPT).creationCode, abi.encode(who("Claims"), genesis)));
+        uint256 salt;
+        while (true) {
+            address a = address(
+                uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), address(this), bytes32(salt), init))))
+            );
+            if ((a < address(usdc)) == first) break;
+            salt++;
+        }
+        return new TestLPT{salt: bytes32(salt)}(who("Claims"), genesis);
     }
 
     // --- the steps of a buyback case ------------------------------------
@@ -196,6 +225,21 @@ abstract contract Stage4 is Stage2 {
         if (ok) return "";
         require(ret.length > 0, "reverted with no data");
         return ret;
+    }
+
+    /// The data of each Bought event the Buyback emitted since recordLogs.
+    function boughtLogs() internal returns (bytes[] memory out) {
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        out = new bytes[](logs.length);
+        uint256 n;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter == address(buyback) && logs[i].topics[0] == IBuyback.Bought.selector) {
+                out[n++] = logs[i].data;
+            }
+        }
+        assembly {
+            mstore(out, n)
+        }
     }
 
     // --- refusals with arguments ------------------------------------------

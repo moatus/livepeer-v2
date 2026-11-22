@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {vm, Vm} from "./Vm.sol";
+import {vm} from "./Vm.sol";
 import {Stage4} from "./Stage4.sol";
 import {IBuyback} from "../interfaces/IBuyback.sol";
 
@@ -38,22 +38,29 @@ contract BuybackTest is Stage4 {
 
     /// Section 1's walk: every buy, refusal and final figure.
     function test_buyback_walk() external {
-        runCase("buyback-walk");
+        runCase("buyback-walk", 0);
+    }
+
+    /// The same walk with LPT as the pool's token0: every figure is the
+    /// same, so the Buyback reads the reserves, the cumulative and the
+    /// swap's output side by the pool's order, not by one fixed order.
+    function test_buyback_walk_lpt_token0() external {
+        runCase("buyback-walk", LPT_FIRST);
     }
 
     /// Rule 6, first case: out(cap) is 0, SLIPPAGE(6990, 6990).
     function test_rule6_nothing_out() external {
-        runCase("buyback-nothing-out");
+        runCase("buyback-nothing-out", 0);
     }
 
     /// Rule 6, second case: 6,894 µUSDC buys 2 wei; 96 rolls over.
     function test_rule6_two_wei() external {
-        runCase("buyback-two-wei");
+        runCase("buyback-two-wei", 0);
     }
 
     /// Rule 6, third case: a dust pool, 859 µUSDC for 863 wei.
     function test_rule6_dust_pool() external {
-        runCase("buyback-dust-pool");
+        runCase("buyback-dust-pool", 0);
     }
 
     struct Run {
@@ -63,10 +70,10 @@ contract BuybackTest is Stage4 {
         uint256 burned;
     }
 
-    function runCase(string memory id) internal {
+    function runCase(string memory id, uint256 opts) internal {
         Run memory r;
         r.c = string.concat(".cases[", vm.toString(caseIndex(id)), "]");
-        deployStage4(num(string.concat(r.c, ".inputs.lpt_supply_wei")));
+        deployStage4(num(string.concat(r.c, ".inputs.lpt_supply_wei")), opts);
         require(lpt.transfer(address(buyback), DONATION), "donation");
         uint256 supply = lpt.totalSupply();
         for (uint256 k = 0; vm.keyExistsJson(vectors, stepPath(r.c, k)); k++) {
@@ -137,21 +144,6 @@ contract BuybackTest is Stage4 {
         expectEq(maxIn, num(string.concat(b, ".max_in_micro_usdc")), string.concat(what, " maxIn"));
         expectEq(twapX112, num(string.concat(b, ".twap_x112")), string.concat(what, " twapX112"));
         return burned;
-    }
-
-    /// The data of each Bought event the Buyback emitted since recordLogs.
-    function boughtLogs() internal returns (bytes[] memory out) {
-        Vm.Log[] memory logs = vm.getRecordedLogs();
-        out = new bytes[](logs.length);
-        uint256 n;
-        for (uint256 i = 0; i < logs.length; i++) {
-            if (logs[i].emitter == address(buyback) && logs[i].topics[0] == IBuyback.Bought.selector) {
-                out[n++] = logs[i].data;
-            }
-        }
-        assembly {
-            mstore(out, n)
-        }
     }
 
     /// The revert data a `refused` entry names: its code and arguments.

@@ -75,7 +75,6 @@ contract Buyback is IBuyback {
 
     /// One buy's figures, before anything moves.
     struct Quote {
-        uint256 held;
         uint256 twapX112;
         uint256 maxIn;
         uint256 lptOut;
@@ -115,7 +114,6 @@ contract Buyback is IBuyback {
         view
         returns (Quote memory q)
     {
-        q.held = held;
         // Rule 3: O1 when it is an interval old, else O0; nothing observed
         // of this pool is elapsed 0.
         uint256 elapsed;

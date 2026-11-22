@@ -6,13 +6,15 @@ import {Stage4, ValuesStub, LyingPool} from "./Stage4.sol";
 import {TestPool} from "../src/money/TestPool.sol";
 import {TestLPT} from "../src/money/TestLPT.sol";
 import {Broker} from "../src/money/Broker.sol";
+import {Buyback} from "../src/money/Buyback.sol";
 import {FixedBuybackValues} from "../src/authority/FixedBuybackValues.sol";
 import {IBuyback} from "../interfaces/IBuyback.sol";
 import {IBuybackValues} from "../interfaces/IBuybackValues.sol";
 
-/// What the shared examples cannot show (R-16): lying pools, a pool that
-/// delivers short, each refusal of rule 11 in its order, a change of pool,
-/// the draw, the burn and the values' ranges.
+/// What the shared examples cannot show (R-16): lying pools, a pool of
+/// another pair under its own hash, a pool that delivers short or over,
+/// each refusal of rule 11 in its order, a change of pool, a bound whose
+/// product passes 2^256, the draw, the burn and the values' ranges.
 contract BuybackRefusalsTest is Stage4 {
     uint256 private constant GENESIS = 10_000_000e18;
     uint256 private constant HOUR = 3600;
@@ -29,7 +31,7 @@ contract BuybackRefusalsTest is Stage4 {
     /// cumulatives, TestPool's code over another token, and an address
     /// with no code are refused POOL_INVALID by buy and poke, held or not.
     function test_lying_pools_are_refused() external {
-        deployStage4(GENESIS, true);
+        deployStage4(GENESIS, STUB);
         seed(pool, 500_000e6, 100_000e18);
         job(1000e6);
 
@@ -41,8 +43,8 @@ contract BuybackRefusalsTest is Stage4 {
         require(other.transfer(address(foreign), 100_000e18), "seed foreign");
         foreign.mint(address(this));
         // Its tokens are immutables in its runtime code, so its code hash
-        // is not the pinned one: the hash alone refuses it, and the token
-        // check behind it is never reached by a TestPool.
+        // is not the pinned one and the hash alone refuses it. The pair
+        // check behind the hash is reached in the next test.
         require(address(foreign).codehash != address(pool).codehash, "another token, another code hash");
 
         address[3] memory bad = [address(liar), address(foreign), who("no code")];
@@ -63,11 +65,48 @@ contract BuybackRefusalsTest is Stage4 {
         require(poke().length == 0, "poke of the twin");
     }
 
+    /// Rule 13's second half: a Buyback deployed with the code hash of a
+    /// TestPool over another pair, and pointed at that pool, passes the hash
+    /// but not the pair. Both a pool of USDC and another token and a pool of
+    /// another token and LPT are refused POOL_INVALID by poke and buy.
+    function test_a_pool_of_another_pair_is_refused_under_its_own_hash() external {
+        deployStage4(GENESIS, STUB);
+        job(1000e6);
+        TestLPT other = new TestLPT(who("Claims"), GENESIS);
+        TestPool[2] memory foreign =
+            [new TestPool(address(usdc), address(other)), new TestPool(address(other), address(lpt))];
+        // The pool of other and LPT: LPT from the deployer, other as its pair.
+        usdc.mint(address(foreign[0]), 500_000e6);
+        require(other.transfer(address(foreign[0]), 100_000e18), "seed the USDC pool");
+        foreign[0].mint(address(this));
+        require(other.transfer(address(foreign[1]), 100_000e18), "seed the LPT pool");
+        require(lpt.transfer(address(foreign[1]), 100_000e18), "seed the LPT pool");
+        foreign[1].mint(address(this));
+
+        for (uint256 i = 0; i < foreign.length; i++) {
+            address f = address(foreign[i]);
+            ValuesStub named = new ValuesStub(
+                IBuybackValues.BuybackValues(
+                    f,
+                    param("buyback_burn_ppm"),
+                    param("buyback_twap_seconds"),
+                    param("buyback_max_slippage_ppm"),
+                    param("buyback_every_rounds")
+                )
+            );
+            Buyback wired = new Buyback(named, broker, clock, lpt, usdc, f.codehash);
+            require(wired.poolCodeHash() == f.codehash, "the hash passes");
+            expectRefused(as_(who("Anyone"), address(wired), abi.encodeCall(IBuyback.poke, ())), poolInvalid(f), "poke");
+            vm.warp(block.timestamp + HOUR);
+            expectRefused(as_(who("Anyone"), address(wired), abi.encodeCall(IBuyback.buy, ())), poolInvalid(f), "buy");
+        }
+    }
+
     /// A pool that delivers one wei less than it quotes, admitted by a
     /// Buyback pinned to its hash: LPT_SHORT, and the held share, the pool
     /// and the LPT sent to the Buyback beforehand are as they were.
     function test_short_delivery_is_refused_and_moves_nothing() external {
-        deployStage4(GENESIS, false, true);
+        deployStage4(GENESIS, SHORT);
         require(lpt.transfer(address(shortPool), 200e18), "the short pool's LPT");
         require(lpt.transfer(address(buyback), 3e18), "LPT sent beforehand");
         require(poke().length == 0, "poke");
@@ -94,11 +133,38 @@ contract BuybackRefusalsTest is Stage4 {
         require(d0 == c0 && u0 == t0 && d1 == c1 && u1 == t1, "the recording is undone");
     }
 
+    /// A pool that delivers one wei more than it quotes, admitted by a
+    /// Buyback pinned to its hash: the buy takes effect and burns what
+    /// arrived, the quote and the extra wei, not the quote; the LPT sent
+    /// to the Buyback beforehand stays.
+    function test_over_delivery_burns_what_arrived() external {
+        deployStage4(GENESIS, OVER);
+        require(lpt.transfer(address(shortPool), 200e18), "the pool's LPT");
+        require(lpt.transfer(address(buyback), 3e18), "LPT sent beforehand");
+        require(poke().length == 0, "poke");
+        job(10e6);
+        vm.warp(block.timestamp + HOUR);
+        uint256 poolLpt = lpt.balanceOf(address(shortPool));
+        uint256 supply = lpt.totalSupply();
+        vm.recordLogs();
+        require(buy().length == 0, "the buy");
+        bytes[] memory logs = boughtLogs();
+        require(logs.length == 1, "one Bought event");
+        (,, uint256 lptBought, uint256 burned,,) =
+            abi.decode(logs[0], (uint256, uint256, uint256, uint256, uint256, uint256));
+        uint256 arrived = poolLpt - lpt.balanceOf(address(shortPool));
+        require(arrived > 1, "something bought");
+        expectEq(lptBought, arrived, "lptBought is what arrived");
+        expectEq(burned, arrived, "burned is what arrived");
+        expectEq(supply - lpt.totalSupply(), arrived, "supply fell by what arrived");
+        expectEq(lpt.balanceOf(address(buyback)), 3e18, "the LPT sent beforehand");
+    }
+
     // --- rule 11: each refusal in its order ---------------------------------
 
     /// Buy: each refusal, and where two apply, the earlier one.
     function test_buy_refusals_in_order() external {
-        deployStage4(GENESIS, true);
+        deployStage4(GENESIS, STUB);
         LyingPool empty = new LyingPool(address(usdc), address(lpt));
 
         // NOTHING_HELD before POOL_INVALID.
@@ -137,7 +203,7 @@ contract BuybackRefusalsTest is Stage4 {
 
     /// Poke: POOL_INVALID, NO_LIQUIDITY, NOT_DUE with the time it is due.
     function test_poke_refusals_in_order() external {
-        deployStage4(GENESIS, true);
+        deployStage4(GENESIS, STUB);
         LyingPool empty = new LyingPool(address(usdc), address(lpt));
         usePool(address(empty));
         expectRefused(poke(), poolInvalid(address(empty)), "a lying pool with no reserves");
@@ -159,7 +225,7 @@ contract BuybackRefusalsTest is Stage4 {
     /// the remainder to its cumulative, in the pool and in the Buyback's
     /// reading of it alike, while the Buyback's own elapsed is the whole gap.
     function test_cumulative_wraps_as_v2() external {
-        deployStage4(GENESIS, true);
+        deployStage4(GENESIS, STUB);
         seed(pool, 500_000e6, 100_000e18);
         require(poke().length == 0, "the first poke");
         uint256 price = (uint256(500_000e6) << 112) / 100_000e18;
@@ -178,7 +244,7 @@ contract BuybackRefusalsTest is Stage4 {
     /// Draw: NOT_AUTHORIZED from any other address, the amount aside; then
     /// AMOUNT_TOO_LARGE above what is held.
     function test_draw_refusals_in_order() external {
-        deployStage4(GENESIS, true);
+        deployStage4(GENESIS, STUB);
         job(1000e6);
         uint256 held = broker.networkHeld();
         bytes memory over = abi.encodeCall(Broker.drawNetwork, (held + 1, who("anyone")));
@@ -209,7 +275,7 @@ contract BuybackRefusalsTest is Stage4 {
     /// After the values name another pool, buys refuse TWAP_NOT_READY until
     /// a poke and one interval, then succeed.
     function test_pool_change_waits_for_a_poke_and_an_interval() external {
-        deployStage4(GENESIS, true);
+        deployStage4(GENESIS, STUB);
         seed(pool, 500_000e6, 100_000e18);
         require(poke().length == 0, "poke");
         vm.warp(block.timestamp + HOUR);
@@ -234,13 +300,74 @@ contract BuybackRefusalsTest is Stage4 {
         expectEq(usdc.balanceOf(address(next)) - reserveBefore, 500e6, "paid to the new pool");
     }
 
+    // --- rule 4 at full width ----------------------------------------------
+
+    /// R-16 asks a product that can pass 2^256 to be taken at full width.
+    /// Rule 4's lim = p x 997 x rl does when the TWAP is far above the
+    /// present price and the LPT reserve is now large: here a past hour at
+    /// 2^100 µUSDC per wei, then a trader selling 2^55 wei of LPT into the
+    /// pool, and a buy at once. The buy takes effect, and maxIn and the
+    /// buy's figures equal ones computed here without a 512-bit product.
+    function test_the_bound_is_taken_at_full_width() external {
+        deployStage4(GENESIS, STUB);
+        seed(pool, 2 ** 110, 2 ** 10);
+        require(poke().length == 0, "poke");
+        job(1000e6);
+        vm.warp(block.timestamp + HOUR);
+        // A trader sells LPT for USDC, v2's getAmountOut.
+        {
+            (uint256 ru0, uint256 rl0, bool usdcIs0) = reserves(pool);
+            uint256 sold = 2 ** 55;
+            uint256 out = sold * 997 * ru0 / (rl0 * 1000 + sold * 997);
+            require(lpt.transfer(address(pool), sold), "sell LPT");
+            pool.swap(usdcIs0 ? out : 0, usdcIs0 ? 0 : out, who("Trader"), "");
+        }
+        uint256[6] memory want = fullWidthBuy();
+        uint256 supply = lpt.totalSupply();
+        vm.recordLogs();
+        bytes memory ret = buy();
+        require(ret.length == 0, string.concat("the buy: refused ", vm.toString(ret)));
+        bytes[] memory logs = boughtLogs();
+        require(logs.length == 1, "one Bought event");
+        uint256[6] memory got = abi.decode(logs[0], (uint256[6]));
+        string[6] memory names = ["held", "usdcIn", "lptBought", "burned", "twapX112", "maxIn"];
+        for (uint256 i = 0; i < 6; i++) {
+            expectEq(got[i], want[i], names[i]);
+        }
+        expectEq(supply - lpt.totalSupply(), want[3], "supply");
+        expectEq(broker.networkHeld(), want[0] - want[1], "held after");
+    }
+
+    /// The Bought figures the full-width test expects, in the event's
+    /// order, from the pool's reserves and the held share now.
+    function fullWidthBuy() internal view returns (uint256[6] memory w) {
+        (uint256 ru, uint256 rl,) = reserves(pool);
+        uint256 held = broker.networkHeld();
+        // The TWAP: one hour at (2^110 << 112) / 2^10.
+        uint256 twap = 2 ** 212;
+        uint256 p = twap * (1e6 + param("buyback_max_slippage_ppm")) / 1e6;
+        // lim = p x 997 x rl passes 2^256 ...
+        require(p > type(uint256).max / (997 * rl), "lim passes 2^256");
+        // ... so with p = (a << 112) + b, lim - base = ((a x 997 x rl -
+        // 1000 x ru) << 112) + b x 997 x rl; each part is divided by
+        // 997 << 112 in 256 bits.
+        uint256 x = (p >> 112) * 997 * rl - 1000 * ru;
+        uint256 y = (p & (2 ** 112 - 1)) * 997 * rl;
+        uint256 maxIn = x / 997 + (((x % 997) << 112) + y) / (997 << 112);
+        require(held < maxIn, "held is the cap");
+        uint256 lptOut = held * 997 * rl / (1000 * ru + 997 * held);
+        require(lptOut > 0, "something to buy");
+        uint256 usdcIn = (1000 * ru * lptOut + 997 * (rl - lptOut) - 1) / (997 * (rl - lptOut));
+        w = [held, usdcIn, lptOut, lptOut, twap, maxIn];
+    }
+
     // --- rule 9: the burn -------------------------------------------------
 
     /// Anyone burns its own: balance and supply fall, Transfer to 0. Above
     /// the balance it is refused as a transfer is. A transfer to 0xdEaD
     /// leaves supply as it was.
     function test_burn() external {
-        deployStage4(GENESIS, true);
+        deployStage4(GENESIS, STUB);
         require(lpt.transfer(who("H"), 5e18), "give");
         vm.recordLogs();
         vm.prank(who("H"));
