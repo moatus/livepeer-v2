@@ -61,6 +61,8 @@ contract StakeStub {
 /// the parts withdrawn; the round's issuance at most its ceiling.
 contract ValidatorPayTest is LedgerRunnerV2 {
     StakeStub internal stakes;
+    /// test_validator_share_change: each member's LPT before a share mint.
+    uint256[2] internal payoutBefore;
 
     function setUp() external {
         loadVectors("october-main-text-v4");
@@ -108,6 +110,93 @@ contract ValidatorPayTest is LedgerRunnerV2 {
             }
             require(found, string.concat("validator-pay case not run: ", ids[i]));
         }
+    }
+
+    // --- a change to the validator share (R-25 with R-10 and R-14) ---------
+
+    /// G announces emission shares of 900,000, 60,000 and 40,000 in round 4;
+    /// they count from round 11. Round 11's shares are minted first, then
+    /// round 5's, after the change counts. Each round's validator amount,
+    /// each member's pay, cut and pot, and the treasury's LPT follow that
+    /// round's own shares: 60,000 and 40,000 for round 11, the deployment's
+    /// 10,000 and 50,000 for round 5. The expected amounts are worked here
+    /// from R-10 and R-14's formulas, with each round's ceiling read from
+    /// the examples' ceiling cases, not from RewardMath or Claims.
+    function test_validator_share_change() external {
+        deployWithStubs();
+        loadCeilings();
+        address[] memory members = new address[](2);
+        (members[0], members[1]) = (who("A"), who("B"));
+        register("A");
+        register("B");
+        uint256[2] memory rounds = [uint256(5), 11];
+        for (uint256 i = 0; i < 2; i++) {
+            stakes.set(members[0], rounds[i], 3e18, 250_000);
+            stakes.set(members[1], rounds[i], 1e18, 1_000_000);
+            scores.setMembers(rounds[i], members);
+        }
+        toRound(4);
+        uint256[] memory shares = new uint256[](3);
+        (shares[0], shares[1], shares[2]) = (900_000, 60_000, 40_000);
+        vm.prank(who("G"));
+        expectEq(params.announce(2, shares), 11, "the change counts from");
+        toRound(12);
+        sharePay(11, 60_000, 40_000, members);
+        sharePay(5, 10_000, 50_000, members);
+        holdsPots("validator share change");
+        holdsIssuance("validator share change");
+    }
+
+    /// Mints `round`'s shares and holds each amount to R-10 and R-14 at the
+    /// validator share `v` and treasury share `t`, both in millionths.
+    function sharePay(uint256 round, uint256 v, uint256 t, address[] memory members) internal {
+        uint256 c = exampleCeiling(round - 1);
+        uint256 treasuryBefore = lpt.balanceOf(treasuryAddress());
+        uint256 claimsBefore = lpt.balanceOf(address(claims));
+        for (uint256 i = 0; i < 2; i++) {
+            payoutBefore[i] = lpt.balanceOf(members[i]);
+        }
+        expectDone(doMintShares(who("Keeper"), round), string.concat("round ", vm.toString(round), ": the share mint"));
+        uint256 paid = 0;
+        uint256 pots = 0;
+        for (uint256 i = 0; i < 2; i++) {
+            (uint256 pay, uint256 pot) = memberPay(i, members[i], round, c * v);
+            paid += pay;
+            pots += pot;
+        }
+        expectEq(lpt.balanceOf(address(claims)) - claimsBefore, pots, "pots to Claims");
+        expectEq(
+            lpt.balanceOf(treasuryAddress()) - treasuryBefore,
+            c * t / 1_000_000 + (c * v / 1_000_000 - paid),
+            string.concat("round ", vm.toString(round), ": to the treasury")
+        );
+    }
+
+    /// Member `i`'s pay, R-14: floor(c x v x stake / (10^6 x 4 LPT)), with
+    /// `cv` = c x v; its cut (R-24) at its payout, which is its own address;
+    /// and its pot. A has 3 LPT at a cut of 25 %, B 1 LPT at 100 %.
+    function memberPay(uint256 i, address member, uint256 round, uint256 cv)
+        internal
+        view
+        returns (uint256 pay, uint256 pot)
+    {
+        pay = cv * [uint256(3e18), 1e18][i] / (1_000_000 * 4e18);
+        uint256 cut = pay * [uint256(250_000), 1_000_000][i] / 1_000_000;
+        pot = pay - cut;
+        string memory m = string.concat("round ", vm.toString(round), i == 0 ? ": A" : ": B");
+        (uint256 gotPay, uint256 gotCut, uint256 gotPot) = claims.validatorPayOf(member, round);
+        expectEq(gotPay, pay, string.concat(m, " paid"));
+        expectEq(gotCut, cut, string.concat(m, " cut"));
+        expectEq(gotPot, pot, string.concat(m, " pot"));
+        expectEq(lpt.balanceOf(member) - payoutBefore[i], cut, string.concat(m, "'s cut at its payout"));
+    }
+
+    /// The examples' ceiling for emission index `r`.
+    function exampleCeiling(uint256 r) internal view returns (uint256) {
+        for (uint256 i = 0; i < ceilingAt.length; i++) {
+            if (ceilingAt[i] == r) return ceilingWei[i];
+        }
+        revert(string.concat("no ceiling case for emission index ", vm.toString(r)));
     }
 
     /// Stage 2, the token, the stubs and Claims, created at the address the

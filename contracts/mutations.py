@@ -27,6 +27,7 @@ CL, RM, SL = "src/money/Claims.sol", "src/math/RewardMath.sol", "src/money/Stake
 # The Scores tests read rulebook v4's examples (S-10 phase 3).
 V4 = "../vectors/october-main-text-v4.json"
 P = "src/authority/Parameters.sol"
+TP, PT = "src/money/TestPool.sol", "test/Parameters.t.sol"
 
 # name, [(file, old, new)], catching check[, fast_green]
 M = [
@@ -160,10 +161,25 @@ M = [
  ("params: the new half-life starts a round late", [(P, "RewardMath.position(inForce[0], inForce[1], inForce[2], countsFrom - 1) + values[0];", "RewardMath.position(inForce[0], inForce[1], inForce[2], countsFrom) + values[0];")], "test_parameters_half_life|test_half_life_420"),
  ("params: the pool's tokens not checked", [(P, "        if (!(t0 == usdc && t1 == lpt) && !(t0 == lpt && t1 == usdc)) revert POOL_INVALID(p);\n", "")], "test_the_pool_check_reads_the_tokens|test_parameters_buyback"),
  ("params: the pool's code not checked", [(P, "if (p.code.length == 0 || p.codehash != poolCodeHash) revert POOL_INVALID(p);", "if (p.code.length == 0) revert POOL_INVALID(p);")], "test_parameters_buyback"),
+ ("params: pending still shown in the round the change counts from", [(P, "        if (n > 0 && list[n - 1].countsFrom > clock.currentRound()) {", "        if (n > 0 && list[n - 1].countsFrom >= clock.currentRound()) {")], "test_pending_ends_in_the_round_the_change_counts_from"),
+ ("params: the emission's count of values not checked", [(P, "if (group == EMISSION) return v.length == 3 && v[0] <= ONE", "if (group == EMISSION) return v.length >= 2 && v[0] <= ONE")], "test_a_wrong_count_of_values_is_out_of_range"),
+ ("params: the schedule's count of values not checked", [(P, "return v.length == 2 && v[0] <= MOST && v[1] != 0", "return v.length >= 2 && v[0] <= MOST && v[1] != 0")], "test_a_wrong_count_of_values_is_out_of_range"),
+ ("params: a score source word above 160 bits accepted", [(P, "return v.length == 1 && v[0] <= type(uint160).max && address(uint160(v[0])).code.length > 0;", "return v.length == 1 && address(uint160(v[0])).code.length > 0;")], "test_an_address_word_above_160_bits_is_out_of_range"),
+ ("params: a pool word above 160 bits accepted", [(P, "return v.length == 4 && v[0] <= type(uint160).max && v[1] >= 1800", "return v.length == 4 && v[1] >= 1800")], "test_an_address_word_above_160_bits_is_out_of_range"),
+ ("params: valuesAt answers a number with no group", [(P, "    function valuesAt(uint256 group, uint256 round) external view returns (uint256[] memory) {\n        if (group == 0 || group > BUYBACK_VALUES) revert NOT_ADJUSTABLE();\n", "    function valuesAt(uint256 group, uint256 round) external view returns (uint256[] memory) {\n")], "test_the_views_refuse_a_number_with_no_group"),
+ # S-10 3.1: the pool's runtime has no SELFDESTRUCT and no DELEGATECALL,
+ # and the walk that shows it reads instructions, not push data or metadata.
+ ("pool: TestPool given a function that delegates", [(TP, "    constructor(address tokenA, address tokenB) {", "    function relay(address t) external returns (bool ok) {\n        (ok,) = t.delegatecall(\"\");\n    }\n\n    constructor(address tokenA, address tokenB) {")], "test_the_pool_runtime_has_no_selfdestruct_or_delegatecall"),
+ ("pool: TestPool given a function that destroys it", [(TP, "    constructor(address tokenA, address tokenB) {", "    function close() external {\n        selfdestruct(payable(msg.sender));\n    }\n\n    constructor(address tokenA, address tokenB) {")], "test_the_pool_runtime_has_no_selfdestruct_or_delegatecall"),
+ ("pool walk: push data read as instructions", [(PT, "            if (op >= 0x60 && op <= 0x7f) i += op - 0x5f;\n", "")], "test_the_pool_runtime_has_no_selfdestruct_or_delegatecall|test_the_opcode_walk_skips_push_data_and_metadata"),
+ ("pool walk: the metadata read as instructions", [(PT, "        for (uint256 i = 0; i < end; i++) {\n            uint8 op = uint8(code[i]);\n            if (op == 0xff", "        for (uint256 i = 0; i < n; i++) {\n            uint8 op = uint8(code[i]);\n            if (op == 0xff")], "test_the_opcode_walk_skips_push_data_and_metadata"),
  ("ceiling: one factor 2^-64 low", [(RM, "K9 = 0xa7c92571bd511e01b2", "K9 = 0xa7c92571bd511e00b2")], "check"),
  ("position: the half-life ignored", [(RM, "        return p + (round - s) * (HALF_LIFE / h);", "        return p + (round - s);")], "test_ledger_authority|test_parameters_half_life"),
  ("claims: the schedule now, not the earning round's", [(CL, "        uint256[] memory s = params.valuesAt(SCHEDULE, round);", "        uint256[] memory s = params.valuesAt(SCHEDULE, clock.currentRound());")], "test_ledger_delays"),
  ("claims: the emission shares now, not the earning round's", [(CL, "                params.valuesAt(EMISSION, round)[0],", "                params.valuesAt(EMISSION, clock.currentRound())[0],")], "test_ledger_authority"),
+ ("claims: the validator share fixed at 1%", [(CL, "uint256 validatorAmount = RewardMath.amountOf(c, shares[1]);", "uint256 validatorAmount = RewardMath.amountOf(c, 10_000);"), (CL, "_payMember(members[i], round, c, shares[1], stakes[i], totalStake);", "_payMember(members[i], round, c, 10_000, stakes[i], totalStake);")], "test_validator_share_change"),
+ ("claims: the treasury share fixed at 5%", [(CL, "uint256 toTreasury = RewardMath.amountOf(c, shares[2]);", "uint256 toTreasury = RewardMath.amountOf(c, 50_000);")], "test_validator_share_change"),
+ ("claims: the round's validator and treasury shares now, not the earning round's", [(CL, "uint256[] memory shares = params.valuesAt(EMISSION, round);", "uint256[] memory shares = params.valuesAt(EMISSION, clock.currentRound());")], "test_validator_share_change"),
  ("claims: the reward delay fixed at 7", [(CL, "        uint256 delay = params.valuesAt(REWARD_DELAY, round)[0];", "        uint256 delay = 7;")], "test_ledger_delays"),
  ("claims: the deployment's score source, always", [(CL, "params.valuesAt(SCORE_SOURCE, now_)[0]", "params.valuesAt(SCORE_SOURCE, 0)[0]")], "test_ledger_score_source"),
  ("ledger: the unbonding wait fixed at 21", [(SL, "        return params.valuesAt(UNBONDING, now_)[0];", "        return 21;")], "test_ledger_delays"),

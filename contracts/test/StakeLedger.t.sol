@@ -317,6 +317,66 @@ contract StakeLedgerTest is LedgerRunnerV2 {
         }
     }
 
+    event log_named_uint(string key, uint256 val);
+
+    /// EIP-7825's cap on one transaction's gas.
+    uint256 private constant TX_GAS_CAP = 1 << 24;
+
+    /// At the longest unbonding wait (840) a holder who unbonds in each of
+    /// 840 rounds has 840 waiting unbonds, and a rebond walks them all. The
+    /// holder's own calls stay under one transaction's gas cap; the figures
+    /// are printed for the build notes (S-10 phase 3, F-5).
+    function test_gas_at_840_waiting_unbonds() external {
+        deployStage3();
+        address p = who("P");
+        address h = who("H");
+        register("P");
+        uint256[] memory wait = new uint256[](1);
+        wait[0] = 840;
+        vm.prank(who("G"));
+        uint256 from = params.announce(7, wait);
+        toRound(from);
+        lpt.transfer(h, 1000e18);
+        expectDone(bondAs(h, p, 1000e18), "bond");
+        uint256 most;
+        for (uint256 i = 0; i < 840; i++) {
+            if (i > 0) toRound(clock.currentRound() + 1);
+            expectDone(as_(h, address(ledger), abi.encodeCall(StakeLedger.unbond, (p, 1e18))), "unbond");
+            uint256 g = vm.lastFrameGas().gasTotalUsed;
+            if (g > most) most = g;
+        }
+        expectEq(ledger.rebondableOf(h, p), 840e18, "840 unbonds waiting");
+        emit log_named_uint("the costliest of the 840 unbonds", most);
+        require(most < TX_GAS_CAP, "an unbond: over one transaction's gas cap");
+        uint256 snap = vm.snapshotState();
+        measure(h, address(ledger), abi.encodeCall(StakeLedger.rebondableOf, (h, p)));
+        emit log_named_uint("rebondableOf, 840 waiting", stepGas[stepGas.length - 1]);
+        measure(h, address(ledger), abi.encodeCall(StakeLedger.rebond, (p, 840e18)));
+        emit log_named_uint("rebond all 840 in one call", stepGas[stepGas.length - 1]);
+        vm.revertToState(snap);
+        // Rebond takes the latest unbond first, so the last call of a run
+        // of calls takes the oldest: the state before it is the same
+        // whether what came before was one call or many.
+        uint256[3] memory sizes = [uint256(1), 10, 20];
+        for (uint256 k = 0; k < sizes.length; k++) {
+            snap = vm.snapshotState();
+            uint256 take = sizes[k] * 1e18;
+            measure(h, address(ledger), abi.encodeCall(StakeLedger.rebond, (p, take)));
+            uint256 first = stepGas[stepGas.length - 1];
+            expectDone(as_(h, address(ledger), abi.encodeCall(StakeLedger.rebond, (p, 840e18 - 2 * take))), "the rest");
+            measure(h, address(ledger), abi.encodeCall(StakeLedger.rebond, (p, take)));
+            uint256 last = stepGas[stepGas.length - 1];
+            expectEq(ledger.rebondableOf(h, p), 0, "all rebonded");
+            string memory call = string.concat("rebond of ", vm.toString(sizes[k]), " unbonds, ");
+            emit log_named_uint(string.concat(call, "the latest"), first);
+            emit log_named_uint(string.concat(call, "the oldest"), last);
+            if (k == 0) {
+                require(first < TX_GAS_CAP && last < TX_GAS_CAP, "one unbond's rebond: over the gas cap");
+            }
+            vm.revertToState(snap);
+        }
+    }
+
     function gasOfEveryCall() internal returns (uint256[] memory) {
         steps("ledger-stake");
         address p = who("P");
