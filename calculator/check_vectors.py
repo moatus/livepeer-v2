@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 from reference import Parameters, calculate
@@ -18,6 +19,25 @@ def decimal_strings(value):
     if type(value) is int:
         return str(value)
     return value
+
+
+RULEBOOKS = Path(__file__).resolve().parent.parent / "rulebook"
+
+
+def rulebook_errors(profile: str, ids: set, kinds: set) -> None:
+    """The rulebook and its examples hold together: every example the
+    rulebook names in backticks is a case here, so removing a worked case
+    fails, and every rule the rulebook cites has its own entry."""
+    text = (RULEBOOKS / f"{profile}.md").read_text()
+    named = set(re.findall(r"`([a-z0-9]+(?:-[a-z0-9]+)+)`", text))
+    named -= kinds | {path.stem for path in RULEBOOKS.glob("*.md")}
+    missing = sorted(named - ids)
+    if missing:
+        raise ValueError(f"{profile} names examples the vectors lack: {', '.join(missing)}")
+    entries = set(re.findall(r"^## (R-\d+)\b", text, re.M))
+    unwritten = sorted(set(re.findall(r"\bR-\d+\b", text)) - entries)
+    if unwritten:
+        raise ValueError(f"{profile} cites rules with no entry: {', '.join(unwritten)}")
 
 
 def check(path: Path) -> int:
@@ -46,9 +66,10 @@ def check(path: Path) -> int:
         ids = [case["id"] for case in cases]
         if len(set(ids)) != len(ids):
             raise ValueError("duplicate case ID")
+        rulebook_errors(document["profile"], set(ids), {case["kind"] for case in cases})
         # Strip expected outputs before constructing any calculator input.
         rounds = {case["id"]: case["inputs"] for case in cases if case["kind"] == "round"}
-    except (KeyError, TypeError, ValueError) as error:
+    except (KeyError, OSError, TypeError, ValueError) as error:
         print(f"calculator: FAILED: {error}")
         return 1
 

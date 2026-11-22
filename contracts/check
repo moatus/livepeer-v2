@@ -161,5 +161,66 @@ for contract, interface in PAIRS:
     if c == i:
         later = sorted(LATER.get(interface, ()))
         print(f"abi: {contract} equals {interface}" + (f", less {', '.join(later)}" if later else ""))
+
+# Interfaces a freeze declares and no contract implements yet, each with its
+# whole surface as the spec gives it (S-10, 3.2). The phase that builds the
+# contract moves it to PAIRS and removes it here.
+FROZEN = {
+    "interfaces/IParameters.sol:IParameters": {
+        "function authority() returns (address) view",
+        "function announce(uint256,uint256[]) returns (uint256)",
+        "function withdraw(uint256)",
+        "function valuesAt(uint256,uint256) returns (uint256[]) view",
+        "function pending(uint256) returns (uint256[],uint256) view",
+        "function poolCodeHash() returns (bytes32) view",
+        "event Announced(uint256 indexed,uint256[],uint256)",
+        "event Withdrawn(uint256 indexed,uint256)",
+        "error NOT_AUTHORIZED()", "error NOT_ADJUSTABLE()", "error SCHEDULE_RAISED()",
+        "error VALUE_OUT_OF_RANGE()", "error IDENTITY_NOT_WHOLE()", "error NOTHING_PENDING()",
+        "error POOL_INVALID(address)",
+    },
+    "interfaces/IRegistry.sol:IRegistryV3": {
+        "function register()",
+        "function setPayout(address,address)",
+        "function setOperator(address,address)",
+        "function acceptOperator(address)",
+        "function isRegistered(address) returns (bool) view",
+        "function isActiveTranscoder(address) returns (bool) view",
+        "function payoutOf(address) returns (address) view",
+        "function operatorOf(address) returns (address) view",
+        "function proposedOperatorOf(address) returns (address) view",
+        "function mayActFor(address,address) returns (bool) view",
+        "event NodeRegistered(address indexed,uint256)",
+        "event PayoutSet(address indexed,address)",
+        "event OperatorProposed(address indexed,address indexed)",
+        "event OperatorSet(address indexed,address indexed)",
+        "error NOT_REGISTERED()", "error PAYOUT_INVALID()", "error NOT_AUTHORIZED()",
+        "error OPERATOR_INVALID()",
+    },
+}
+
+def signature(e):
+    types = lambda ps: ",".join(p["type"] + (" indexed" if p.get("indexed") else "") for p in ps)
+    text = f"{e['type']} {e['name']}({types(e.get('inputs', []))})"
+    if e.get("outputs"):
+        text += f" returns ({types(e['outputs'])})"
+    if e.get("stateMutability") in ("view", "pure"):
+        text += " view"
+    elif e.get("stateMutability") == "payable":
+        text += " payable"
+    return text
+
+for interface, want in FROZEN.items():
+    abi = json.loads(subprocess.run(["forge", "inspect", interface, "abi", "--json"],
+                                    check=True, capture_output=True, text=True).stdout)
+    got = {signature(e) for e in abi}
+    name = interface.split(":")[1]
+    for e in sorted(want - got):
+        print(f"abi: {name} lacks the frozen {e}")
+    for e in sorted(got - want):
+        print(f"abi: {name} declares {e}, which the freeze does not")
+    failed = failed or got != want
+    if got == want:
+        print(f"abi: {name} equals its frozen surface")
 sys.exit(1 if failed else 0)
 EOF

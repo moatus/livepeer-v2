@@ -2123,23 +2123,58 @@
           {"step": "8", "round": "1", "action": "seat", "node": "D"},
           {"step": "9", "round": "1", "action": "announce", "caller": "G", "group": "5", "values": ["4"]},
           {"step": "10", "round": "2", "action": "observe", "target": "X"},
-          {"step": "11", "round": "6", "action": "seat", "node": "D"},
-          {"step": "12", "round": "7", "action": "seat", "node": "D"},
-          {"step": "13", "round": "7", "action": "observe", "target": "X"},
-          {"step": "14", "round": "8", "action": "observe", "target": "X"},
-          {"step": "15", "round": "8", "action": "announce", "caller": "G", "group": "5", "values": ["3"]}
+          {"step": "11", "round": "7", "action": "seat", "node": "D"},
+          {"step": "12", "round": "8", "action": "observe", "target": "X"},
+          {"step": "13", "round": "8", "action": "seat", "node": "D"},
+          {"step": "14", "round": "8", "action": "announce", "caller": "G", "group": "5", "values": ["3"]},
+          {"step": "15", "round": "9", "action": "observe", "target": "X"}
         ]
       },
       "expected": {
         "observed": [
           {"step": "10", "members": ["A", "B", "C"], "score": "1000000"},
-          {"step": "13", "members": ["A", "B", "C"], "score": "1000000"},
-          {"step": "14", "members": ["A", "B", "C", "D"], "score": "1000000"}
+          {"step": "12", "members": ["A", "B", "C"], "score": "1000000"},
+          {"step": "15", "members": ["A", "B", "C", "D"], "score": "1000000"}
         ],
         "refused": [
           {"step": "8", "code": "STAKE_TOO_LOW"},
           {"step": "11", "code": "STAKE_TOO_LOW"},
-          {"step": "15", "code": "VALUE_OUT_OF_RANGE"}
+          {"step": "14", "code": "VALUE_OUT_OF_RANGE"}
+        ]
+      }
+    },
+    {
+      "id": "validators-set-size-withdrawn",
+      "kind": "validators",
+      "inputs": {
+        "authority": "G",
+        "stakes": [{"from_round": "1", "stake_wei": {"A": "4000000000000000000000", "B": "3000000000000000000000", "C": "2000000000000000000000", "D": "1000000000000000000000"}}],
+        "steps": [
+          {"step": "1", "round": "1", "action": "opt_in", "node": "A"},
+          {"step": "2", "round": "1", "action": "opt_in", "node": "B"},
+          {"step": "3", "round": "1", "action": "opt_in", "node": "C"},
+          {"step": "4", "round": "1", "action": "opt_in", "node": "D"},
+          {"step": "5", "round": "1", "action": "seat", "node": "A"},
+          {"step": "6", "round": "1", "action": "seat", "node": "B"},
+          {"step": "7", "round": "1", "action": "seat", "node": "C"},
+          {"step": "8", "round": "1", "action": "seat", "node": "D"},
+          {"step": "9", "round": "1", "action": "announce", "caller": "G", "group": "5", "values": ["4"]},
+          {"step": "10", "round": "7", "action": "seat", "node": "D"},
+          {"step": "11", "round": "7", "action": "withdraw", "caller": "G", "group": "5"},
+          {"step": "12", "round": "8", "action": "seat", "node": "D"},
+          {"step": "13", "round": "8", "action": "observe", "target": "X"},
+          {"step": "14", "round": "9", "action": "observe", "target": "X"}
+        ]
+      },
+      "expected": {
+        "observed": [
+          {"step": "13", "members": ["A", "B", "C"], "score": "1000000"},
+          {"step": "14", "members": ["A", "B", "C"], "score": "1000000"}
+        ],
+        "refused": [
+          {"step": "8", "code": "STAKE_TOO_LOW"},
+          {"step": "10", "code": "STAKE_TOO_LOW"},
+          {"step": "12", "code": "STAKE_TOO_LOW"}
         ]
       }
     }

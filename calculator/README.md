@@ -36,7 +36,7 @@ divided once, as R-08 and R-19 require. Claims recompute from the earning
 round's inputs with the claim's score.
 
 Ledger cases replay registration, funding, redemption, payout, observation and
-release in fresh in-memory state. The default check covers 92 v3, 74 v2, 35 v1 and 26 v0 cases. No state survives a calculation. The check also runs ledger input regressions.
+release in fresh in-memory state. The default check covers 93 v3, 74 v2, 35 v1 and 26 v0 cases. No state survives a calculation. The check also runs ledger input regressions.
 Decreasing rounds, conflicting details for one ticket ID (including refused
 attempts), and observations without a node raise `ValueError` with a
 `ledger input error` message, rather than returning a rule refusal code.
@@ -61,7 +61,8 @@ order, each counting from its announce round plus 7, with at most one
 pending. A ledger round reads the values of the round the rulebook names:
 the fee cut of the redemption round, the shares, ceiling and reward delay of
 the earning round, the unbonding period of the unbond's round, the score
-source of the claim's round, and the set size of the round being seated.
+source of the claim's round, and the set size of the round a seat call
+runs in.
 The ceiling after a schedule change is the deployment's ceiling at the
 triple's position (R-05, x3-grid), so the same exact floor serves every
 schedule. `Operators` keeps R-26's operator keys and one-slot proposals.

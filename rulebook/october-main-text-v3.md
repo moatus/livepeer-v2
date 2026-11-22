@@ -152,12 +152,13 @@ reward delay and so its claim window. A fee takes the fee cut in force in
 the round it is redeemed in, which is its earning round. A claim reads
 its score from the score source in force when the claim runs. An unbond
 or a transfer takes the unbonding period in force in its own round, and a
-seat call the set size in force for the round being seated, the next.
+seat call, or an opt-in that seats, the set size in force in the round it
+runs in. No call reads a value that can still be withdrawn.
 
 ## The shared examples
 
-`vectors/october-main-text-v3.json` holds the parameters above and 92
-cases: v2's 74, unchanged, and 18 new ones. Every number in it is a
+`vectors/october-main-text-v3.json` holds the parameters above and 93
+cases: v2's 74, unchanged, and 19 new ones. Every number in it is a
 decimal string; any other string a step gives is a name, and a name
 stands for one address. A case has exactly four keys: an `id`, a `kind`
 (`settlement`, `ceiling`, `round`, `claim`, `ledger`, `split`, `score`,
@@ -1046,9 +1047,13 @@ votes lapse when it leaves (R-11). Every change counts from the next
 round, so a round's members are fixed when it starts. Stake is read only
 at these calls, so the members need not be the N largest opted-in nodes:
 one with more stake enters only when someone seats it. N is the
-`VALIDATOR_SET_SIZE` in force for the round being seated, the next one
-(R-25): 3 at deployment, for the paper's 33. It only rises, to at most 33
-(D-47); a seat a rise adds is filled by calls, as any free seat is.
+`VALIDATOR_SET_SIZE` in force in the round the call runs in (R-25), never
+a size still pending, which could be withdrawn: 3 at deployment, for the
+paper's 33. It only rises, to at most 33 (D-47), so the size a call reads
+is never more than that of the round it seats for, and a withdrawal never
+leaves a round over its size. A rise counting from round E adds a seat in
+E: round E has its new size and a free seat, and a call in E or later
+fills it, as any free seat is filled, for the next round.
 
 Ours: an opt-in seats the node when it can, as a seat call would, and is
 not refused when it cannot. Seating a node that has not opted in is
@@ -1119,9 +1124,13 @@ Q's vote of 1,000,001 on P with `NOT_VALIDATOR`, not
 `validators-set-size`: A, B, C and D have 4,000, 3,000, 2,000 and 1,000
 LPT. A, B and C fill the three seats in round 1, and seating D is refused
 with `STAKE_TOO_LOW`. A set size of 4, announced in round 1, counts from
-round 8: seating D in round 6, for round 7, is still refused with
-`STAKE_TOO_LOW`; in round 7, for round 8, a seat is free and D is a member
-from round 8. In round 8 a size of 3 is refused with `VALUE_OUT_OF_RANGE`.
+round 8: seating D in round 7 is still refused with `STAKE_TOO_LOW`, since
+round 7's size is 3. Round 8's members are A, B and C, with a seat free;
+seating D in round 8 makes it a member from round 9. In round 8 a size of
+3 is refused with `VALUE_OUT_OF_RANGE`. `validators-set-size-withdrawn`:
+the same change, withdrawn in round 7, never counts. Seating D in round 7,
+before the withdrawal, and in round 8 is refused with `STAKE_TOO_LOW`, and
+the members of rounds 8 and 9 are A, B and C.
 `validators-rotation`: V1's key passes to K1 in round 2. V1's own vote
 and opt-out are then refused with `NOT_AUTHORIZED` and K1's take effect:
 X's score is 500,000 in round 2, the median of K1's 500,000 for V1 and
@@ -1720,7 +1729,7 @@ group in the units section's table can never be named.
 | 2 `EMISSION` | node, validators, treasury | each 0 to 10^6, summing to 10^6 | the earning round (R-07, R-10) |
 | 3 `SCHEDULE` | drop, half-life | drop 0 to 840; half-life a divisor of 840, no higher than the one in force | the earning round (R-05) |
 | 4 `REWARD_DELAY` | rounds | 1 to 840 | the earning round (R-12) |
-| 5 `VALIDATOR_SET_SIZE` | members | from the size in force to 33 | the round being seated (R-13) |
+| 5 `VALIDATOR_SET_SIZE` | members | from the size in force to 33 | the round the seat call runs in (R-13) |
 | 6 `SCORE_SOURCE` | address | an address with code | the round the claim runs in (R-20) |
 | 7 `UNBONDING` | rounds | 1 to 840 | the round of the unbond or transfer (R-15) |
 | 8 `BUYBACK_CUTS` | burn, treasury, validators | exactly 10^6, 0, 0 | the round being bought (spec S-07) |

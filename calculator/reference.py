@@ -681,8 +681,9 @@ def validators(inputs: dict, parameters: Parameters) -> dict:
             if node not in opted:
                 code = "NOT_OPTED_IN"
             elif node not in pending:
-                # R-13, R-25: the set size of the round being seated, r + 1.
-                size = settings.values_at(5, r + 1)[0]
+                # R-13, R-25: the set size in force in the round the call
+                # runs in, never one that can still be withdrawn.
+                size = settings.values_at(5, r)[0]
                 smallest = min(reversed(pending), key=lambda n: stakes.get(n, 0)) if pending else None
                 if not stakes.get(node, 0) or (len(pending) >= size
                         and stakes[node] <= stakes.get(smallest, 0)):
