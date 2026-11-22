@@ -1,4 +1,4 @@
-"""Independent integer implementation of rulebook october-main-text-v3.
+"""Independent integer implementation of rulebook october-main-text-v4.
 
 LPT replay models round-start stake/cuts, bonding, transfers, unbonding,
 claims, minting and holder pots. It rejects overspending as invalid input.
@@ -10,6 +10,9 @@ NOT_CLAIMED remains an input error among simultaneous LPT refusals.
 From v3, Settings holds R-25's announced changes and the R-05 schedule
 triple, and Operators holds R-26's operator keys. Without an announcement or
 a rotation they give every v0 to v2 case the deployment's values.
+
+From v4, buyback() replays R-16: jobs add R-03's network share, a test pool
+keeps v2's cumulative price, and the Buyback pokes and buys against it.
 
 Only parameters and inputs enter these functions; expected vector outputs do not.
 Amounts returned by calculate() are Python integers in the rulebook's units.
@@ -340,6 +343,9 @@ def calculate(kind: str, inputs: dict, parameters: Parameters,
 
     if kind == "ledger":
         return ledger(inputs, parameters)
+
+    if kind == "buyback":
+        return buyback(inputs, parameters)
 
     if kind == "settlement":
         gross = integer(inputs["gross_micro_usdc"])
@@ -895,3 +901,161 @@ class LptReplay:
     def result(self):
         return ({'lpt_wei': self.bal, 'shares_wei': self.shares,
                  'minted_for_round_wei': self.minted, 'lpt_minted_wei': sum(self.minted.values())} if self.enabled else {})
+
+
+# R-16: the buyback. Amounts are integers: USDC in µUSDC, LPT in wei, a
+# price µUSDC per wei as UQ112x112. Python integers never wrap, so every
+# product is taken at full width; only the cumulative price is kept modulo
+# 2^256, as Uniswap v2 keeps it.
+WORD = 1 << 256
+UINT112 = (1 << 112) - 1
+BUYBACK_ACTIONS = {
+    "job": {"face_micro_usdc"},
+    "seed": {"usdc_micro_usdc", "lpt_wei"},
+    "swap": {"usdc_micro_usdc"},
+    "poke": set(),
+    "buy": set(),
+}
+
+
+class TestPool:
+    """The pool's reserves and v2's cumulative price of LPT in µUSDC per wei."""
+
+    def __init__(self):
+        self.usdc = self.lpt = 0
+        self.cumulative = self.last = 0
+
+    def price(self) -> int:
+        return (self.usdc << 112) // self.lpt
+
+    def cumulative_at(self, now: int) -> int:
+        """What a reader sees: the stored sum plus the time since the update."""
+        if now > self.last and self.usdc and self.lpt:
+            return (self.cumulative + self.price() * (now - self.last)) % WORD
+        return self.cumulative
+
+    def move(self, now: int, usdc_in: int, lpt_in: int, lpt_out: int) -> None:
+        """Update the cumulative from the old reserves, then change them."""
+        self.cumulative, self.last = self.cumulative_at(now), now
+        self.usdc += usdc_in
+        self.lpt += lpt_in - lpt_out
+        if self.usdc > UINT112 or self.lpt > UINT112:
+            raise ValueError("a reserve passes v2's 112 bits")
+
+
+def amount_out(usdc_in: int, usdc: int, lpt: int) -> int:
+    """v2's getAmountOut with the 0.3% fee."""
+    return usdc_in * 997 * lpt // (1000 * usdc + 997 * usdc_in)
+
+
+def buyback(inputs: dict, parameters: Parameters) -> dict:
+    """R-16 and R-03: replay jobs, the pool and the Buyback from inputs alone."""
+    burn = parameters.buyback_burn_ppm
+    interval = parameters.buyback_twap_seconds
+    slippage = parameters.buyback_max_slippage_ppm
+    every = parameters.buyback_every_rounds
+    supply = integer(inputs["lpt_supply_wei"])
+    pool = TestPool()
+    held = 0
+    last_buy = None              # lastBuyRound, none before the first buy
+    observations = None          # (O0, O1), each (cumulative, time)
+    bought, refused = [], []
+    previous_round, previous_time, labels = 1, 0, set()
+
+    for s in inputs["steps"]:
+        label, action = s["step"], s.get("action")
+        where = f"buyback input error at step {label}"
+        if label in labels:
+            raise ValueError(f"{where}: step repeated")
+        labels.add(label)
+        if action not in BUYBACK_ACTIONS:
+            raise ValueError(f"{where}: unknown action {action!r}")
+        extra = set(s) - {"step", "round", "time", "action"} - BUYBACK_ACTIONS[action]
+        if extra:
+            raise ValueError(f"{where}: {action} takes no {', '.join(sorted(extra))}")
+        now_round, now = integer(s["round"]), integer(s["time"])
+        if now_round < 1:
+            raise ValueError(f"{where}: rounds are numbered from 1")
+        if now_round < previous_round or now < previous_time:
+            raise ValueError(f"{where}: round or time decreases")
+        previous_round, previous_time = now_round, now
+        code, args = None, None
+
+        if action == "job":
+            # R-03: the node's cut floors; the network share is the rest.
+            face = integer(s["face_micro_usdc"])
+            held += face - face * parameters.node_cut_millionths // MILLION
+
+        elif action == "seed":
+            pool.move(now, integer(s["usdc_micro_usdc"]), integer(s["lpt_wei"]), 0)
+
+        elif action == "swap":
+            usdc_in = integer(s["usdc_micro_usdc"])
+            if not (pool.usdc and pool.lpt):
+                raise ValueError(f"{where}: a swap needs both reserves")
+            lpt_out = amount_out(usdc_in, pool.usdc, pool.lpt)
+            if lpt_out == 0:
+                raise ValueError(f"{where}: a swap must receive some LPT")
+            pool.move(now, usdc_in, 0, lpt_out)
+
+        elif action == "poke":
+            # Rule 8, refused in rule 11's order (one pool, so never POOL_INVALID).
+            if not (pool.usdc and pool.lpt):
+                code = "NO_LIQUIDITY"
+            elif observations is None:
+                here = (pool.cumulative_at(now), now)
+                observations = (here, here)
+            elif now - observations[1][1] >= interval:
+                observations = (observations[1], (pool.cumulative_at(now), now))
+            else:
+                code, args = "NOT_DUE", [observations[1][1] + interval]
+
+        else:  # buy, rules 2 to 7, refused in rule 11's order
+            if last_buy is not None and now_round < last_buy + every:
+                code, args = "ALREADY_BOUGHT", [last_buy + every]
+            elif held == 0:
+                code = "NOTHING_HELD"
+            elif not (pool.usdc and pool.lpt):
+                code = "NO_LIQUIDITY"
+            elif observations is None:
+                code, args = "TWAP_NOT_READY", [0, interval]
+            else:
+                # Rule 3: O1 when an observation is due, else O0.
+                cumulative = pool.cumulative_at(now)
+                due = now - observations[1][1] >= interval
+                observed = observations[1] if due else observations[0]
+                elapsed = now - observed[1]
+                if elapsed < interval:
+                    code, args = "TWAP_NOT_READY", [elapsed, interval]
+                else:
+                    twap = (cumulative - observed[0]) % WORD // elapsed
+                    # Rule 4: the most the bound allows.
+                    ru, rl = pool.usdc, pool.lpt
+                    limit = twap * (MILLION + slippage) // MILLION * 997 * rl
+                    base = (1000 * ru) << 112
+                    max_in = (limit - base) // (997 << 112) if limit > base else 0
+                    # Rule 5: one quote, then the least input for it, rounded up.
+                    cap = min(held, max_in)
+                    lpt_out = amount_out(cap, ru, rl) if cap else 0
+                    if lpt_out == 0:
+                        code, args = "SLIPPAGE", [held, max_in]
+                    else:
+                        usdc_in = -(-1000 * ru * lpt_out // (997 * (rl - lpt_out)))
+                        # Rule 7: record, draw, swap and burn, in one transaction.
+                        if due:
+                            observations = (observations[1], (cumulative, now))
+                        last_buy = now_round
+                        held -= usdc_in
+                        pool.move(now, usdc_in, 0, lpt_out)
+                        burned = lpt_out * burn // MILLION
+                        supply -= burned
+                        bought.append({"step": label, "usdc_in_micro_usdc": usdc_in,
+                                       "lpt_out_wei": lpt_out, "burned_wei": burned,
+                                       "max_in_micro_usdc": max_in, "twap_x112": twap})
+
+        if code:
+            refused.append({"step": label, "code": code, **({"args": args} if args else {})})
+
+    return {"bought": bought, "refused": refused, "held_micro_usdc": held,
+            "reserve_usdc_micro_usdc": pool.usdc, "reserve_lpt_wei": pool.lpt,
+            "lpt_supply_wei": supply}

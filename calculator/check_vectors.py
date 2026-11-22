@@ -8,7 +8,7 @@ from pathlib import Path
 from reference import Parameters, calculate
 
 
-DEFAULT_VECTORS = Path(__file__).resolve().parent.parent / "vectors/october-main-text-v3.json"
+DEFAULT_VECTORS = Path(__file__).resolve().parent.parent / "vectors/october-main-text-v4.json"
 
 
 def decimal_strings(value):
@@ -19,6 +19,27 @@ def decimal_strings(value):
     if type(value) is int:
         return str(value)
     return value
+
+
+def differences(expected, actual, path="") -> list[str]:
+    """Each place the two differ, as `path: expected X, got Y`."""
+    if isinstance(expected, dict) and isinstance(actual, dict):
+        found = []
+        for key in sorted(set(expected) | set(actual)):
+            if key not in actual:
+                found.append(f"{path}.{key}: expected {json.dumps(expected[key])}, got nothing")
+            elif key not in expected:
+                found.append(f"{path}.{key}: expected nothing, got {json.dumps(actual[key])}")
+            else:
+                found += differences(expected[key], actual[key], f"{path}.{key}")
+        return found
+    if isinstance(expected, list) and isinstance(actual, list) and len(expected) == len(actual):
+        return [line for index, (e, a) in enumerate(zip(expected, actual))
+                for line in differences(e, a, f"{path}[{index}]")]
+    if expected == actual:
+        return []
+    return [f"{path or '.'}: expected {json.dumps(expected, sort_keys=True)}, "
+            f"got {json.dumps(actual, sort_keys=True)}"]
 
 
 RULEBOOKS = Path(__file__).resolve().parent.parent / "rulebook"
@@ -52,7 +73,8 @@ def check(path: Path) -> int:
 
     try:
         if document["profile"] not in ("october-main-text-v0", "october-main-text-v1",
-                                       "october-main-text-v2", "october-main-text-v3"):
+                                       "october-main-text-v2", "october-main-text-v3",
+                                       "october-main-text-v4"):
             raise ValueError("unknown rulebook profile")
         parameters = Parameters.from_strings(document["parameters"])
         cases = document["cases"]
@@ -86,8 +108,8 @@ def check(path: Path) -> int:
                     raise ValueError("unknown ceiling output shape")
                 actual = {key: actual[key] for key in expected}
             if actual != expected:
-                raise ValueError(f"expected {json.dumps(expected, sort_keys=True)}; "
-                                 f"got {json.dumps(actual, sort_keys=True)}")
+                raise ValueError("; ".join(differences(expected, actual))
+                                 or "outputs differ in type")
         except (KeyError, TypeError, ValueError) as error:
             failures += 1
             print(f"FAIL {case['id']}: {error}")

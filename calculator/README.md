@@ -1,6 +1,6 @@
 # Independent calculator
 
-Implements `rulebook/october-main-text-v3.md` using Python 3.12 and its
+Implements `rulebook/october-main-text-v4.md` using Python 3.12 and its
 standard library. It was built from the rulebook and shared examples,
 without reading contract implementations. Python's arbitrary-size integers
 allow exact products and powers without dependencies or floating point.
@@ -14,7 +14,8 @@ From the repository root:
 ```
 
 The check reports every case ID, compares every expected amount and refusal
-code, and fails on unknown kinds. It exits 0 on agreement, 1 on a mismatch
+code, and fails on unknown kinds. A mismatch names each field that differs,
+as `path: expected X, got Y`. It exits 0 on agreement, 1 on a mismatch
 or invalid case, and 2 when Python or the input file is unavailable. A
 scratch copy lets a reviewer change an expectation and see the check fail
 without editing the frozen vectors.
@@ -36,7 +37,7 @@ divided once, as R-08 and R-19 require. Claims recompute from the earning
 round's inputs with the claim's score.
 
 Ledger cases replay registration, funding, redemption, payout, observation and
-release in fresh in-memory state. The default check covers 93 v3, 74 v2, 35 v1 and 26 v0 cases. No state survives a calculation. The check also runs ledger input regressions.
+release in fresh in-memory state. The default check covers 97 v4, 93 v3, 74 v2, 35 v1 and 26 v0 cases. No state survives a calculation. The check also runs ledger input regressions.
 Decreasing rounds, conflicting details for one ticket ID (including refused
 attempts), and observations without a node raise `ValueError` with a
 `ledger input error` message, rather than returning a rule refusal code.
@@ -67,3 +68,19 @@ The ceiling after a schedule change is the deployment's ceiling at the
 triple's position (R-05, x3-grid), so the same exact floor serves every
 schedule. `Operators` keeps R-26's operator keys and one-slot proposals.
 A `parameters` case runs announcements, withdrawals and reads alone.
+
+From v4, a `buyback` case replays R-16 against a fresh pool and Buyback:
+`job` adds R-03's network share, `seed` and `swap` move the pool's reserves
+after v2 updates its cumulative price, and `poke` and `buy` follow rules 2
+to 8 with rule 11's refusal order. The case's times may start anywhere: only
+their differences enter a price, so a run at a chain's own block times is
+checked the same way. A step that breaks the case's shape (an unknown action
+or field, a repeated step, a round below 1, a round or time that decreases,
+a swap on an empty pool or one that would receive nothing, a reserve past
+v2's 112 bits) raises `ValueError` with a `buyback input error` message,
+since these are not rule refusals. No case changes the pool, so
+`POOL_INVALID` never arises, and an honest pool never gives `LPT_SHORT`.
+`test_buyback.py` covers what the four frozen cases leave unseparated:
+rule 5's exact rounding up, rule 6's bound, a refused buy recording nothing,
+`NOT_DUE`'s time, the refusal order, an odd face's network share and a burn
+share below 10^6.

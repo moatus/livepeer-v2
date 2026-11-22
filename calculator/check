@@ -4,9 +4,11 @@ set -u
 command -v python3 >/dev/null 2>&1 || { echo "python3 is not installed"; exit 2; }
 python3 -B "$(dirname "$0")/test_ledger_inputs.py" || exit 1
 python3 -B "$(dirname "$0")/test_validators.py" || exit 1
+python3 -B "$(dirname "$0")/test_buyback.py" || exit 1
 if [ "$#" -eq 0 ]; then
     python3 -B "$(dirname "$0")/check_vectors.py" "$(dirname "$0")/../vectors/october-main-text-v0.json" || exit 1
     python3 -B "$(dirname "$0")/check_vectors.py" "$(dirname "$0")/../vectors/october-main-text-v1.json" || exit 1
     python3 -B "$(dirname "$0")/check_vectors.py" "$(dirname "$0")/../vectors/october-main-text-v2.json" || exit 1
+    python3 -B "$(dirname "$0")/check_vectors.py" "$(dirname "$0")/../vectors/october-main-text-v3.json" || exit 1
 fi
 exec python3 -B "$(dirname "$0")/check_vectors.py" "$@"
