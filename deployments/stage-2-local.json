@@ -9,7 +9,8 @@
     {"contract": "Registry", "source": "contracts/src/authority/Registry.sol", "node_name": "BondingManager"},
     {"contract": "RoundClock", "source": "contracts/src/clock/RoundClock.sol", "node_name": "RoundsManager"},
     {"contract": "Broker", "source": "contracts/src/money/Broker.sol", "node_name": "TicketBroker"},
-    {"contract": "MockUSDC", "source": "contracts/src/money/MockUSDC.sol", "node_name": "none"}
+    {"contract": "MockUSDC", "source": "contracts/src/money/MockUSDC.sol", "node_name": "none"},
+    {"contract": "Parameters", "source": "contracts/src/authority/Parameters.sol", "node_name": "none: the Broker reads its fee split from it", "checks": "authority() is the made-up address of the stand-in Parameters with no key; deployed after the five stage 2 contracts, at the address the Broker was given"}
   ],
   "node": {
     "source": "https://github.com/livepeer/node",
@@ -79,9 +80,9 @@
       "value": "SmolLM2-135M-Instruct served by llama.cpp; its answers are not checked, and a settled ticket does not show the work was done"
     },
     {
-      "stand_in": "No governance",
-      "for": "Parameter changes under D-12",
-      "value": "No contract has an owner key; the Controller's names and every parameter are fixed at deployment"
+      "stand_in": "Parameters with no key",
+      "for": "Parameter changes under D-12 (S-10 R-25)",
+      "value": "Parameters is deployed with an authority address the run makes up and whose key nobody holds, so no change can be announced and every value is the deployment's for every round; no contract has an owner key, and the Controller's names are fixed at deployment."
     },
     {
       "stand_in": "No buyback",

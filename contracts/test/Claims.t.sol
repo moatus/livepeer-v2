@@ -12,14 +12,17 @@ import {ITicketBroker} from "../interfaces/ITicketBroker.sol";
 
 /// Claims (S-05 phase 4, S-06 phase 4): the v2 `ledger` cases with claims,
 /// withdrawals, share mints and validator pots, from
-/// vectors/october-main-text-v2.json, with the after-step checks of the
+/// vectors/october-main-text-v4.json, with the after-step checks of the
 /// shared examples (LedgerRunnerV2); then the refusals and orders no case
 /// reaches, validator pay on the real Scores, and R-23's gas checks.
 contract ClaimsTest is LedgerRunnerV2 {
     event log_named_uint(string key, uint256 val);
 
+    /// The deployment's validator share of emission (R-07, R-25).
+    uint256 private constant VALIDATOR_SHARE = 10_000;
+
     function setUp() external {
-        loadVectors("october-main-text-v2");
+        loadVectors("october-main-text-v4");
     }
 
     function test_ledger_cycle() external {
@@ -52,6 +55,21 @@ contract ClaimsTest is LedgerRunnerV2 {
 
     function test_ledger_mid_round() external {
         runV2("ledger-mid-round");
+    }
+
+    // R-25 (S-10 phase 3): Parameters' changes, read for the round each
+    // part names. The section 1 table: round 5 claimed after round 11.
+    function test_ledger_authority() external {
+        runV2("ledger-authority");
+    }
+
+    function test_ledger_delays() external {
+        runV2("ledger-delays");
+    }
+
+    /// A claim in round 13 reads the score source that counts from it.
+    function test_ledger_score_source() external {
+        runV2("ledger-score-source");
     }
 
     function runV2(string memory id) internal {
@@ -239,7 +257,6 @@ contract ClaimsTest is LedgerRunnerV2 {
     /// mints round 3's shares in round 4, and round 4's in round 5.
     function test_a_node_seated_after_the_round_is_paid_nothing() external {
         deployStage3WithScores();
-        ceilingFromMath = true;
         string[4] memory ns = ["A", "B", "C", "X"];
         uint256[4] memory amounts = [uint256(5_000e18), 3_000e18, 2_000e18, 6_000e18];
         for (uint256 i = 0; i < 4; i++) {
@@ -271,7 +288,9 @@ contract ClaimsTest is LedgerRunnerV2 {
         for (uint256 i = 0; i < 3; i++) {
             (paid,, pot) = claims.validatorPayOf(who(ns[i]), 3);
             expectEq(
-                paid, RewardMath.validatorPayOf(c3, amounts[i], 10_000e18), string.concat(ns[i], " paid for round 3")
+                paid,
+                RewardMath.validatorPayOf(c3, VALIDATOR_SHARE, amounts[i], 10_000e18),
+                string.concat(ns[i], " paid for round 3")
             );
             require(paid > 0 && pot == paid, "a member of round 3 paid, all to its pot");
         }
@@ -284,7 +303,11 @@ contract ClaimsTest is LedgerRunnerV2 {
         expectDone(doMintShares(x, 4), "X mints round 4's shares");
         holdsEverything("round 4's shares");
         (paid,,) = claims.validatorPayOf(x, 4);
-        expectEq(paid, RewardMath.validatorPayOf(RewardMath.ceiling(3), 6_000e18, 14_000e18), "X paid for round 4");
+        expectEq(
+            paid,
+            RewardMath.validatorPayOf(RewardMath.ceiling(3), VALIDATOR_SHARE, 6_000e18, 14_000e18),
+            "X paid for round 4"
+        );
         (paid,,) = claims.validatorPayOf(who("C"), 4);
         expectEq(paid, 0, "C, displaced from round 4, paid for it");
     }
@@ -303,7 +326,6 @@ contract ClaimsTest is LedgerRunnerV2 {
     /// other way round, in round 40.
     function test_both_parts_of_a_round_withdrawn_once_each() external {
         deployStage3WithScores();
-        ceilingFromMath = true;
         address v = who("V");
         address h = who("H");
         register("V");

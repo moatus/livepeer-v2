@@ -9,6 +9,7 @@ import {ITicketBroker} from "../../interfaces/ITicketBroker.sol";
 import {IStakeLedger} from "../../interfaces/IStakeLedger.sol";
 import {IScoreSource} from "../../interfaces/IScoreSource.sol";
 import {IScores} from "../../interfaces/IScores.sol";
+import {IParameters} from "../../interfaces/IParameters.sol";
 import {RewardMath} from "../math/RewardMath.sol";
 
 /// The one LPT minter (rulebook R-09, R-10, R-12, R-14, R-24). It mints each
@@ -20,23 +21,27 @@ import {RewardMath} from "../math/RewardMath.sol";
 ///
 /// Every number a payment depends on is read, never asserted by the caller:
 /// the earning round's fees from the Broker; its stake, bonds and cuts from
-/// StakeLedger and its validator members from the validator set, all fixed
-/// once that round has started; the score from the score source at the
-/// claim; who may act for the node and its payout address from the
-/// Registry at execution.
+/// StakeLedger, its validator members from the validator set, and its
+/// emission shares, schedule and reward delay from Parameters, all fixed
+/// once that round has started (R-25); the score from the score source in
+/// force in the round the claim runs in; who may act for the node and its
+/// payout address from the Registry at execution.
 ///
 /// Two addresses answer for scores (S-06, A3), the same contract in stage
-/// 3: the score source, for scoreOf, which R-20 lets be replaced, and the
-/// validator set, for membersAt, which stays.
+/// 3: the score source, for scoreOf, which Parameters' group 6 replaces
+/// (R-20, R-25), and the validator set, for membersAt, which stays.
 ///
 /// There is no round 0 (R-18): every call that names it is refused with
 /// NO_SUCH_ROUND, after who and before anything else (D-39, D-40).
 contract Claims is IClaims {
-    /// RewardDelay (R-12): round R is claimable from R + 7.
-    uint256 private constant REWARD_DELAY = 7;
-    /// The last round R is claimable in is R + 28: the reward delay plus a
-    /// ClaimWindow of 21 rounds (R-12, D-08).
-    uint256 private constant CLAIM_LAST = 28;
+    /// Parameters' groups read here (R-25).
+    uint256 private constant EMISSION = 2;
+    uint256 private constant SCHEDULE = 3;
+    uint256 private constant REWARD_DELAY = 4;
+    uint256 private constant SCORE_SOURCE = 6;
+    /// ClaimWindow (R-12, D-08): round R with reward delay d is claimable in
+    /// R + d to R + d + 21.
+    uint256 private constant CLAIM_WINDOW = 21;
     /// A score is 0 to 10^6 (R-11).
     uint256 private constant MAX_SCORE = 1_000_000;
 
@@ -45,7 +50,7 @@ contract Claims is IClaims {
     IRoundClock private immutable clock;
     ITicketBroker private immutable broker;
     IStakeLedger private immutable ledger;
-    IScoreSource private immutable scores;
+    IParameters private immutable params;
     IScores private immutable validators;
     /// The treasury address, fixed at deployment (R-10).
     address private immutable treasury;
@@ -88,13 +93,13 @@ contract Claims is IClaims {
         IRoundClock clock_,
         ITicketBroker broker_,
         IStakeLedger ledger_,
-        IScoreSource scores_,
+        IParameters params_,
         IScores validators_,
         address treasury_
     ) {
         require(
             address(lpt_) != address(0) && address(registry_) != address(0) && address(clock_) != address(0)
-                && address(broker_) != address(0) && address(ledger_) != address(0) && address(scores_) != address(0)
+                && address(broker_) != address(0) && address(ledger_) != address(0) && address(params_) != address(0)
                 && address(validators_) != address(0) && treasury_ != address(0),
             "zero address"
         );
@@ -103,7 +108,7 @@ contract Claims is IClaims {
         clock = clock_;
         broker = broker_;
         ledger = ledger_;
-        scores = scores_;
+        params = params_;
         validators = validators_;
         treasury = treasury_;
     }
@@ -117,15 +122,18 @@ contract Claims is IClaims {
         if (round == 0) revert IClaims.NO_SUCH_ROUND();
         if (!registry.isRegistered(node)) revert IClaims.NOT_REGISTERED();
         uint256 now_ = clock.currentRound();
-        if (now_ < round || now_ - round < REWARD_DELAY) revert IClaims.CLAIM_TOO_EARLY();
-        if (now_ - round > CLAIM_LAST) revert IClaims.CLAIM_EXPIRED();
+        // The earning round's reward delay (R-12, R-25).
+        uint256 delay = params.valuesAt(REWARD_DELAY, round)[0];
+        if (now_ < round || now_ - round < delay) revert IClaims.CLAIM_TOO_EARLY();
+        if (now_ - round > delay + CLAIM_WINDOW) revert IClaims.CLAIM_EXPIRED();
         Entitlement storage e = entitlements[node][round];
         if (e.claimed) revert IClaims.ALREADY_CLAIMED();
-        uint256 score = scores.scoreOf(node);
+        // The score source in force in the round the claim runs in (R-20).
+        uint256 score = IScoreSource(address(uint160(params.valuesAt(SCORE_SOURCE, now_)[0]))).scoreOf(node);
         if (score > MAX_SCORE) revert IClaims.SCORE_OUT_OF_RANGE();
 
         // R-08 with the earning round's fees and stake, both fixed since it
-        // ended, and its ceiling C(round - 1). A round with zero total fees
+        // ended, and its ceiling and node share. A round with zero total fees
         // or zero total stake pays its nodes 0, and the claim closes at 0.
         // So does a node with no stake at the start of the round (R-24).
         uint256 paid = 0;
@@ -133,7 +141,8 @@ contract Claims is IClaims {
         uint256 totalStake = ledger.totalStakeAt(round);
         if (totalFee != 0 && totalStake != 0) {
             paid = RewardMath.nodeReward(
-                RewardMath.ceiling(round - 1),
+                _ceiling(round),
+                params.valuesAt(EMISSION, round)[0],
                 broker.feesOf(round, node),
                 totalFee,
                 ledger.stakeAt(node, round),
@@ -183,15 +192,17 @@ contract Claims is IClaims {
     /// Each input is the round's own: the members of `round`, fixed when it
     /// started, and each one's stake and cut at its start. Only the payout
     /// address is read now (D-10 e1). The loop runs over the members, at most
-    /// N, never over holders or opted-in nodes (R-23).
+    /// 33 (R-13), never over holders or opted-in nodes (R-23).
     function mintRoundShares(uint256 round) external {
         if (round == 0) revert IClaims.NO_SUCH_ROUND();
         if (round >= clock.currentRound()) revert IClaims.CLAIM_TOO_EARLY();
         if (minted[round]) revert IClaims.ALREADY_CLAIMED();
         minted[round] = true;
-        uint256 c = RewardMath.ceiling(round - 1);
-        uint256 validatorAmount = RewardMath.validatorsOf(c);
-        uint256 toTreasury = RewardMath.treasuryOf(c);
+        // The round's own ceiling and shares (R-07, R-25).
+        uint256 c = _ceiling(round);
+        uint256[] memory shares = params.valuesAt(EMISSION, round);
+        uint256 validatorAmount = RewardMath.amountOf(c, shares[1]);
+        uint256 toTreasury = RewardMath.amountOf(c, shares[2]);
         emit IClaims.RoundSharesMinted(round, validatorAmount, toTreasury);
 
         address[] memory members = validators.membersAt(round);
@@ -204,7 +215,7 @@ contract Claims is IClaims {
         uint256 paidOut = 0;
         uint256 pots = 0;
         for (uint256 i = 0; i < members.length; i++) {
-            (uint256 paid, uint256 pot) = _payMember(members[i], round, c, stakes[i], totalStake);
+            (uint256 paid, uint256 pot) = _payMember(members[i], round, c, shares[1], stakes[i], totalStake);
             paidOut += paid;
             pots += pot;
         }
@@ -218,11 +229,11 @@ contract Claims is IClaims {
     /// (B1): the cut, by m's cut at the start of the round, minted to m's
     /// payout address read now; the pot recorded here and returned, for the
     /// caller to mint to Claims with the other members' pots.
-    function _payMember(address m, uint256 round, uint256 c, uint256 stake, uint256 totalStake)
+    function _payMember(address m, uint256 round, uint256 c, uint256 share, uint256 stake, uint256 totalStake)
         private
         returns (uint256 paid, uint256 pot)
     {
-        paid = RewardMath.validatorPayOf(c, stake, totalStake);
+        paid = RewardMath.validatorPayOf(c, share, stake, totalStake);
         uint256 cut = RewardMath.cutOf(paid, ledger.cutAt(m, round));
         pot = paid - cut;
         ValidatorPay storage v = validatorPays[m][round];
@@ -296,6 +307,13 @@ contract Claims is IClaims {
 
     function sharesMinted(uint256 round) external view returns (bool) {
         return minted[round];
+    }
+
+    /// The ceiling of on-chain round `round` (R-05): its position under the
+    /// schedule Parameters holds for it, on the fixed base.
+    function _ceiling(uint256 round) private view returns (uint256) {
+        uint256[] memory s = params.valuesAt(SCHEDULE, round);
+        return RewardMath.ceiling(RewardMath.position(s[0], s[1], s[2], round));
     }
 
     /// R-18: there is no round 0, and a list that names it is refused.

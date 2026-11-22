@@ -24,7 +24,9 @@ import os, pathlib, re, shutil, signal, subprocess, sys, tempfile, time
 B, R, C = "src/money/Broker.sol", "src/authority/Registry.sol", "src/clock/RoundClock.sol"
 S = "src/scores/Scores.sol"
 CL, RM, SL = "src/money/Claims.sol", "src/math/RewardMath.sol", "src/money/StakeLedger.sol"
-V2 = "../vectors/october-main-text-v2.json"
+# The Scores tests read rulebook v4's examples (S-10 phase 3).
+V4 = "../vectors/october-main-text-v4.json"
+P = "src/authority/Parameters.sol"
 
 # name, [(file, old, new)], catching check[, fast_green]
 M = [
@@ -43,7 +45,7 @@ M = [
     (R, "    mapping(address => bool) private registered;", "    mapping(address => bool) private registered;\n    uint256 public count;"),
     (R, "        registered[msg.sender] = true;", "        registered[msg.sender] = true;\n        count++;"),
     (B, "        uint256 fromEarmark = e.amount;", "        uint256 fromEarmark = Counted(address(registry)).count() > 100 ? 0 : e.amount;"),
-    (B, "contract Broker is ITicketBroker {", "interface Counted { function count() external view returns (uint256); }\n\ncontract Broker is ITicketBroker {")], "test_ledger_reserve"),
+    (B, "contract Broker is ITicketBrokerV2 {", "interface Counted { function count() external view returns (uint256); }\n\ncontract Broker is ITicketBrokerV2 {")], "test_ledger_reserve"),
  ("round started one block early", [(C, "block.number < startBlock + ROUND_LENGTH", "block.number < startBlock + ROUND_LENGTH - 1")], "test_round_starts_after_round_length"),
  ("round counted from blocks (skips rounds)", [(C, "        _start(round + 1);", "        _start(round + (block.number - startBlock) / ROUND_LENGTH);")], "test_ticket_signed_in_a_long_round_is_paid"),
  ("zero-address check removed", [(B, "        if (t.recipient == address(0) || t.sender == address(0)) revert TICKET_INVALID();\n", "")], "test_zero_"),
@@ -69,7 +71,7 @@ M = [
  ("earmark pending not clamped", [(B, "        _draw(t.sender, t.recipient, e, fromEarmark);", "        _set(t.sender, t.recipient, e, e.amount - fromEarmark, e.pending > e.amount - fromEarmark ? e.pending : e.pending, e.readyRound);")], "test_redemption_lowers"),
  ("fundsRemaining ignores pending", [(B, "shownEarmarks[payer] = shownEarmarks[payer] - (b.amount - b.pending) + (amount - pending);", "shownEarmarks[payer] = shownEarmarks[payer] - b.amount + amount;")], "test_signer_is_shown"),
  ("clamp keeps pending below left wrongly lowered", [(B, "            _set(payer, node, b, left, b.pending, b.readyRound);", "            _set(payer, node, b, left, 0, 0);")], "test_redemption_keeps"),
- ("node half in one product (overflows on large amounts; a fast test also catches it)", [(B, "        uint256 nodeAmount = paid / ONE * NODE_CUT + paid % ONE * NODE_CUT / ONE;", "        uint256 nodeAmount = paid * NODE_CUT / ONE;")], "qualify:AmountsFuzz"),
+ ("node half in one product (overflows on large amounts; a fast test also catches it)", [(B, "        return paid / ONE * cut + paid % ONE * cut / ONE;", "        return paid * cut / ONE;")], "qualify:AmountsFuzz"),
  # --- defects only the heavy runs catch: the fast check stays green -----
  ("partly paid ticket not marked used", [(B, "        usedTickets[ticketHash] = true;", "        usedTickets[ticketHash] = paid == t.faceValue;")], "qualify:MoneyInvariants", True),
  ("used ticket paid again in a later round", [(B, "        if (usedTickets[ticketHash]) revert TICKET_USED();", "        if (usedTickets[ticketHash] && round == creationRound) revert TICKET_USED();")], "qualify:MoneyInvariants", True),
@@ -77,7 +79,7 @@ M = [
  ("top-up cancels a pending deposit release", [(B, "        _set(msg.sender, address(0), d, d.amount + deposit_, d.pending, d.readyRound);", "        _set(msg.sender, address(0), d, d.amount + deposit_, 0, 0);")], "qualify:MoneyInvariants", True),
 
  # Scores (spec S-06 phase 2): each rule of R-11 and R-13 a case or test pins.
- ("scores: an example's expected score changed", [(V2, '"expected": {"score": "166666"}', '"expected": {"score": "166667"}')], "test_score_even_floor"),
+ ("scores: an example's expected score changed", [(V4, '"expected": {"score": "166666"}', '"expected": {"score": "166667"}')], "test_score_even_floor"),
  ("scores: abi: extra public function", [(S, "    // --- views", "    function size() external pure returns (uint256) {\n        return N;\n    }\n\n    // --- views")], "check"),
  ("scores: no vote counts as 0", [(S, "v.seated == nodes[m[k]].seated ? v.score : MAX_SCORE", "v.seated == nodes[m[k]].seated ? v.score : 0")], "test_score_none"),
  ("scores: even count takes the upper middle", [(S, "        return (s[k / 2 - 1] + s[k / 2]) / 2;", "        return s[k / 2];")], "test_score_even"),
@@ -91,7 +93,7 @@ M = [
  ("scores: a started round's list is rewritten", [(S, "if (n == 0 || history[n - 1].fromRound != r + 1) {", "if (n == 0) {")], "test_validators_seats"),
  ("scores: votes never lapse", [(S, "v.seated == nodes[m[k]].seated ? v.score : MAX_SCORE", "v.seated != 0 ? v.score : MAX_SCORE")], "test_validators_seats"),
  ("scores: a return within the round is seated anew", [(S, "        if (!_has(_current(r), node)) {", "        if (true) {")], "test_validators_return_"),
- ("scores: seating order is the call order", [(S, "for (; i > 0 && (next[i - 1] == address(0) || nodes[next[i - 1]].seated > number); i--) {", "for (; i > 0 && next[i - 1] == address(0); i--) {")], "test_validators_return_order"),
+ ("scores: seating order is the call order", [(S, "for (; i > 0 && nodes[next[i - 1]].seated > number; i--) {", "for (; i > 0 && false; i--) {")], "test_validators_return_order"),
  ("scores: a displaced member may not vote in its last round", [(S, "        if (!_has(_current(r), node)) revert NOT_VALIDATOR();", "        if (!_has(_current(r), node) || !_has(_latest(), node)) revert NOT_VALIDATOR();")], "test_displaced_member_vote"),
  ("scores: displacement drops the votes at once", [(S, "            displaced = next[at];", "            displaced = next[at];\n            nodes[displaced].seated = 0;")], "test_displaced_member_vote"),
  ("scores: unseat ignores stake", [(S, "        if (!_has(_latest(), node) || ledger.stakeAt(node, r) != 0) return;", "        if (!_has(_latest(), node)) return;")], "test_calls_that_change_nothing"),
@@ -121,8 +123,8 @@ M = [
  ("pay: stake read when the mint runs", [(CL, "stakes[i] = ledger.stakeAt(members[i], round);", "stakes[i] = ledger.stakeAt(members[i], clock.currentRound());")], "test_ledger_mid_round"),
  ("pay: cut read when the mint runs", [(CL, "RewardMath.cutOf(paid, ledger.cutAt(m, round))", "RewardMath.cutOf(paid, ledger.cutAt(m, clock.currentRound()))")], "test_ledger_mid_round"),
  ("pay: cut minted to the member, not its payout", [(CL, "        if (cut > 0) lpt.mint(payout, cut);\n    }", "        if (cut > 0) lpt.mint(m, cut);\n    }")], "test_ledger_validator_pot"),
- ("pay: two divisions, from the validator amount", [(RM, "return (c * VALIDATOR_SHARE * stake) / (ONE * totalStake);", "return (c * VALIDATOR_SHARE / ONE) * stake / totalStake;")], "test_ledger_mid_round"),
- ("pay: equal shares, not by stake", [(CL, "_payMember(members[i], round, c, stakes[i], totalStake)", "_payMember(members[i], round, c, totalStake == 0 ? 0 : 1, members.length)")], "test_pay_weighted"),
+ ("pay: two divisions, from the validator amount", [(RM, "return (c * share * stake) / (ONE * totalStake);", "return (c * share / ONE) * stake / totalStake;")], "test_ledger_mid_round"),
+ ("pay: equal shares, not by stake", [(CL, "_payMember(members[i], round, c, shares[1], stakes[i], totalStake)", "_payMember(members[i], round, c, shares[1], totalStake == 0 ? 0 : 1, members.length)")], "test_pay_weighted"),
  ("pay: the division's remainder lost", [(CL, "lpt.mint(treasury, toTreasury + (validatorAmount - paidOut));", "lpt.mint(treasury, toTreasury);")], "test_pay_thirds"),
  ("pay: validator amount also minted whole to the treasury", [(CL, "lpt.mint(treasury, toTreasury + (validatorAmount - paidOut));", "lpt.mint(treasury, toTreasury + validatorAmount);")], "test_pay_weighted"),
  ("pay: no stake among the members divides by 0", [(RM, "        if (totalStake == 0) return 0;\n", "")], "test_pay_no_stake"),
@@ -142,11 +144,32 @@ M = [
  ("pay: the mint walks every opted-in node (R-23)", [
     (S, "    uint64 private lastSeated;", "    uint64 private lastSeated;\n    address[] private everyOptedIn;"),
     (S, "        nodes[node].optedIn = true;\n", "        nodes[node].optedIn = true;\n        everyOptedIn.push(node);\n"),
-    (S, "        address[N] memory m = _at(round);\n", "        address[N] memory m = _at(round);\n        for (uint256 q = 0; q < everyOptedIn.length; q++) {\n            if (everyOptedIn[q] == address(1)) revert();\n        }\n")], "test_mint_gas_does_not_grow"),
+    (S, "        return _at(round);\n", "        for (uint256 q = 0; q < everyOptedIn.length; q++) {\n            if (everyOptedIn[q] == address(1)) revert();\n        }\n        return _at(round);\n")], "test_mint_gas_does_not_grow"),
  ("pay: the mint reads one slot per holder (R-23)", [
     (SL, "    Point[] private totalPoints;", "    Point[] private totalPoints;\n    address[] private everyHolder;"),
     (SL, "        if (!registry.isRegistered(node)) revert NOT_REGISTERED();\n        uint256 now_ = clock.currentRound();\n        _add(stayingPoints[msg.sender][node], now_, amount);", "        if (!registry.isRegistered(node)) revert NOT_REGISTERED();\n        uint256 now_ = clock.currentRound();\n        everyHolder.push(msg.sender);\n        _add(stayingPoints[msg.sender][node], now_, amount);"),
     (SL, "        return _at(stakePoints[node], round);", "        for (uint256 q = 0; q < everyHolder.length; q++) {\n            if (everyHolder[q] == address(1)) revert();\n        }\n        return _at(stakePoints[node], round);")], "test_mint_gas_does_not_grow"),
+ # Parameters (spec S-10 phase 3): the values of a round, not the values
+ # now; the ceiling after a change, exact; D-49's bound on a drop; and each
+ # reader taking its group from Parameters, for its round.
+ ("params: an overwriting setter replaces a change that counts", [(P, "        if (n > 0 && list[n - 1].countsFrom > now_) {", "        if (n > 0) {")], "test_parameters_"),
+ ("params: the values now, not the round's", [(P, "            if (list[mid].countsFrom <= round) lo = mid + 1;", "            if (list[mid].countsFrom <= type(uint256).max) lo = mid + 1;")], "test_parameters_"),
+ ("params: a withdrawn change still counts", [(P, "        list.pop();\n", "")], "test_parameters_|test_validators_set_size_withdrawn"),
+ ("params: drops above 840 accepted (D-49)", [(P, "v.length == 2 && v[0] <= MOST && v[1] != 0", "v.length == 2 && v[1] != 0")], "test_parameters_drop"),
+ ("params: a raised half-life accepted", [(P, "values.length == 2 && values[1] > inForce[1]", "values.length == 2 && false")], "test_parameters_half_life"),
+ ("params: the new half-life starts a round late", [(P, "RewardMath.position(inForce[0], inForce[1], inForce[2], countsFrom - 1) + values[0];", "RewardMath.position(inForce[0], inForce[1], inForce[2], countsFrom) + values[0];")], "test_parameters_half_life|test_half_life_420"),
+ ("params: the pool's tokens not checked", [(P, "        if (!(t0 == usdc && t1 == lpt) && !(t0 == lpt && t1 == usdc)) revert POOL_INVALID(p);\n", "")], "test_the_pool_check_reads_the_tokens|test_parameters_buyback"),
+ ("params: the pool's code not checked", [(P, "if (p.code.length == 0 || p.codehash != poolCodeHash) revert POOL_INVALID(p);", "if (p.code.length == 0) revert POOL_INVALID(p);")], "test_parameters_buyback"),
+ ("ceiling: one factor 2^-64 low", [(RM, "K9 = 0xa7c92571bd511e01b2", "K9 = 0xa7c92571bd511e00b2")], "check"),
+ ("position: the half-life ignored", [(RM, "        return p + (round - s) * (HALF_LIFE / h);", "        return p + (round - s);")], "test_ledger_authority|test_parameters_half_life"),
+ ("claims: the schedule now, not the earning round's", [(CL, "        uint256[] memory s = params.valuesAt(SCHEDULE, round);", "        uint256[] memory s = params.valuesAt(SCHEDULE, clock.currentRound());")], "test_ledger_delays"),
+ ("claims: the emission shares now, not the earning round's", [(CL, "                params.valuesAt(EMISSION, round)[0],", "                params.valuesAt(EMISSION, clock.currentRound())[0],")], "test_ledger_authority"),
+ ("claims: the reward delay fixed at 7", [(CL, "        uint256 delay = params.valuesAt(REWARD_DELAY, round)[0];", "        uint256 delay = 7;")], "test_ledger_delays"),
+ ("claims: the deployment's score source, always", [(CL, "params.valuesAt(SCORE_SOURCE, now_)[0]", "params.valuesAt(SCORE_SOURCE, 0)[0]")], "test_ledger_score_source"),
+ ("ledger: the unbonding wait fixed at 21", [(SL, "        return params.valuesAt(UNBONDING, now_)[0];", "        return 21;")], "test_ledger_delays"),
+ ("scores: the set size fixed at 3", [(S, "        if (n >= params.valuesAt(VALIDATOR_SET_SIZE, r)[0]) {", "        if (n >= 3) {")], "test_validators_set_size"),
+ ("params: a buy reads group 9 now, not for its round", [(P, "        uint256[] memory b = _at(BUYBACK_VALUES, round);", "        uint256[] memory b = _at(BUYBACK_VALUES, clock.currentRound());")], "test_a_buy_reads_the_values_of_its_round"),
+ ("broker: the node cut fixed at a half", [(B, "        uint256 cut = params.valuesAt(FEE, round)[0];", "        uint256 cut = 500_000;")], "test_ledger_authority|test_ledger_delays|test_parameters_"),
 ]
 
 ROOT = pathlib.Path(__file__).resolve().parent
@@ -214,6 +237,11 @@ def main(sel):
         work = pathlib.Path(tmp) / "contracts"
         shutil.copytree(ROOT, work)
         shutil.copytree(ROOT.parent / "vectors", pathlib.Path(tmp) / "vectors")
+        # contracts/check runs the calculator on the half-life 420 case;
+        # without it that check exits 2 and its mutants are NOT RUN.
+        for d in ("calculator", "rulebook"):
+            if (ROOT.parent / d).is_dir():
+                shutil.copytree(ROOT.parent / d, pathlib.Path(tmp) / d, ignore=shutil.ignore_patterns("__pycache__"))
         code, out = run(["forge", "build"], work)
         if code != 0:
             print("mutations: the unmutated contracts do not build\n" + out[-2000:])

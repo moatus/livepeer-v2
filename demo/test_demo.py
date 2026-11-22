@@ -238,7 +238,9 @@ class ValidatorCaseWriter(unittest.TestCase):
 
 STAGE2_STAND_INS = (["local chain"], ["mockusdc"], ["--wei-per-usd 1000000"], ["2^256 - 2", "price + 1"],
                     ["--max-ticket-ev", "--max-batch-ev", "micro-usdc"], ["50-block rounds"], ["tiny model"],
-                    ["no governance"], ["no buyback"])
+                    # S-10 phase 3: governance is Parameters whose authority's
+                    # key nobody holds, so every value is the deployment's.
+                    ["parameters with no key", "nobody holds", "every value is the deployment's"], ["no buyback"])
 
 # S-05 phase 6: the stand-ins stage 3 adds. Each is its own entry, found by
 # the start of its name, with the words its value must hold. They are
@@ -250,6 +252,22 @@ STAGE3_STAND_INS = {"test lpt": ["testlpt.sol", "only claims"],
                     "scripted validators": ["programs/validators", "v1, v2 and v3", "and v4 with 6,000", "holder h"],
                     # S-06 phase 5: N = 3 is named as its own stand-in.
                     "validatorsetsize 3": ["at most 3"]}
+
+
+class CaseDocuments(unittest.TestCase):
+    def test_a_run_case_is_written_beside_every_shared_example(self):
+        # The calculator's check refuses a file that lacks the rulebook's
+        # named examples, so a run's cases go beside them; a case with a
+        # shared example's id replaces it.
+        vectors = {"rulebook": "r", "cases": [{"id": "a"}, {"id": "b"}]}
+        run = {"id": "run", "kind": "ledger"}
+        self.assertEqual(ledgercase.document(vectors, run)["cases"], [{"id": "a"}, {"id": "b"}, run])
+        self.assertEqual(ledgercase.document(vectors, {"id": "b", "x": 1})["cases"], [{"id": "a"}, {"id": "b", "x": 1}])
+        two = [{"id": "a", "x": 2}, run]
+        doc = validatorcases.document(vectors, two)
+        self.assertEqual(doc["cases"], [{"id": "b"}] + two)
+        self.assertEqual(doc["rulebook"], "r")
+        self.assertEqual(len(vectors["cases"]), 2)
 
 
 class Manifest(unittest.TestCase):
@@ -301,7 +319,8 @@ class Manifest(unittest.TestCase):
         self.assertEqual([{k: v for k, v in c.items() if k != "address"} for c in public["contracts"]], MANIFEST3["contracts"])
         named = {s["stand_in"].lower() for s in public["stand_ins"]}
         for name in ("mockusdc", "test lpt", "scripted validators", "tiny model", "every ticket wins",
-                     "fixed rate --wei-per-usd 1000000", "50-block rounds", "keeper", "treasury address"):
+                     "fixed rate --wei-per-usd 1000000", "50-block rounds", "keeper", "treasury address",
+                     "parameters with no key"):
             with self.subTest(stand_in=name):
                 self.assertTrue(any(n.startswith(name) for n in named))
 
@@ -366,6 +385,17 @@ class BuybackCase(unittest.TestCase):
         self.assertEqual((m["pool"]["seed_usdc_micro_usdc"], m["pool"]["seed_lpt_wei"]),
                          (seed["usdc_micro_usdc"], seed["lpt_wei"]))
         self.assertEqual(m["lpt"]["genesis_supply_wei"], self.walk["inputs"]["lpt_supply_wei"])
+
+    def test_the_manifest_names_parameters_and_g(self):
+        # S-10 phase 3: the Buyback reads its values from Parameters, whose
+        # one authority is G; FixedBuybackValues is gone.
+        m = common.MANIFEST
+        names = [c["contract"] for c in m["contracts"]]
+        self.assertNotIn("FixedBuybackValues", names)
+        self.assertLess(names.index("Parameters"), names.index("Buyback"))
+        named = [s["stand_in"].lower() for s in m["stand_ins"]]
+        self.assertTrue(any(n.startswith("g, the governance stand-in") for n in named))
+        self.assertFalse(any("no governance" in n for n in named))
 
 
 class PublicState(unittest.TestCase):

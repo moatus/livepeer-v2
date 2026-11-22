@@ -5,8 +5,9 @@ import {vm} from "./Vm.sol";
 import {RewardMath} from "../src/math/RewardMath.sol";
 
 /// Runs every `ceiling`, `round`, `split` and `validator-pay` case of
-/// vectors/october-main-text-v2.json through RewardMath. Every input and
-/// every expected number is read from that file.
+/// vectors/october-main-text-v4.json through RewardMath. Every input and
+/// every expected number is read from that file, the shares too: they are
+/// the deployment's emission values (R-25), arguments to RewardMath.
 ///
 /// test_ceiling_residues prints C(r) for every residue r below 840 and for
 /// r = 840, 841 and 1,680, and the gas of the costliest; contracts/check
@@ -18,15 +19,26 @@ contract RewardMathTest {
     string private vectors;
 
     function setUp() external {
-        vectors = vm.readFile(string.concat(vm.projectRoot(), "/../vectors/october-main-text-v2.json"));
+        vectors = vm.readFile(string.concat(vm.projectRoot(), "/../vectors/october-main-text-v4.json"));
     }
 
     function test_parameters_are_the_examples() external view {
         expectEq(RewardMath.EMISSION_BASE, param("emission_base_wei"), "EmissionBase");
         expectEq(RewardMath.HALF_LIFE, param("emission_half_life_rounds"), "EmissionHalfLife");
-        expectEq(RewardMath.NODE_SHARE, param("node_emission_share_millionths"), "node share");
-        expectEq(RewardMath.VALIDATOR_SHARE, param("validator_emission_share_millionths"), "validator share");
-        expectEq(RewardMath.TREASURY_SHARE, param("treasury_emission_share_millionths"), "treasury share");
+    }
+
+    /// R-05 under a schedule (p, h, s): the position in round R is
+    /// p + (R - s) x 840 / h, a whole number of the deployment's steps. The
+    /// deployment's (0, 840, 1) gives R - 1; D-12's (99, 420, 100) gives 101
+    /// in round 101.
+    function test_position() external pure {
+        for (uint256 r = 1; r < 2000; r += 37) {
+            expectEq(RewardMath.position(0, 840, 1, r), r - 1, "the deployment's schedule");
+        }
+        expectEq(RewardMath.position(99, 420, 100, 100), 99, "D-12, round 100");
+        expectEq(RewardMath.position(99, 420, 100, 101), 101, "D-12, round 101");
+        expectEq(RewardMath.position(113, 210, 107, 108), 117, "a quarter half-life, round 108");
+        expectEq(RewardMath.position(5, 1, 3, 4), 845, "a half-life of one round");
     }
 
     /// A ceiling case states C(r), or, where its id says shares, R-10's two
@@ -41,14 +53,8 @@ contract RewardMathTest {
             if (has(at, ".expected.ceiling_wei")) {
                 expectEq(c, num(at, ".expected.ceiling_wei"), ids[i]);
             } else {
-                expectEq(
-                    RewardMath.validatorsOf(c),
-                    num(at, ".expected.validators_wei"),
-                    string.concat(ids[i], " validators")
-                );
-                expectEq(
-                    RewardMath.treasuryOf(c), num(at, ".expected.treasury_wei"), string.concat(ids[i], " treasury")
-                );
+                expectEq(validatorsOf(c), num(at, ".expected.validators_wei"), string.concat(ids[i], " validators"));
+                expectEq(treasuryOf(c), num(at, ".expected.treasury_wei"), string.concat(ids[i], " treasury"));
             }
             ran++;
         }
@@ -72,21 +78,25 @@ contract RewardMathTest {
                 totalFee += num(nodeAt(at, n), ".fees_micro_usdc");
                 totalStake += num(nodeAt(at, n), ".stake_wei");
             }
-            uint256 minted = RewardMath.validatorsOf(c) + RewardMath.treasuryOf(c);
+            uint256 minted = validatorsOf(c) + treasuryOf(c);
             for (uint256 n = 0; n < names.length; n++) {
                 string memory node = nodeAt(at, n);
                 uint256 paid = RewardMath.nodeReward(
-                    c, num(node, ".fees_micro_usdc"), totalFee, num(node, ".stake_wei"), totalStake, num(node, ".score")
+                    c,
+                    param("node_emission_share_millionths"),
+                    num(node, ".fees_micro_usdc"),
+                    totalFee,
+                    num(node, ".stake_wei"),
+                    totalStake,
+                    num(node, ".score")
                 );
                 expectEq(
                     paid, num(at, string.concat(".expected.paid_wei.", names[n])), string.concat(ids[i], " ", names[n])
                 );
                 minted += paid;
             }
-            expectEq(
-                RewardMath.validatorsOf(c), num(at, ".expected.validators_wei"), string.concat(ids[i], " validators")
-            );
-            expectEq(RewardMath.treasuryOf(c), num(at, ".expected.treasury_wei"), string.concat(ids[i], " treasury"));
+            expectEq(validatorsOf(c), num(at, ".expected.validators_wei"), string.concat(ids[i], " validators"));
+            expectEq(treasuryOf(c), num(at, ".expected.treasury_wei"), string.concat(ids[i], " treasury"));
             if (has(at, ".expected.minted_wei")) {
                 expectEq(minted, num(at, ".expected.minted_wei"), string.concat(ids[i], " minted"));
             }
@@ -149,15 +159,15 @@ contract RewardMathTest {
             for (uint256 m = 0; m < n; m++) {
                 string memory member = string.concat(at, memberAt(m));
                 string memory name = vm.parseJsonString(vectors, string.concat(member, ".node"));
-                uint256 p = RewardMath.validatorPayOf(c, num(member, ".stake_wei"), total);
+                uint256 p = RewardMath.validatorPayOf(
+                    c, param("validator_emission_share_millionths"), num(member, ".stake_wei"), total
+                );
                 expectEq(p, num(at, string.concat(".expected.paid_wei.", name)), string.concat(ids[i], " ", name));
                 paid += p;
                 if (has(at, string.concat(".inputs.splits.", name))) validatorSplit(ids[i], at, name, p);
             }
             expectEq(
-                RewardMath.validatorsOf(c) - paid,
-                num(at, ".expected.to_treasury_wei"),
-                string.concat(ids[i], " to treasury")
+                validatorsOf(c) - paid, num(at, ".expected.to_treasury_wei"), string.concat(ids[i], " to treasury")
             );
             ran++;
         }
@@ -227,6 +237,15 @@ contract RewardMathTest {
     }
 
     // --- helpers ---------------------------------------------------------
+
+    /// R-10's two amounts of C, at the deployment's shares.
+    function validatorsOf(uint256 c) private view returns (uint256) {
+        return RewardMath.amountOf(c, param("validator_emission_share_millionths"));
+    }
+
+    function treasuryOf(uint256 c) private view returns (uint256) {
+        return RewardMath.amountOf(c, param("treasury_emission_share_millionths"));
+    }
 
     function printCeiling(uint256 r, uint256 maxGas) private returns (uint256) {
         uint256 before = gasleft();

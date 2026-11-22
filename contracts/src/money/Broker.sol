@@ -5,6 +5,7 @@ import {ITicketBrokerV2} from "../../interfaces/ITicketBroker.sol";
 import {IRoundClock} from "../../interfaces/IRoundClock.sol";
 import {IMockUSDC} from "../../interfaces/IMockUSDC.sol";
 import {IRegistry} from "../../interfaces/IRegistry.sol";
+import {IParameters} from "../../interfaces/IParameters.sol";
 
 /// Holds all USDC: payer accounts, used tickets, fees per round and node,
 /// and the network share (rulebook R-03, R-04, R-21, R-22). The node finds
@@ -12,8 +13,8 @@ import {IRegistry} from "../../interfaces/IRegistry.sol";
 /// protocol's names, shapes and ticket hash. The network share leaves it
 /// only through drawNetwork, to the Buyback fixed at deployment (R-16).
 contract Broker is ITicketBrokerV2 {
-    /// Node cut (R-03): 500,000 over 10^6.
-    uint256 private constant NODE_CUT = 500_000;
+    /// The fee group (R-25): the node cut over 10^6 is its first value.
+    uint256 private constant FEE = 1;
     uint256 private constant ONE = 1_000_000;
     /// Ticket validity (R-22): the creation round and the 2 rounds after it.
     uint256 private constant TICKET_VALIDITY = 2;
@@ -26,6 +27,9 @@ contract Broker is ITicketBrokerV2 {
     IMockUSDC private immutable usdc;
     IRegistry private immutable registry;
     IRoundClock private immutable clock;
+    /// Where the node cut is read, for the round a fee is redeemed in (R-03,
+    /// R-25).
+    IParameters private immutable params;
     /// The one address that may draw the network share (R-16). It is
     /// deployed after the Broker, so the deployer passes the address it will
     /// have; address(0), as in a deployment with no Buyback, lets nobody draw.
@@ -52,10 +56,12 @@ contract Broker is ITicketBrokerV2 {
     mapping(uint256 => uint256) public totalFees;
     uint256 public networkHeld;
 
-    constructor(IMockUSDC usdc_, IRegistry registry_, IRoundClock clock_, address buyback_) {
+    constructor(IMockUSDC usdc_, IRegistry registry_, IRoundClock clock_, IParameters params_, address buyback_) {
+        require(address(params_) != address(0), "zero address");
         usdc = usdc_;
         registry = registry_;
         clock = clock_;
+        params = params_;
         buyback = buyback_;
     }
 
@@ -161,9 +167,7 @@ contract Broker is ITicketBrokerV2 {
         _draw(t.sender, address(0), d, fromDeposit);
         _draw(t.sender, t.recipient, e, fromEarmark);
 
-        // floor(paid * NODE_CUT / ONE), split so that no product overflows
-        // for any amount a payer can fund.
-        uint256 nodeAmount = paid / ONE * NODE_CUT + paid % ONE * NODE_CUT / ONE;
+        uint256 nodeAmount = _nodeAmount(paid, round);
         uint256 networkAmount = paid - nodeAmount;
         networkHeld += networkAmount;
         feesOf[round][t.recipient] += paid;
@@ -188,6 +192,14 @@ contract Broker is ITicketBrokerV2 {
     }
 
     // --- internals ------------------------------------------------------
+
+    /// floor(paid x cut / 10^6), with the node cut in force in `round`, the
+    /// round the fee is redeemed in (R-03, R-25), split so that no product
+    /// overflows for any amount a payer can fund.
+    function _nodeAmount(uint256 paid, uint256 round) private view returns (uint256) {
+        uint256 cut = params.valuesAt(FEE, round)[0];
+        return paid / ONE * cut + paid % ONE * cut / ONE;
+    }
 
     /// Lowers a balance by what a ticket took, and its pending amount to
     /// the balance left where it is above it; a pending amount that

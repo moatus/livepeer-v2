@@ -9,6 +9,10 @@ libs = []
 solc_version = "0.8.30"
 # The contract tests read the shared examples; nothing else on disk.
 fs_permissions = [{ access = "read", path = "../vectors" }]
+# Each step of a shared case reads the examples file through cheatcodes,
+# and the gas a test may spend grows with that file (rulebook v4's is the
+# largest yet). The limit is the test's own, not a chain's.
+gas_limit = 4294967296
 
 # The layout contracts/check holds src/, test/ and test-qualify/ to.
 # interfaces/ is a freeze seam, changed only by a freeze change, so the

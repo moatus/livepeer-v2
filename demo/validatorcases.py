@@ -65,8 +65,12 @@ def validator_pay_case(case_id: str, round_: int, members: list[tuple[str, int]]
 
 
 def document(vectors: dict, cases: list[dict]) -> dict:
-    """A shared examples file holding these cases, which ./calculator/check reads."""
-    return {**{k: v for k, v in vectors.items() if k != "cases"}, "cases": cases}
+    """The shared examples with these cases added, which
+    ./calculator/check reads: the check refuses a file that lacks the
+    rulebook's named examples."""
+    ids = {c["id"] for c in cases}
+    kept = [c for c in vectors["cases"] if c["id"] not in ids]
+    return {**{k: v for k, v in vectors.items() if k != "cases"}, "cases": kept + cases}
 
 
 def one_earning_round(claims: list[tuple[str, str, int]]) -> int | None:

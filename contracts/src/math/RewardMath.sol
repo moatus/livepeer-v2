@@ -1,27 +1,28 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-/// The reward maths of rulebook `october-main-text-v2`: the emission
-/// ceiling (R-05), its three shares (R-07, R-10), a node's reward (R-08), a
-/// validator's pay (R-14) and the split of a reward or a pay between a node
-/// and its holders (R-24).
+/// The reward maths of rulebook `october-main-text-v4`: the emission
+/// ceiling (R-05) and a schedule's position (R-05, R-25 x3-grid), the three
+/// emission shares (R-07, R-10), a node's reward (R-08), a validator's pay
+/// (R-14) and the split of a reward or a pay between a node and its holders
+/// (R-24).
 ///
 /// Every function is `pure`: it takes everything it needs as arguments, and
 /// the compiler refuses one that reads or changes state, so nothing here can
-/// mint, pay or look anything up. Each amount is one division, rounded down,
-/// with no share or intermediate amount stored first (R-19). A product too
-/// large for 256 bits reverts; it is outside R-19.
+/// mint, pay or look anything up. The shares are Parameters values (R-25),
+/// so they are arguments, read by the caller for the earning round. Each
+/// amount is one division, rounded down, with no share or intermediate
+/// amount stored first (R-19). A product too large for 256 bits reverts; it
+/// is outside R-19.
 library RewardMath {
     /// A whole, in millionths: the emission shares, a reward cut and a score.
     uint256 internal constant ONE = 1_000_000;
     /// EmissionBase (R-06): 1,000 LPT a round, a test value.
     uint256 internal constant EMISSION_BASE = 1_000_000_000_000_000_000_000;
-    /// EmissionHalfLife (R-05), in rounds.
+    /// EmissionHalfLife (R-05), in rounds: the deployment's half-life, and
+    /// the grid every position is counted on, 840 steps of 2^(-1/840) to a
+    /// halving.
     uint256 internal constant HALF_LIFE = 840;
-    /// The emission shares (R-07), in millionths of the ceiling.
-    uint256 internal constant NODE_SHARE = 940_000;
-    uint256 internal constant VALIDATOR_SHARE = 10_000;
-    uint256 internal constant TREASURY_SHARE = 50_000;
 
     /// K_i is 2^(-2^i / 840) in 128-bit fixed point, rounded down: the
     /// largest integer k with k^840 <= 2^(128 x 840 - 2^i). Ten of them cover
@@ -64,21 +65,37 @@ library RewardMath {
         return ((EMISSION_BASE * x) >> 128) >> (r / HALF_LIFE);
     }
 
-    /// A node's reward, R-08 and R-11: floor(c x 940,000 x a x score /
+    /// The position of on-chain round `round` under the schedule (p, h, s)
+    /// that Parameters holds for it (R-05, R-25 x3-grid): p + (round - s) x
+    /// 840 / h, so that the round's ceiling is ceiling(position). Each change
+    /// moves only the position: the base stays EmissionBase, and h divides
+    /// 840 (R-25), so every position is a whole number and every ceiling one
+    /// that `ceiling` already gives for the fixed base. The deployment's
+    /// schedule (0, 840, 1) gives round R the position R - 1, the emission
+    /// index. A round before s has no position under (p, h, s) and reverts.
+    function position(uint256 p, uint256 h, uint256 s, uint256 round) internal pure returns (uint256) {
+        return p + (round - s) * (HALF_LIFE / h);
+    }
+
+    /// A node's reward, R-08 and R-11: floor(c x share x a x score /
     /// (10^6 x b x 10^6)), where a/b is fee/totalFee when
     /// fee x totalStake <= stake x totalFee, and stake/totalStake otherwise.
-    /// c is the earning round's ceiling. The shares are compared by
+    /// c is the earning round's ceiling and share its node share (R-07). The shares are compared by
     /// cross-multiplying and meet the score inside the one division. A round
     /// with zero total fees or zero total stake pays no node. The caller
     /// refuses a score above 10^6 before it gets here (R-11).
-    function nodeReward(uint256 c, uint256 fee, uint256 totalFee, uint256 stake, uint256 totalStake, uint256 score)
-        internal
-        pure
-        returns (uint256)
-    {
+    function nodeReward(
+        uint256 c,
+        uint256 share,
+        uint256 fee,
+        uint256 totalFee,
+        uint256 stake,
+        uint256 totalStake,
+        uint256 score
+    ) internal pure returns (uint256) {
         if (totalFee == 0 || totalStake == 0) return 0;
         (uint256 a, uint256 b) = fee * totalStake <= stake * totalFee ? (fee, totalFee) : (stake, totalStake);
-        return (c * NODE_SHARE * a * score) / (ONE * b * ONE);
+        return (c * share * a * score) / (ONE * b * ONE);
     }
 
     /// The node's cut of a reward p, R-24: floor(p x cut / 10^6). The pot,
@@ -95,24 +112,25 @@ library RewardMath {
         return (pot * bond) / stake;
     }
 
-    /// A member's validator pay, R-14: floor(c x 10,000 x stake / (10^6 x
-    /// totalStake)), with c the round's ceiling, stake the member's at the
-    /// start of the round and totalStake the sum over the round's members.
-    /// One division from c, so it is not the validator amount divided again.
-    /// With no stake among the members nobody is paid, and the whole
-    /// validator amount goes to the treasury (R-10).
-    function validatorPayOf(uint256 c, uint256 stake, uint256 totalStake) internal pure returns (uint256) {
+    /// A member's validator pay, R-14: floor(c x share x stake / (10^6 x
+    /// totalStake)), with c the round's ceiling, share its validator share
+    /// (R-07), stake the member's at the start of the round and totalStake
+    /// the sum over the round's members. One division from c, so it is not
+    /// the validator amount divided again. With no stake among the members
+    /// nobody is paid, and the whole validator amount goes to the treasury
+    /// (R-10).
+    function validatorPayOf(uint256 c, uint256 share, uint256 stake, uint256 totalStake)
+        internal
+        pure
+        returns (uint256)
+    {
         if (totalStake == 0) return 0;
-        return (c * VALIDATOR_SHARE * stake) / (ONE * totalStake);
+        return (c * share * stake) / (ONE * totalStake);
     }
 
-    /// The validator amount of a round with ceiling c, R-10: floor(c x 10,000 / 10^6).
-    function validatorsOf(uint256 c) internal pure returns (uint256) {
-        return (c * VALIDATOR_SHARE) / ONE;
-    }
-
-    /// The treasury amount of a round with ceiling c, R-10: floor(c x 50,000 / 10^6).
-    function treasuryOf(uint256 c) internal pure returns (uint256) {
-        return (c * TREASURY_SHARE) / ONE;
+    /// The validator or the treasury amount of a round with ceiling c and
+    /// that share of it (R-07, R-10): floor(c x share / 10^6).
+    function amountOf(uint256 c, uint256 share) internal pure returns (uint256) {
+        return (c * share) / ONE;
     }
 }

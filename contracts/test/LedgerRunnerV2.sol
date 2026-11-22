@@ -3,11 +3,12 @@ pragma solidity 0.8.30;
 
 import {vm, Vm} from "./Vm.sol";
 import {LedgerRunner} from "./LedgerRunner.sol";
-import {Stage3} from "./Stage3.sol";
+import {Stage3, ScoreStub} from "./Stage3.sol";
 import {StakeLedger} from "../src/money/StakeLedger.sol";
 import {Claims} from "../src/money/Claims.sol";
 import {IClaims} from "../interfaces/IClaims.sol";
 import {RewardMath} from "../src/math/RewardMath.sol";
+import {IParameters} from "../interfaces/IParameters.sol";
 
 /// Runs a v2 `ledger` case on a stage 3 deployment: v1's steps, the LPT
 /// steps of rulebook v2 and the claim, withdrawal and share steps. After
@@ -20,8 +21,9 @@ import {RewardMath} from "../src/math/RewardMath.sol";
 /// - Claims' LPT is the pots of the claims made and of the validator
 ///   shares minted, less the parts of each withdrawn, and no claim's or
 ///   (round, member) validator pot's withdrawn parts exceed it;
-/// - the LPT minted for each earning round R is at most C(R - 1), read
-///   from the examples' ceiling cases;
+/// - the LPT minted for each earning round R is at most R's ceiling, C at
+///   R's schedule position (R - 1 until a schedule change), read from the
+///   examples' ceiling cases;
 /// - the supply is the genesis supply plus what was minted for each round.
 ///
 /// Only a claim or a share mint may change the supply, and a withdrawal of
@@ -58,11 +60,14 @@ abstract contract LedgerRunnerV2 is LedgerRunner, Stage3 {
     /// ValidatorPaid event gave it.
     uint256[] internal paidRound;
     address[] internal paidMember;
-    /// Set by a test that takes its own steps in rounds no ceiling case
-    /// covers: the issuance bound then reads C(R - 1) from RewardMath, which
-    /// contracts/check holds to R-05's exact inequality for every residue.
-    /// A shared case never sets it.
-    bool internal ceilingFromMath;
+    /// Contracts a v4 case names under `addresses`, each a score stub with
+    /// code, with the deployment's own stub as "Scores": the score sources a
+    /// claim's `scores` names (R-25, group 6).
+    string[] internal sourceNames;
+    /// The examples' ceiling cases, read once per case: position and C.
+    uint256[] internal ceilingAt;
+    uint256[] internal ceilingWei;
+    ScoreStub[] internal sources;
 
     // --- the steps ------------------------------------------------------
 
@@ -71,6 +76,11 @@ abstract contract LedgerRunnerV2 is LedgerRunner, Stage3 {
         if (eq(action, "withdraw_parts")) return withdrawStep(s);
         if (eq(action, "mint_shares")) return mintSharesStep(s);
         if (eq(action, "withdraw_validator_parts")) return withdrawValidatorStep(s);
+        if (eq(action, "announce")) return announceStep(s);
+        if (eq(action, "withdraw")) {
+            return
+                as_(who(str(s, ".caller")), address(params), abi.encodeCall(IParameters.withdraw, (num(s, ".group"))));
+        }
         if (eq(action, "grant_lpt")) {
             // A transfer from the genesis supply, which the deployer holds.
             remember(holders, str(s, ".to"));
@@ -109,13 +119,51 @@ abstract contract LedgerRunnerV2 is LedgerRunner, Stage3 {
     /// reads `score`. What it mints is the supply's rise, the pot is Claims'
     /// rise and the cut the payout's, each equal to what Claims recorded.
     function claimStep(string memory s) internal returns (bytes memory refused) {
-        return doClaim(who(str(s, ".caller")), node(s, ".node"), num(s, ".earned_round"), num(s, ".score"));
+        address n = node(s, ".node");
+        if (!vm.keyExistsJson(vectors, string.concat(s, ".scores"))) {
+            return doClaim(who(str(s, ".caller")), n, num(s, ".earned_round"), num(s, ".score"));
+        }
+        // What each score source gives now; a source the step does not name
+        // gives 10^6. The claim must read the one in force (R-25, group 6).
+        for (uint256 i = 0; i < sources.length; i++) {
+            string memory k = string.concat(".scores.", sourceNames[i]);
+            sources[i].set(n, vm.keyExistsJson(vectors, string.concat(s, k)) ? num(s, k) : 1_000_000);
+        }
+        return doClaimAsGiven(who(str(s, ".caller")), n, num(s, ".earned_round"));
+    }
+
+    /// `caller` announces `values` for `group` (R-25). A value that is a
+    /// name is the address of the contract the case gave it.
+    function announceStep(string memory s) internal returns (bytes memory) {
+        string[] memory raw = strList(s, ".values");
+        uint256[] memory values = new uint256[](raw.length);
+        for (uint256 i = 0; i < raw.length; i++) {
+            bytes1 c = bytes(raw[i])[0];
+            values[i] = c >= "0" && c <= "9" ? vm.parseUint(raw[i]) : uint256(uint160(sourceOf(raw[i])));
+        }
+        return
+            as_(
+                who(str(s, ".caller")),
+                address(params),
+                abi.encodeCall(IParameters.announce, (num(s, ".group"), values))
+            );
+    }
+
+    function sourceOf(string memory name) internal view returns (address) {
+        for (uint256 i = 0; i < sources.length; i++) {
+            if (eq(sourceNames[i], name)) return address(sources[i]);
+        }
+        revert(string.concat("no contract named ", name));
     }
 
     function doClaim(address caller, address n, uint256 r, uint256 score) internal returns (bytes memory refused) {
         // The stub is told the case's score; the real Scores must give it.
         if (address(scores) != address(0)) scores.set(n, score);
         else expectEq(validatorSet.scoreOf(n), score, "claim: the score Scores gives");
+        return doClaimAsGiven(caller, n, r);
+    }
+
+    function doClaimAsGiven(address caller, address n, uint256 r) internal returns (bytes memory refused) {
         address payout = registry.payoutOf(n);
         uint256 supply = lpt.totalSupply();
         uint256 held = lpt.balanceOf(address(claims));
@@ -323,7 +371,27 @@ abstract contract LedgerRunnerV2 is LedgerRunner, Stage3 {
     /// names, are given to the stand-in validator set first; a round it does
     /// not name has none.
     function stepsV2(string memory id) internal {
-        string memory at = string.concat(".cases[", vm.toString(caseIndex(id)), "].inputs.members");
+        string memory inputs = string.concat(".cases[", vm.toString(caseIndex(id)), "].inputs");
+        loadCeilings();
+        if (vm.keyExistsJson(vectors, string.concat(inputs, ".authority"))) {
+            require(params.authority() == who(str(inputs, ".authority")), "the case's authority");
+        }
+        if (address(scores) != address(0)) {
+            sourceNames.push("Scores");
+            sources.push(scores);
+        }
+        if (vm.keyExistsJson(vectors, string.concat(inputs, ".addresses"))) {
+            string[] memory named = vm.parseJsonKeys(vectors, string.concat(inputs, ".addresses"));
+            for (uint256 i = 0; i < named.length; i++) {
+                require(
+                    vm.parseJsonBool(vectors, string.concat(inputs, ".addresses.", named[i], ".code")),
+                    "a named address with no code"
+                );
+                sourceNames.push(named[i]);
+                sources.push(new ScoreStub());
+            }
+        }
+        string memory at = string.concat(inputs, ".members");
         if (vm.keyExistsJson(vectors, at)) {
             string[] memory rounds = vm.parseJsonKeys(vectors, at);
             for (uint256 i = 0; i < rounds.length; i++) {
@@ -432,19 +500,32 @@ abstract contract LedgerRunnerV2 is LedgerRunner, Stage3 {
         expectEq(lpt.totalSupply(), GENESIS + all, string.concat(where, ": supply"));
     }
 
-    /// C(R - 1) for earning round R, from the examples' ceiling case for
-    /// emission index R - 1. A round with none fails the test.
+    /// The ceiling of earning round R: C at R's position under the schedule
+    /// Parameters holds for R (R-05, R-25), R - 1 until a change. From the
+    /// examples' ceiling case for that position; a position no case covers
+    /// reads RewardMath, which contracts/check holds to R-05's exact
+    /// inequality for every residue and to the calculator for the 420
+    /// half-life.
     function ceilingOf(uint256 round) internal view returns (uint256) {
-        if (ceilingFromMath) return RewardMath.ceiling(round - 1);
+        uint256[] memory sch = params.valuesAt(3, round);
+        uint256 pos = RewardMath.position(sch[0], sch[1], sch[2], round);
+        for (uint256 i = 0; i < ceilingAt.length; i++) {
+            if (ceilingAt[i] == pos) return ceilingWei[i];
+        }
+        return RewardMath.ceiling(pos);
+    }
+
+    function loadCeilings() internal {
+        delete ceilingAt;
+        delete ceilingWei;
         string[] memory kinds = abi.decode(vm.parseJson(vectors, ".cases[*].kind"), (string[]));
         for (uint256 i = 0; i < kinds.length; i++) {
             if (!eq(kinds[i], "ceiling")) continue;
             string memory c = string.concat(".cases[", vm.toString(i), "]");
-            if (num(c, ".inputs.round") + 1 != round) continue;
             if (!vm.keyExistsJson(vectors, string.concat(c, ".expected.ceiling_wei"))) continue;
-            return num(c, ".expected.ceiling_wei");
+            ceilingAt.push(num(c, ".inputs.round"));
+            ceilingWei.push(num(c, ".expected.ceiling_wei"));
         }
-        revert(string.concat("no ceiling case for earning round ", vm.toString(round)));
     }
 
     // --- after the last step ---------------------------------------------
@@ -500,6 +581,17 @@ abstract contract LedgerRunnerV2 is LedgerRunner, Stage3 {
         return who(name);
     }
 
+    /// A list of strings, read one by one, as listField does.
+    function strList(string memory s, string memory field) internal view returns (string[] memory out) {
+        string memory at = string.concat(s, field);
+        uint256 n = 0;
+        while (vm.keyExistsJson(vectors, string.concat(at, "[", vm.toString(n), "]"))) n++;
+        out = new string[](n);
+        for (uint256 i = 0; i < n; i++) {
+            out[i] = vm.parseJsonString(vectors, string.concat(at, "[", vm.toString(i), "]"));
+        }
+    }
+
     /// A list of decimal strings. Read one by one, as listField does.
     function numList(string memory s, string memory field) internal view returns (uint256[] memory out) {
         string memory at = string.concat(s, field);
@@ -533,6 +625,8 @@ abstract contract LedgerRunnerV2 is LedgerRunner, Stage3 {
         delete sharesTreasury;
         delete paidRound;
         delete paidMember;
+        delete sourceNames;
+        delete sources;
         withdrawnTotal = 0;
         validatorWithdrawnTotal = 0;
     }

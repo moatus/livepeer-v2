@@ -7,7 +7,7 @@ import {TestPool} from "../src/money/TestPool.sol";
 import {TestLPT} from "../src/money/TestLPT.sol";
 import {Broker} from "../src/money/Broker.sol";
 import {Buyback} from "../src/money/Buyback.sol";
-import {FixedBuybackValues} from "../src/authority/FixedBuybackValues.sol";
+import {IParameters} from "../interfaces/IParameters.sol";
 import {IBuyback} from "../interfaces/IBuyback.sol";
 import {IBuybackValues} from "../interfaces/IBuybackValues.sol";
 
@@ -390,42 +390,117 @@ contract BuybackRefusalsTest is Stage4 {
 
     // --- 3.1: the values' ranges --------------------------------------------
 
-    /// FixedBuybackValues takes each value at either end of D-47 (v)'s range
-    /// and refuses one past either end with VALUE_OUT_OF_RANGE.
-    function test_fixed_values_ranges() external {
-        address p = who("pool");
-        uint256[5][4] memory ok = [
-            [uint256(1e6), 1800, 5000, 1, 0],
-            [uint256(1e6), 7200, 50_000, 840, 0],
-            [uint256(1e6), 3600, 10_000, 1, 0],
-            [uint256(1e6), 1800, 50_000, 840, 0]
-        ];
+    /// Parameters takes each of group 9's values at either end of D-47
+    /// (v)'s range, and group 8's one value (10^6, 0, 0), and refuses one
+    /// past either end with VALUE_OUT_OF_RANGE (R-25).
+    function test_values_ranges() external {
+        deployStage4(GENESIS, 0);
+        uint256 p = uint256(uint160(address(pool)));
+        uint256[4][4] memory ok =
+            [[p, 1800, 5000, 1], [p, 7200, 50_000, 840], [p, 3600, 10_000, 1], [p, 1800, 50_000, 840]];
         for (uint256 i = 0; i < ok.length; i++) {
-            FixedBuybackValues f = new FixedBuybackValues(p, ok[i][0], ok[i][1], ok[i][2], ok[i][3]);
-            IBuybackValues.BuybackValues memory v = f.buybackValuesAt(i * 1000);
-            require(
-                v.pool == p && v.burnPpm == ok[i][0] && v.twapSeconds == ok[i][1] && v.maxSlippagePpm == ok[i][2]
-                    && v.buyEveryRounds == ok[i][3],
-                "the values given, in every round"
-            );
+            expectRefused(announce(9, _four(ok[i])), "", string.concat("in range: case ", vm.toString(i)));
         }
-        uint256[4][9] memory bad = [
-            [uint256(999_999), 3600, 10_000, 1],
-            [uint256(1_000_001), 3600, 10_000, 1],
-            [uint256(1e6), 1799, 10_000, 1],
-            [uint256(1e6), 7201, 10_000, 1],
-            [uint256(1e6), 3600, 4999, 1],
-            [uint256(1e6), 3600, 50_001, 1],
-            [uint256(1e6), 3600, 10_000, 0],
-            [uint256(1e6), 3600, 10_000, 841],
-            [uint256(0), 0, 0, 0]
+        uint256[4][6] memory bad = [
+            [p, 1799, 10_000, 1],
+            [p, 7201, 10_000, 1],
+            [p, 3600, 4999, 1],
+            [p, 3600, 50_001, 1],
+            [p, 3600, 10_000, 0],
+            [p, 3600, 10_000, 841]
         ];
         for (uint256 i = 0; i < bad.length; i++) {
-            try new FixedBuybackValues(p, bad[i][0], bad[i][1], bad[i][2], bad[i][3]) {
-                revert(string.concat("out of range accepted: case ", vm.toString(i)));
-            } catch (bytes memory ret) {
-                require(eq(code(ret), "VALUE_OUT_OF_RANGE"), string.concat("case ", vm.toString(i)));
-            }
+            expectRefused(
+                announce(9, _four(bad[i])), err("VALUE_OUT_OF_RANGE()"), string.concat("case ", vm.toString(i))
+            );
+        }
+        uint256[] memory cuts = new uint256[](3);
+        cuts[0] = 1e6;
+        expectRefused(announce(8, cuts), "", "the burn, whole");
+        cuts[0] = 999_999;
+        cuts[1] = 1;
+        expectRefused(announce(8, cuts), err("VALUE_OUT_OF_RANGE()"), "not all burnt");
+    }
+
+    // --- R-25: a buy reads the values of its round -------------------------
+
+    /// A buy reads groups 8 and 9 in force for the round it runs in. A
+    /// change of group 9 announced in round A counts from A + 7: a buy in
+    /// A + 6 still buys from the deployment's pool, and from A + 7 the buy
+    /// follows the new interval, pool and TWAP window. Group 8 can
+    /// hold only (10^6, 0, 0), so its reading shows as the whole buy burnt.
+    function test_a_buy_reads_the_values_of_its_round() external {
+        deployStage4(GENESIS, 0);
+        require(address(source) == address(params), "the values are Parameters'");
+        seed(pool, 500_000e6, 100_000e18);
+        require(poke().length == 0, "poke");
+        vm.warp(block.timestamp + HOUR);
+        job(1000e6);
+        require(buy().length == 0, "a buy from the deployment's pool");
+        uint256 a = clock.currentRound();
+
+        TestPool next = new TestPool(address(usdc), address(lpt));
+        seed(next, 400_000e6, 100_000e18);
+        uint256[] memory v = new uint256[](4);
+        (v[0], v[1], v[2], v[3]) = (uint256(uint160(address(next))), 2 * HOUR, 50_000, 2);
+        expectRefused(announce(9, v), "", "the change of group 9");
+        uint256[] memory cuts = new uint256[](3);
+        cuts[0] = 1e6;
+        expectRefused(announce(8, cuts), "", "group 8, as it is");
+        for (uint256 r = a; r <= a + 7; r++) {
+            IBuybackValues.BuybackValues memory w = params.buybackValuesAt(r);
+            uint256[] memory g9 = params.valuesAt(9, r);
+            require(w.pool == address(uint160(g9[0])), "the pool is group 9's");
+            expectEq(w.twapSeconds, g9[1], "the window is group 9's");
+            expectEq(w.maxSlippagePpm, g9[2], "the slippage is group 9's");
+            expectEq(w.buyEveryRounds, g9[3], "the interval is group 9's");
+            expectEq(w.burnPpm, params.valuesAt(8, r)[0], "the burn is group 8's");
+            require(w.pool == (r < a + 7 ? address(pool) : address(next)), "the pool of the round");
+        }
+
+        // A + 6: the change is announced and does not count yet.
+        toRound(a + 6);
+        job(1000e6);
+        vm.warp(block.timestamp + HOUR);
+        uint256 old = usdc.balanceOf(address(pool));
+        uint256 fresh = usdc.balanceOf(address(next));
+        require(buy().length == 0, "a buy in A + 6");
+        require(usdc.balanceOf(address(pool)) > old, "A + 6 buys from the deployment's pool");
+        expectEq(usdc.balanceOf(address(next)), fresh, "and not from the new one");
+
+        // A + 7: the interval is 2, so A + 6's buy holds the next to A + 8.
+        toRound(a + 7);
+        job(1000e6);
+        vm.warp(block.timestamp + HOUR);
+        expectRefused(buy(), err("ALREADY_BOUGHT(uint256)", a + 8), "every 2 rounds from A + 7");
+
+        // A + 8: the new pool, observed for two hours, not one.
+        toRound(a + 8);
+        expectRefused(buy(), err("TWAP_NOT_READY(uint256,uint256)", 0, 2 * HOUR), "the new pool, unobserved");
+        require(poke().length == 0, "poke of the new pool");
+        vm.warp(block.timestamp + HOUR);
+        expectRefused(buy(), err("TWAP_NOT_READY(uint256,uint256)", HOUR, 2 * HOUR), "one hour of two");
+        vm.warp(block.timestamp + HOUR);
+        uint256 supply = lpt.totalSupply();
+        vm.recordLogs();
+        require(buy().length == 0, "a buy in A + 8");
+        require(usdc.balanceOf(address(next)) > fresh, "A + 8 buys from the new pool");
+        bytes[] memory logs = boughtLogs();
+        require(logs.length == 1, "one Bought event");
+        (,, uint256 bought, uint256 burned,,) =
+            abi.decode(logs[0], (uint256, uint256, uint256, uint256, uint256, uint256));
+        expectEq(burned, bought, "group 8: the whole buy burnt");
+        expectEq(supply - lpt.totalSupply(), burned, "supply");
+    }
+
+    function announce(uint256 group, uint256[] memory values) internal returns (bytes memory) {
+        return as_(who("G"), address(params), abi.encodeCall(IParameters.announce, (group, values)));
+    }
+
+    function _four(uint256[4] memory v) internal pure returns (uint256[] memory out) {
+        out = new uint256[](4);
+        for (uint256 i = 0; i < 4; i++) {
+            out[i] = v[i];
         }
     }
 

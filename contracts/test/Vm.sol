@@ -31,6 +31,7 @@ interface Vm {
     function readFile(string calldata path) external view returns (string memory);
     function parseJson(string calldata json, string calldata key) external pure returns (bytes memory);
     function parseJsonString(string calldata json, string calldata key) external pure returns (string memory);
+    function parseJsonBool(string calldata json, string calldata key) external pure returns (bool);
     function parseJsonKeys(string calldata json, string calldata key) external pure returns (string[] memory);
     function keyExistsJson(string calldata json, string calldata key) external view returns (bool);
     function parseUint(string calldata value) external pure returns (uint256);

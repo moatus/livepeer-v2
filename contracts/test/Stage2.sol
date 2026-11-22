@@ -7,6 +7,7 @@ import {Registry} from "../src/authority/Registry.sol";
 import {RoundClock} from "../src/clock/RoundClock.sol";
 import {Broker} from "../src/money/Broker.sol";
 import {MockUSDC} from "../src/money/MockUSDC.sol";
+import {Parameters} from "../src/authority/Parameters.sol";
 import {ITicketBroker} from "../interfaces/ITicketBroker.sol";
 
 /// A fresh stage 2 deployment, the shared examples, and the steps a test
@@ -17,11 +18,13 @@ abstract contract Stage2 {
     MockUSDC internal usdc;
     Broker internal broker;
     Controller internal controller;
+    Parameters internal params;
 
     string internal vectors;
 
-    /// Deploys the five contracts at block 100 (round 1 starts there). The
-    /// Registry is given the address the Broker will be created at. No
+    /// Deploys the five contracts at block 100 (round 1 starts there), then
+    /// Parameters with the authority G and no token, pool or score source.
+    /// The Registry is given the address the Broker will be created at. No
     /// Buyback: nobody may draw the network share.
     function deploy() internal {
         deploy(address(0));
@@ -29,14 +32,31 @@ abstract contract Stage2 {
 
     /// As deploy(), with the Broker given the Buyback that may draw.
     function deploy(address buyback) internal {
+        deployBase(buyback, vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 5));
+        newParameters(address(0), address(0), bytes32(0), address(0));
+    }
+
+    /// The five contracts, the Broker given `parameters`, the address the
+    /// caller then creates Parameters at with newParameters.
+    function deployBase(address buyback, address parameters) internal {
         vm.roll(100);
         clock = new RoundClock();
         usdc = new MockUSDC();
         address next = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1);
         registry = new Registry(clock, next);
-        broker = new Broker(usdc, registry, clock, buyback);
+        broker = new Broker(usdc, registry, clock, Parameters(parameters), buyback);
         require(address(broker) == next, "Broker at the address the Registry was given");
         controller = new Controller(address(registry), address(clock), address(broker));
+        params = Parameters(parameters);
+    }
+
+    /// Parameters with the authority G (the shared examples' governance
+    /// address) and the deployment's score source and pool, at the address
+    /// deployBase was given.
+    function newParameters(address scoreSource, address pool, bytes32 poolHash, address lpt_) internal {
+        address at = address(params);
+        params = new Parameters(who("G"), clock, scoreSource, pool, poolHash, address(usdc), lpt_);
+        require(address(params) == at, "Parameters at the address the Broker was given");
     }
 
     function loadVectors() internal {
@@ -171,7 +191,7 @@ abstract contract Stage2 {
     /// The stable code a call was refused with: a custom error's name, or
     /// the kept revert text.
     function code(bytes memory ret) internal pure returns (string memory) {
-        string[22] memory codes = [
+        string[27] memory codes = [
             "NOT_REGISTERED",
             "TICKET_EXPIRED",
             "TICKET_USED",
@@ -193,13 +213,20 @@ abstract contract Stage2 {
             "SAME_NODE",
             "NOT_OPTED_IN",
             "STAKE_TOO_LOW",
-            "NOT_VALIDATOR"
+            "NOT_VALIDATOR",
+            "NOT_ADJUSTABLE",
+            "SCHEDULE_RAISED",
+            "VALUE_OUT_OF_RANGE",
+            "IDENTITY_NOT_WHOLE",
+            "NOTHING_PENDING"
         ];
         if (ret.length == 4) {
             for (uint256 i = 0; i < codes.length; i++) {
                 if (bytes4(ret) == bytes4(keccak256(bytes(string.concat(codes[i], "()"))))) return codes[i];
             }
         }
+        // R-16's POOL_INVALID names the pool; its code is the name alone.
+        if (ret.length == 36 && bytes4(ret) == bytes4(keccak256("POOL_INVALID(address)"))) return "POOL_INVALID";
         if (ret.length > 4 && bytes4(ret) == bytes4(keccak256("Error(string)"))) {
             bytes memory body = new bytes(ret.length - 4);
             for (uint256 i = 0; i < body.length; i++) {

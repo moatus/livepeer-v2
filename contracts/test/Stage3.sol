@@ -64,29 +64,39 @@ abstract contract Stage3 is Stage2 {
     }
 
     function deployStage3(uint256 genesis) internal {
-        deploy();
-        // The token, StakeLedger and the stub come first; Claims is the
-        // fourth contract created from here.
-        address next = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 3);
-        lpt = new TestLPT(next, genesis);
-        ledger = new StakeLedger(lpt, registry, clock);
-        scores = new ScoreStub();
-        validatorSet = IScores(address(scores));
-        claims = new Claims(lpt, registry, clock, broker, ledger, scores, validatorSet, treasuryAddress());
-        require(address(claims) == next, "Claims at the address the token was given");
+        deployStage3(genesis, false);
     }
 
-    /// As deployStage3, with the real Scores as Claims' score source and
-    /// validator set.
+    /// As deployStage3, with the real Scores as the deployment's score
+    /// source and Claims' validator set.
     function deployStage3WithScores() internal {
-        deploy();
-        address next = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 3);
-        lpt = new TestLPT(next, GENESIS);
-        ledger = new StakeLedger(lpt, registry, clock);
-        Scores real = new Scores(registry, clock, ledger);
-        scores = ScoreStub(address(0));
-        validatorSet = real;
-        claims = new Claims(lpt, registry, clock, broker, ledger, real, real, treasuryAddress());
+        deployStage3(GENESIS, true);
+    }
+
+    /// Stage 2's five contracts, then the token, StakeLedger, the stub or
+    /// Scores, Parameters and Claims, in that order: the Broker, StakeLedger
+    /// and Scores are given the address Parameters will have, and the token
+    /// Claims'.
+    function deployStage3(uint256 genesis, bool real) internal {
+        uint256 n = vm.getNonce(address(this));
+        address parameters = vm.computeCreateAddress(address(this), n + 8);
+        address next = vm.computeCreateAddress(address(this), n + 9);
+        deployBase(address(0), parameters);
+        lpt = new TestLPT(next, genesis);
+        ledger = new StakeLedger(lpt, registry, clock, params);
+        address source;
+        if (real) {
+            Scores s = new Scores(registry, clock, ledger, params);
+            scores = ScoreStub(address(0));
+            validatorSet = s;
+            source = address(s);
+        } else {
+            scores = new ScoreStub();
+            validatorSet = IScores(address(scores));
+            source = address(scores);
+        }
+        newParameters(source, address(0), bytes32(0), address(lpt));
+        claims = new Claims(lpt, registry, clock, broker, ledger, params, validatorSet, treasuryAddress());
         require(address(claims) == next, "Claims at the address the token was given");
     }
 

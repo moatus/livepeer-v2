@@ -1,7 +1,7 @@
 {
   "testnet": "stage-4-local",
-  "about": "What the stage 4 testnet contains and every stand-in it uses. It is deployed fresh on a local chain at every run, so no address is fixed here: ./dev demo buyback prints the addresses of its run and writes them to .cache/demo/run/addresses.json. The demo reads the chain, LPT, pool and buyback values below from this file, so what runs is what this file says. Stage 3's testnet, stage-3-local.json, still runs with ./dev demo.",
-  "spec": "S-07",
+  "about": "What the stage 4 testnet contains and every stand-in it uses. It is deployed fresh on a local chain at every run, so no address is fixed here: ./dev demo buyback prints the addresses of its run and writes them to .cache/demo/run/addresses.json. The demo reads the chain, LPT and pool values below from this file, and checks the buyback values below against those Parameters holds at deployment, so what runs is what this file says. Stage 3's testnet, stage-3-local.json, still runs with ./dev demo.",
+  "spec": "S-07 and S-10",
   "rulebook": "rulebook/october-main-text-v4.md",
   "vectors": "vectors/october-main-text-v4.json",
   "contracts": [
@@ -44,12 +44,7 @@
     {
       "contract": "Scores",
       "source": "contracts/src/scores/Scores.sol",
-      "node_name": "none: Claims reads it as both its score source and its validator set"
-    },
-    {
-      "contract": "Claims",
-      "source": "contracts/src/money/Claims.sol",
-      "node_name": "none"
+      "node_name": "none: Parameters names it as the deployment's score source, and Claims reads it as its validator set"
     },
     {
       "contract": "TestPool",
@@ -57,15 +52,21 @@
       "node_name": "none"
     },
     {
-      "contract": "FixedBuybackValues",
-      "source": "contracts/src/authority/FixedBuybackValues.sol",
-      "node_name": "none: the Buyback's values source until S-10's Parameters"
+      "contract": "Parameters",
+      "source": "contracts/src/authority/Parameters.sol",
+      "node_name": "none: the Broker reads its fee split from it, Claims, StakeLedger and Scores their values, and the Buyback its values (S-07's view, groups 8 and 9)",
+      "checks": "authority() is G, the governance stand-in; deployed after the TestPool, at the address the Broker, StakeLedger and Scores were given; its deployment buyback values are the TestPool and the buyback values below"
+    },
+    {
+      "contract": "Claims",
+      "source": "contracts/src/money/Claims.sol",
+      "node_name": "none"
     },
     {
       "contract": "Buyback",
       "source": "contracts/src/money/Buyback.sol",
       "node_name": "none",
-      "checks": "broker() is the Broker, values() is FixedBuybackValues, and poolCodeHash() is the runtime code hash of the TestPool deployed with it"
+      "checks": "broker() is the Broker, values() is Parameters, and poolCodeHash() is the runtime code hash of the TestPool deployed with it and equals Parameters' poolCodeHash()"
     }
   ],
   "node": {
@@ -154,9 +155,9 @@
       "value": "SmolLM2-135M-Instruct served by llama.cpp; its answers are not checked, and a settled ticket does not show the work was done"
     },
     {
-      "stand_in": "No governance",
-      "for": "Parameter changes under D-12",
-      "value": "No contract has an owner key; the Controller's names and every parameter are fixed at deployment"
+      "stand_in": "G, the governance stand-in",
+      "for": "Governance announcing parameter changes under D-12 (S-10 R-25)",
+      "value": "A throwaway key the run makes, fixed in Parameters at deployment as its one authority: it announces and withdraws with lp2-params, and a change counts from the announce round + 7. No contract has an owner key, and the Controller's names are fixed at deployment"
     },
     {
       "stand_in": "TestPool",
@@ -164,9 +165,9 @@
       "value": "A port of the v2 pair's mint and swap paths with v2's fee, cumulative prices and revert texts, no owner, no protocol fee and no flash swaps (contracts/src/money/TestPool.sol), seeded with 500,000 mock USDC and 100,000 test LPT; the Buyback admits only a pool with its runtime code hash and this deployment's two tokens"
     },
     {
-      "stand_in": "FixedBuybackValues",
-      "for": "The buyback values set by governance through S-10's Parameters",
-      "value": "Burn 100 %, TWAP interval 3,600 s, slippage bound 1 %, a buy every round and the TestPool above, fixed at deployment and checked against D-47 (v)'s ranges; nothing can change them"
+      "stand_in": "The deployment's buyback values",
+      "for": "The buyback values governance sets",
+      "value": "Parameters holds burn 100 %, TWAP interval 3,600 s, slippage bound 1 %, a buy every round and the TestPool above until G announces a change; the burn share is fixed (D-47 (v)), and a new pool must have the TestPool's runtime code hash and this deployment's two tokens (POOL_INVALID at the announce)"
     },
     {
       "stand_in": "Tickets signed and redeemed by the demo",

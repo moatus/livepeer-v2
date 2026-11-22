@@ -5,12 +5,16 @@ import {IScores} from "../../interfaces/IScores.sol";
 import {IRegistryV2} from "../../interfaces/IRegistry.sol";
 import {IRoundClock} from "../../interfaces/IRoundClock.sol";
 import {IStakeLedger} from "../../interfaces/IStakeLedger.sol";
+import {IParameters} from "../../interfaces/IParameters.sol";
 
 /// The validator set and the median (rulebook R-11, R-13): stage 3's score
 /// source. It holds and moves no token.
 ///
 /// How a round's members are kept. The members are a history of seat lists,
-/// each holding at most N nodes in seating order from its round on. A call
+/// each holding at most N nodes in seating order from its round on, N the
+/// ValidatorSetSize in force in the round of the call that wrote it (R-13,
+/// R-25). N only rises, to at most 33, so no list is ever over the size of
+/// a later round. A call
 /// made in round R changes only the list that starts at R + 1, created from
 /// the list before it on the round's first change. So the list of a round
 /// that has started is never written again, and a round's members are fixed
@@ -27,10 +31,10 @@ import {IStakeLedger} from "../../interfaces/IStakeLedger.sol";
 /// number, so the one seated last is the last in its list.
 ///
 /// No call visits the opted-in nodes: each reads the node it names and the
-/// at most N members (R-23).
+/// at most 33 members (R-23).
 contract Scores is IScores {
-    /// ValidatorSetSize (R-13): a stand-in for the paper's 33.
-    uint256 private constant N = 3;
+    /// The ValidatorSetSize's group (R-25).
+    uint256 private constant VALIDATOR_SET_SIZE = 5;
     /// A score is 0 to 10^6 (R-11); a member that has not voted counts as
     /// 10^6.
     uint256 private constant MAX_SCORE = 1_000_000;
@@ -38,12 +42,14 @@ contract Scores is IScores {
     IRegistryV2 private immutable registry;
     IRoundClock private immutable clock;
     IStakeLedger private immutable ledger;
+    /// Where N is read, for the round a call runs in.
+    IParameters private immutable params;
 
     /// The members from `fromRound` on, in seating order, until the next
-    /// list. Empty seats are address(0), after every member.
+    /// list.
     struct Seats {
         uint256 fromRound;
-        address[N] members;
+        address[] members;
     }
 
     struct Node {
@@ -67,14 +73,16 @@ contract Scores is IScores {
     /// The last seating number given.
     uint64 private lastSeated;
 
-    constructor(IRegistryV2 registry_, IRoundClock clock_, IStakeLedger ledger_) {
+    constructor(IRegistryV2 registry_, IRoundClock clock_, IStakeLedger ledger_, IParameters params_) {
         require(
-            address(registry_) != address(0) && address(clock_) != address(0) && address(ledger_) != address(0),
+            address(registry_) != address(0) && address(clock_) != address(0) && address(ledger_) != address(0)
+                && address(params_) != address(0),
             "zero address"
         );
         registry = registry_;
         clock = clock_;
         ledger = ledger_;
+        params = params_;
     }
 
     // --- calls made for a node ------------------------------------------------
@@ -139,10 +147,10 @@ contract Scores is IScores {
     /// members; with an even count, the floor of the mean of the two middle
     /// votes (R-11).
     function scoreOf(address node) external view returns (uint256) {
-        address[N] memory m = _current(clock.currentRound());
-        uint256[N] memory s;
+        address[] memory m = _current(clock.currentRound());
+        uint256[] memory s = new uint256[](m.length);
         uint256 k = 0;
-        for (; k < N && m[k] != address(0); k++) {
+        for (; k < m.length; k++) {
             Vote memory v = votes[m[k]][node];
             uint256 x = v.seated == nodes[m[k]].seated ? v.score : MAX_SCORE;
             // Insertion into the sorted s[0..k).
@@ -159,14 +167,8 @@ contract Scores is IScores {
 
     /// At most N, in seating order; fixed when `round` starts. For a round
     /// after the current one, the members as they stand so far.
-    function membersAt(uint256 round) external view returns (address[] memory out) {
-        address[N] memory m = _at(round);
-        uint256 k = 0;
-        while (k < N && m[k] != address(0)) k++;
-        out = new address[](k);
-        for (uint256 i = 0; i < k; i++) {
-            out[i] = m[i];
-        }
+    function membersAt(uint256 round) external view returns (address[] memory) {
+        return _at(round);
     }
 
     // --- the seat lists -------------------------------------------------------
@@ -174,21 +176,22 @@ contract Scores is IScores {
     /// Seats `node`, opted in, from round r + 1 if it is not already on that
     /// list, as R-13 says. Returns false, changing nothing, when its stake at
     /// the start of r is 0, or every seat is taken and that stake is not
-    /// above the smallest member's.
+    /// above the smallest member's. N is the size in force in r, never one
+    /// still pending.
     function _seat(address node, uint256 r) private returns (bool) {
-        address[N] memory next = _latest();
+        address[] memory next = _latest();
         if (_has(next, node)) return true;
         uint256 stake = ledger.stakeAt(node, r);
         if (stake == 0) return false;
 
-        // The seat it takes: the first free one, or else the smallest
-        // member's; of equal smallest, the one seated last, the last in the
-        // list.
-        uint256 at = N;
+        // The seat it takes: a free one, or else the smallest member's; of
+        // equal smallest, the one seated last, the last in the list.
+        uint256 n = next.length;
         address displaced = address(0);
-        if (next[N - 1] != address(0)) {
+        if (n >= params.valuesAt(VALIDATOR_SET_SIZE, r)[0]) {
             uint256 smallest = type(uint256).max;
-            for (uint256 j = 0; j < N; j++) {
+            uint256 at = 0;
+            for (uint256 j = 0; j < n; j++) {
                 uint256 s = ledger.stakeAt(next[j], r);
                 if (s <= smallest) {
                     smallest = s;
@@ -197,7 +200,7 @@ contract Scores is IScores {
             }
             if (stake <= smallest) return false;
             displaced = next[at];
-            _remove(next, at);
+            next = _remove(next, at);
         }
 
         // A member of round r whose exit for r + 1 was recorded in r keeps
@@ -207,24 +210,27 @@ contract Scores is IScores {
             number = ++lastSeated;
             nodes[node].seated = number;
         }
-        uint256 i = N - 1;
-        for (; i > 0 && (next[i - 1] == address(0) || nodes[next[i - 1]].seated > number); i--) {
-            next[i] = next[i - 1];
+        address[] memory list = new address[](next.length + 1);
+        uint256 i = next.length;
+        for (; i > 0 && nodes[next[i - 1]].seated > number; i--) {
+            list[i] = next[i - 1];
         }
-        next[i] = node;
+        list[i] = node;
+        for (; i > 0; i--) {
+            list[i - 1] = next[i - 1];
+        }
 
-        _write(next, r);
+        _write(list, r);
         emit Seated(node, r + 1, displaced);
         return true;
     }
 
     /// Takes `node` off the list for r + 1, if it is on it.
     function _leave(address node, uint256 r) private {
-        address[N] memory next = _latest();
-        for (uint256 i = 0; i < N; i++) {
+        address[] memory next = _latest();
+        for (uint256 i = 0; i < next.length; i++) {
             if (next[i] == node) {
-                _remove(next, i);
-                _write(next, r);
+                _write(_remove(next, i), r);
                 return;
             }
         }
@@ -232,7 +238,7 @@ contract Scores is IScores {
 
     /// Writes the list for r + 1: the last list when it already starts at
     /// r + 1, or else a new one after it.
-    function _write(address[N] memory members, uint256 r) private {
+    function _write(address[] memory members, uint256 r) private {
         uint256 n = history.length;
         if (n == 0 || history[n - 1].fromRound != r + 1) {
             history.push(Seats(r + 1, members));
@@ -242,21 +248,21 @@ contract Scores is IScores {
     }
 
     /// The members as they stand for every round from the next on.
-    function _latest() private view returns (address[N] memory m) {
+    function _latest() private view returns (address[] memory m) {
         uint256 n = history.length;
         if (n > 0) m = history[n - 1].members;
     }
 
     /// The members of round r, the current round: the last list, or the one
     /// before it when the last starts at r + 1.
-    function _current(uint256 r) private view returns (address[N] memory m) {
+    function _current(uint256 r) private view returns (address[] memory m) {
         uint256 n = history.length;
         if (n > 0 && history[n - 1].fromRound <= r) return history[n - 1].members;
         if (n > 1) return history[n - 2].members;
     }
 
     /// The members of `round`: the last list that starts at or before it.
-    function _at(uint256 round) private view returns (address[N] memory m) {
+    function _at(uint256 round) private view returns (address[] memory m) {
         uint256 lo = 0;
         uint256 hi = history.length;
         while (lo < hi) {
@@ -267,18 +273,18 @@ contract Scores is IScores {
         if (lo > 0) m = history[lo - 1].members;
     }
 
-    function _has(address[N] memory m, address node) private pure returns (bool) {
-        for (uint256 i = 0; i < N; i++) {
-            if (m[i] == node && node != address(0)) return true;
+    function _has(address[] memory m, address node) private pure returns (bool) {
+        for (uint256 i = 0; i < m.length; i++) {
+            if (m[i] == node) return true;
         }
         return false;
     }
 
-    /// Removes m[i], closing the gap so the empty seats stay last.
-    function _remove(address[N] memory m, uint256 i) private pure {
-        for (; i + 1 < N; i++) {
-            m[i] = m[i + 1];
+    /// m without m[i], the rest in order.
+    function _remove(address[] memory m, uint256 i) private pure returns (address[] memory out) {
+        out = new address[](m.length - 1);
+        for (uint256 j = 0; j < out.length; j++) {
+            out[j] = m[j < i ? j : j + 1];
         }
-        m[N - 1] = address(0);
     }
 }

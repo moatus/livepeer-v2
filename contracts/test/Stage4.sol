@@ -6,7 +6,6 @@ import {Stage2} from "./Stage2.sol";
 import {TestLPT} from "../src/money/TestLPT.sol";
 import {TestPool} from "../src/money/TestPool.sol";
 import {Buyback} from "../src/money/Buyback.sol";
-import {FixedBuybackValues} from "../src/authority/FixedBuybackValues.sol";
 import {IBuyback} from "../interfaces/IBuyback.sol";
 import {IBuybackValues} from "../interfaces/IBuybackValues.sol";
 import {ITicketBroker} from "../interfaces/ITicketBroker.sol";
@@ -106,8 +105,8 @@ abstract contract Stage4 is Stage2 {
     uint256 private jobs;
 
     /// deployStage4's options. With none, the deployment the demo makes:
-    /// FixedBuybackValues with the shared examples' values, and USDC as
-    /// the pool's token0.
+    /// Parameters as the values source, with the deployment's values, and
+    /// USDC as the pool's token0.
     uint256 internal constant STUB = 1; // the values source is a ValuesStub a test may change
     uint256 internal constant SHORT = 2; // the round's pool is a ShortPool, and the Buyback is pinned to its hash
     uint256 internal constant OVER = 4; // the same with an OverPool
@@ -116,10 +115,14 @@ abstract contract Stage4 is Stage2 {
     /// A ShortPool or OverPool holds 1,000 USDC and 200 LPT of reserves.
     function deployStage4(uint256 genesis, uint256 opts) internal {
         bool misdelivers = opts & (SHORT | OVER) != 0;
-        // deploy() creates five contracts; then the token, the pool, the
-        // ShortPool if any, and the values source. The Buyback is next.
-        address at = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + (misdelivers ? 9 : 8));
-        deploy(at);
+        bool stub = opts & STUB != 0;
+        // deployBase creates five contracts; then the token, the pool, the
+        // ShortPool if any, the stub if any, and Parameters. The Buyback is
+        // next.
+        uint256 n = vm.getNonce(address(this)) + 7 + (misdelivers ? 1 : 0) + (stub ? 1 : 0);
+        address parameters = vm.computeCreateAddress(address(this), n);
+        address at = vm.computeCreateAddress(address(this), n + 1);
+        deployBase(at, parameters);
         lpt = newLpt(genesis, opts & LPT_FIRST != 0);
         pool = new TestPool(address(usdc), address(lpt));
         require((pool.token0() == address(lpt)) == (opts & LPT_FIRST != 0), "the pool's token order");
@@ -137,11 +140,9 @@ abstract contract Stage4 is Stage2 {
             param("buyback_max_slippage_ppm"),
             param("buyback_every_rounds")
         );
-        source = opts & STUB != 0
-            ? IBuybackValues(address(new ValuesStub(v)))
-            : IBuybackValues(
-                address(new FixedBuybackValues(v.pool, v.burnPpm, v.twapSeconds, v.maxSlippagePpm, v.buyEveryRounds))
-            );
+        if (stub) source = IBuybackValues(address(new ValuesStub(v)));
+        newParameters(address(0), round_, round_.codehash, address(lpt));
+        if (!stub) source = params;
         buyback = new Buyback(source, broker, clock, lpt, usdc, round_.codehash);
         require(address(buyback) == at, "Buyback at the address the Broker was given");
         register("N");

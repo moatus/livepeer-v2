@@ -116,37 +116,41 @@ def keeper_once(keystore_file: Path, password_file: Path) -> tuple[int, str]:
 # --- deployment -------------------------------------------------------------------
 
 def deploy_stage4() -> None:
-    """Stage 3's contracts with the Broker given the Buyback's address, then
-    the pool, the fixed values and the Buyback, pinned to the pool's code."""
-    # Stage 2 creates five contracts and stage 3 four more; then the pool
-    # and the values. The Buyback is the twelfth.
+    """Stage 3's contracts with the pool, and the Broker given the Buyback's
+    address, then the Buyback, which reads its values from Parameters and
+    is pinned to the pool's code."""
+    # Stage 2 creates five contracts and stage 3 with the pool six more
+    # (the token, StakeLedger, Scores, the pool, Parameters and Claims).
+    # The Buyback is the twelfth.
     buyback_at = next_address(11)
-    deploy_stage3(buyback_at)
-    C["TestPool"] = forge_create("src/money/TestPool.sol:TestPool", C["MockUSDC"], C["TestLPT"])
-    v = MANIFEST["buyback"]
-    C["FixedBuybackValues"] = forge_create("src/authority/FixedBuybackValues.sol:FixedBuybackValues", C["TestPool"],
-                                           v["burn_ppm"], v["twap_seconds"], v["max_slippage_ppm"], v["every_rounds"])
+    deploy_stage3(buyback_at, pool=True)
     code_hash = sh(["cast", "keccak", rpc("eth_getCode", [C["TestPool"], "latest"])])
-    C["Buyback"] = forge_create("src/money/Buyback.sol:Buyback", C["FixedBuybackValues"], C["Broker"],
+    C["Buyback"] = forge_create("src/money/Buyback.sol:Buyback", C["Parameters"], C["Broker"],
                                 C["RoundClock"], C["TestLPT"], C["MockUSDC"], code_hash)
     if C["Buyback"].lower() != buyback_at.lower():
         raise Failed(f"the Buyback landed at {C['Buyback']}, not {buyback_at} as the Broker was told")
-    for n in ("TestPool", "Buyback", "Broker"):
+    for n in ("TestPool", "Buyback", "Broker", "Parameters"):
         NAMES[C[n].lower()] = n
     (RUN / "addresses.json").write_text(json.dumps({**C, "t0": T0}, indent=1) + "\n")
-    say("  " + ", ".join(f"{n} {C[n]}" for n in ("Broker", "TestLPT", "TestPool", "FixedBuybackValues", "Buyback")))
+    say("  " + ", ".join(f"{n} {C[n]}" for n in ("Broker", "TestLPT", "TestPool", "Parameters", "Buyback")))
 
     say("\n2. The deployment's check")
     check("broker.buyback() is the Buyback", hex(call(C["Broker"], "buyback()")), hex(int(C["Buyback"], 16)))
     check("buyback.broker() is the Broker", hex(call(C["Buyback"], "broker()")), hex(int(C["Broker"], 16)))
-    check("buyback.values() is FixedBuybackValues", hex(call(C["Buyback"], "values()")),
-          hex(int(C["FixedBuybackValues"], 16)))
+    check("buyback.values() is Parameters", hex(call(C["Buyback"], "values()")), hex(int(C["Parameters"], 16)))
+    check("parameters.authority() is G, the governance stand-in", hex(call(C["Parameters"], "authority()")),
+          hex(int(ADDR["G"], 16)))
     check("buyback.poolCodeHash() is the TestPool's runtime code hash", hex(call(C["Buyback"], "poolCodeHash()")),
           hex(int(code_hash, 16)))
-    got = words(C["FixedBuybackValues"], "buybackValuesAt(uint256)", 1)
+    check("parameters.poolCodeHash() equals buyback.poolCodeHash()", hex(call(C["Parameters"], "poolCodeHash()")),
+          hex(call(C["Buyback"], "poolCodeHash()")))
+    got = words(C["Parameters"], "buybackValuesAt(uint256)", 1)
     want = [int(C["TestPool"], 16)] + [int(PARAMS[k]) for k in ("buyback_burn_ppm", "buyback_twap_seconds",
                                                                  "buyback_max_slippage_ppm", "buyback_every_rounds")]
-    check("the fixed values are the manifest's and the shared examples'", got, want)
+    check("the deployment's buyback values are the manifest's and the shared examples'", got, want)
+    v = MANIFEST["buyback"]
+    check("the manifest's buyback values are the shared examples'",
+          [int(v[k]) for k in ("burn_ppm", "twap_seconds", "max_slippage_ppm", "every_rounds")], want[1:])
 
 
 # --- the walk's actions ---------------------------------------------------------
@@ -311,11 +315,12 @@ def main() -> int:
     preflight()
     try:
         sh(["forge", "build", "--root", str(ROOT / "contracts")])
-        sh(["go", "build", "-o", str(RUN / "bin" / "lp2-keeper"), PROGRAMS["lp2-keeper"]], cwd=ROOT / "programs", env=GO_ENV)
+        for prog in ("lp2-keeper", "lp2-params"):
+            sh(["go", "build", "-o", str(RUN / "bin" / prog), PROGRAMS[prog]], cwd=ROOT / "programs", env=GO_ENV)
     except Failed as e:
         raise NotRun(f"could not build the contracts or the keeper: {e}")
     start_chain()
-    for n in ("deployer", "P", "N", "Trader", "Keeper"):
+    for n in ("deployer", "P", "N", "Trader", "Keeper", "G"):
         new_key(n)
     treasury = "0x" + os.urandom(20).hex()
     ADDR["Treasury"], NAMES[treasury.lower()] = treasury, "Treasury"
@@ -430,4 +435,67 @@ def main() -> int:
               (held - call(C["Broker"], "networkHeld()"), supply - call(C["TestLPT"], "totalSupply()")),
               (words[1], words[3]))
 
+    parameters(password)
     return finish(started, "section 1's walk ran on the chain, every figure equal to the calculator's")
+
+
+def lp2_params(who: str, password: Path, *words: str) -> tuple[int, str]:
+    """Runs lp2-params as `who` (its keystore), or reading only when None."""
+    argv = [str(RUN / "bin" / "lp2-params"), "--rpc-url", RPC, "--parameters-address", C["Parameters"],
+            "--round-clock-address", C["RoundClock"]]
+    if who:
+        argv += ["--keystore-file", str(RUN / "keys" / who / who), "--keystore-password-file", str(password)]
+    done = subprocess.run(argv + list(words), capture_output=True, text=True, timeout=120)
+    out = (done.stdout + done.stderr).strip()
+    for line in out.splitlines():
+        say(f"  {who or 'anyone'}$ lp2-params {' '.join(words)}: {line}" if line == out.splitlines()[0]
+            else f"      {line}")
+    return done.returncode, out
+
+
+def parameters(password: Path) -> None:
+    """S-10 R-25 on the chain: G, the governance stand-in and Parameters'
+    authority, announces and withdraws through lp2-params; every other
+    caller and every value outside D-47's ranges is refused. The Buyback
+    reads group 9 from Parameters, so a change to it is what a later
+    buy would read from the round it counts from."""
+    now = current_round()
+    say(f"\n7. Parameters, as G (S-10 R-25), in round {now}")
+    keystore("G", password)
+    pool = C["TestPool"]
+    code, out = lp2_params("G", password, "announce", "emission", "900000", "10000", "90000")
+    check("G's emission change counts from the current round + 7",
+          (code, out.split(" (block")[0]), (0, f"announced: emission 900000/10000/90000, counts from round {now + 7}"))
+    code, out = lp2_params("G", password, "announce", "buyback-values", pool, "7200", "50000", "2")
+    check("G's buyback values change counts from the current round + 7",
+          (code, f"counts from round {now + 7}" in out), (0, True))
+    refusals = [
+        ("Keeper", ("announce", "fee", "600000", "400000"), "NOT_AUTHORIZED"),
+        ("G", ("announce", "0", "100"), "NOT_ADJUSTABLE"),
+        ("G", ("announce", "schedule", "0", "1680"), "SCHEDULE_RAISED"),
+        ("G", ("announce", "schedule", "841", "840"), "VALUE_OUT_OF_RANGE"),
+        ("G", ("announce", "buyback-values", pool, "1799", "10000", "1"), "VALUE_OUT_OF_RANGE"),
+        ("G", ("announce", "fee", "600000", "300000"), "IDENTITY_NOT_WHOLE"),
+        ("G", ("announce", "buyback-values", C["Buyback"], "3600", "10000", "1"), "POOL_INVALID"),
+        ("Keeper", ("withdraw", "buyback-values"), "NOT_AUTHORIZED"),
+        ("G", ("withdraw", "unbonding"), "NOTHING_PENDING"),
+    ]
+    for who, said, want in refusals:
+        if who == "Keeper" and not (RUN / "keys" / "Keeper").is_dir():
+            keystore("Keeper", password)
+        code, out = lp2_params(who, password, *said)
+        check(f"{who}'s {' '.join(said[:2])} is refused {want}, and nothing is sent",
+              (code, out.startswith(f"refused: {want} at block")), (3, True))
+    want = [int(pool, 16), 7200, 50000, 2]
+    check("the buyback values change is pending, unchanged by the refusals",
+          words(C["Parameters"], "pending(uint256)", 9), [64, now + 7, 4] + want)
+    code, out = lp2_params("G", password, "withdraw", "buyback-values")
+    check("G withdraws it", (code, out.startswith("withdrawn: buyback-values")), (0, True))
+    lp2_params(None, password, "show", "buyback-values", str(now + 7))
+    deployed = [int(pool, 16)] + [int(PARAMS[k]) for k in ("buyback_twap_seconds", "buyback_max_slippage_ppm",
+                                                          "buyback_every_rounds")]
+    check(f"a withdrawn change never counts: round {now + 7}'s buyback values are the deployment's",
+          words(C["Parameters"], "valuesAt(uint256,uint256)", 9, now + 7), [32, 4] + deployed)
+    check(f"the Buyback reads the same for round {now + 7}", words(C["Parameters"], "buybackValuesAt(uint256)", now + 7),
+          [int(pool, 16), int(PARAMS["buyback_burn_ppm"])] + deployed[1:])
+    lp2_params(None, password, "show", "emission", str(now + 7))

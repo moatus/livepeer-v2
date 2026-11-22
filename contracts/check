@@ -111,6 +111,84 @@ case $? in
     *) exit 2 ;;
 esac
 
+# The ceiling after a change (rulebook v4, R-05 and R-25): the half-life
+# of 420 that parameters-half-life announces in round 94 counts from round
+# 101, and from there each round moves two 840ths of a halving, so the
+# positions of rounds 100 to 519 run 99 to 937 by 2 and reach every odd
+# residue below 840 once. The test prints each
+# round's schedule, position and ceiling; each ceiling is held to R-05's
+# exact floor at its position, c^840 x 2^P <= EmissionBase^840 <
+# (c+1)^840 x 2^P, and every round, with its values and ceiling, is put to
+# the calculator as one more parameters case beside the examples.
+run_clean python3 - <<'EOF'
+import json, os, re, subprocess, sys, tempfile
+
+def not_run(kind, value, tb):
+    print(f"half-life 420: not_run ({value!r})")
+    sys.exit(2)
+sys.excepthook = not_run
+
+vectors = json.load(open("../vectors/october-main-text-v4.json"))
+base = int(vectors["parameters"]["emission_base_wei"])
+run = subprocess.run(["forge", "test", "--match-test", "test_half_life_420_residues", "--json", "-vv"],
+                     capture_output=True, text=True)
+if run.returncode != 0:
+    print(f"half-life 420: not_run (the residue test exited {run.returncode})\n{run.stderr[-600:]}")
+    sys.exit(2)
+logs = [line for suite in json.loads(run.stdout).values()
+        for result in suite["test_results"].values() for line in result["decoded_logs"]]
+rows = {}
+for line in logs:
+    m = re.fullmatch(r"H420\((\d+)\): values (\d+)/(\d+)/(\d+), position (\d+), ceiling (\d+)", line)
+    if m:
+        r, v0, v1, v2, pos, c = map(int, m.groups())
+        rows[r] = ((v0, v1, v2), pos, c)
+failed = False
+if sorted(rows) != list(range(100, 520)):
+    print(f"half-life 420: the test printed {len(rows)} rounds, not 420")
+    failed = True
+residues = sorted(rows[r][1] % 840 for r in rows)
+if residues != list(range(1, 840, 2)):
+    print("half-life 420: rounds 100 to 519 do not reach every odd residue once")
+    failed = True
+top = base ** 840
+for r, (_, pos, c) in sorted(rows.items()):
+    if not (c ** 840 << pos <= top < (c + 1) ** 840 << pos):
+        print(f"half-life 420: round {r}, position {pos}: {c} is not the exact floor")
+        failed = True
+
+steps = [{"step": "1", "round": "94", "action": "announce", "caller": "G", "group": "3", "values": ["0", "420"]}]
+observed = []
+for r, (v, _, c) in sorted(rows.items()):
+    n = str(len(steps) + 1)
+    steps.append({"step": n, "round": "94", "action": "observe", "group": "3", "at_round": str(r)})
+    observed.append({"step": n, "values": [str(x) for x in v], "ceiling_wei": str(c)})
+vectors["cases"].append({
+    "id": "parameters-half-life-420-every-residue", "kind": "parameters",
+    "inputs": {"authority": "G", "steps": steps},
+    "expected": {"announced": [{"step": "1", "counts_from": "101"}], "observed": observed, "refused": []},
+})
+with tempfile.TemporaryDirectory() as d:
+    path = os.path.join(d, "vectors.json")
+    json.dump(vectors, open(path, "w"))
+    calc = subprocess.run(["./calculator/check", path], cwd="..", capture_output=True, text=True)
+said = [l for l in calc.stdout.splitlines() if "half-life-420-every-residue" in l]
+if calc.returncode == 2 or not said:
+    print(f"half-life 420: not_run (the calculator exited {calc.returncode})\n{calc.stdout[-600:]}{calc.stderr[-600:]}")
+    sys.exit(2)
+if calc.returncode != 0 or not said[0].startswith("PASS"):
+    print("half-life 420: the calculator disagrees\n" + calc.stdout[-1200:])
+    failed = True
+if not failed:
+    print(f"half-life 420: {len(rows)} rounds exact at their positions, and the calculator agrees ({said[0]})")
+sys.exit(1 if failed else 0)
+EOF
+case $? in
+    0) ;;
+    1) exit 1 ;;
+    *) exit 2 ;;
+esac
+
 # Each deployed contract and the interface file that declares its public
 # shape. The two ABIs must hold the same functions, events and errors, with
 # the same types, indexed flags and mutability. The constructor is not
@@ -134,7 +212,7 @@ sys.excepthook = not_run
 PAIRS = [("Controller", "IController"), ("Registry", "IRegistryV2"), ("RoundClock", "IRoundClock"),
          ("Broker", "ITicketBrokerV2"), ("MockUSDC", "IMockUSDC"), ("StakeLedger", "IStakeLedger"),
          ("TestLPT", "ITestLPTV2"), ("Claims", "IClaims"), ("Scores", "IScores"),
-         ("Buyback", "IBuyback"), ("TestPool", "ITestPool"), ("FixedBuybackValues", "IBuybackValues")]
+         ("Buyback", "IBuyback"), ("TestPool", "ITestPool"), ("Parameters", "IParameters")]
 
 # Declared in an interface but built by a later phase, which removes its
 # line here when it builds them. Nothing else may be missing.
@@ -202,21 +280,6 @@ for contract, interface in PAIRS:
 # name, so order and names are frozen as well as types. A struct is written
 # as its fields in parentheses.
 FROZEN = {
-    "interfaces/IParameters.sol:IParameters": {
-        "function authority() returns (address) view",
-        "function announce(uint256 group,uint256[] values) returns (uint256 countsFrom)",
-        "function withdraw(uint256 group)",
-        "function valuesAt(uint256 group,uint256 round) returns (uint256[]) view",
-        "function pending(uint256 group) returns (uint256[] values,uint256 countsFrom) view",
-        "function poolCodeHash() returns (bytes32) view",
-        "function buybackValuesAt(uint256 round) returns ((address pool,uint256 burnPpm,"
-            "uint256 twapSeconds,uint256 maxSlippagePpm,uint256 buyEveryRounds)) view",
-        "event Announced(uint256 indexed group,uint256[] values,uint256 countsFrom)",
-        "event Withdrawn(uint256 indexed group,uint256 countsFrom)",
-        "error NOT_AUTHORIZED()", "error NOT_ADJUSTABLE()", "error SCHEDULE_RAISED()",
-        "error VALUE_OUT_OF_RANGE()", "error IDENTITY_NOT_WHOLE()", "error NOTHING_PENDING()",
-        "error POOL_INVALID(address pool)",
-    },
     "interfaces/IRegistry.sol:IRegistryV3": {
         "function register()",
         "function setPayout(address node,address payout)",

@@ -213,10 +213,11 @@ started (`orchestrator-N.log`, `keeper.log`, `validators.log`, ...) are in
 `./calculator/check .cache/demo/run/validators-case.json`.
 
 Every stand-in a demo uses (the local chain, mock USDC, the fixed price,
-every ticket winning, 50-block rounds, the tiny model, no governance and no
-buyback, and from stage 3 test LPT and its genesis supply, the treasury
-address, the scripted validators, three validator seats for the paper's 33
-and the keeper) is named in its manifest,
+every ticket winning, 50-block rounds, the tiny model, Parameters with no
+key (so every value is the deployment's) and no buyback, and from stage 3
+test LPT and its genesis supply, the treasury address, the scripted
+validators, three validator seats for the paper's 33 and the keeper) is
+named in its manifest,
 `deployments/stage-3-local.json` or `deployments/stage-2-local.json`, which
 it reads its settings from.
 
@@ -242,8 +243,9 @@ cycle in real time, then reconciles every figure against the calculator.
 - `calculator/` computes every worked case from the rulebook alone, and
   `contracts/` runs every one through the contracts.
 - `programs/` holds what runs beside the node: the funding program, the
-  round keeper, `lp2-stake` for holders and nodes, and the scripted
-  validators; `demo/` holds the one-command demo.
+  round keeper, `lp2-stake` for holders and nodes, `lp2-params` for the
+  governance authority, and the scripted validators; `demo/` holds the
+  one-command demo.
 - `deployments/` names what each testnet version contains.
 - `SEAMS.md` names the places where something important crosses (rules,
   contract interfaces, money, authority, the node) and what enforces each.

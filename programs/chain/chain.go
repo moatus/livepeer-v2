@@ -51,7 +51,11 @@ const contractsABI = `[
  {"type":"function","name":"optIn","stateMutability":"nonpayable","inputs":[{"name":"node","type":"address"}],"outputs":[]},
  {"type":"function","name":"vote","stateMutability":"nonpayable","inputs":[{"name":"node","type":"address"},{"name":"target","type":"address"},{"name":"score","type":"uint256"}],"outputs":[]},
  {"type":"function","name":"buy","stateMutability":"nonpayable","inputs":[],"outputs":[{"name":"usdcIn","type":"uint256"},{"name":"lptBought","type":"uint256"},{"name":"burned","type":"uint256"}]},
- {"type":"function","name":"poke","stateMutability":"nonpayable","inputs":[],"outputs":[]}
+ {"type":"function","name":"poke","stateMutability":"nonpayable","inputs":[],"outputs":[]},
+ {"type":"function","name":"announce","stateMutability":"nonpayable","inputs":[{"name":"group","type":"uint256"},{"name":"values","type":"uint256[]"}],"outputs":[{"name":"countsFrom","type":"uint256"}]},
+ {"type":"function","name":"withdraw","stateMutability":"nonpayable","inputs":[{"name":"group","type":"uint256"}],"outputs":[]},
+ {"type":"function","name":"valuesAt","stateMutability":"view","inputs":[{"name":"group","type":"uint256"},{"name":"round","type":"uint256"}],"outputs":[{"name":"","type":"uint256[]"}]},
+ {"type":"function","name":"pending","stateMutability":"view","inputs":[{"name":"group","type":"uint256"}],"outputs":[{"name":"values","type":"uint256[]"},{"name":"countsFrom","type":"uint256"}]}
 ]`
 
 // Codes are the custom errors of contracts/interfaces, by name. A test

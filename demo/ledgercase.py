@@ -132,9 +132,11 @@ def case(case_id: str, ordered: list[dict], need: dict, views: dict, members: di
 
 
 def document(vectors: dict, the_case: dict) -> dict:
-    """A shared examples file holding one case, which ./calculator/check reads."""
-    head = {k: v for k, v in vectors.items() if k != "cases"}
-    return {**head, "cases": [the_case]}
+    """The shared examples with the run's case added, which
+    ./calculator/check reads: the check refuses a file that lacks the
+    rulebook's named examples."""
+    kept = [c for c in vectors["cases"] if c["id"] != the_case["id"]]
+    return {**{k: v for k, v in vectors.items() if k != "cases"}, "cases": kept + [the_case]}
 
 
 def strings(value):

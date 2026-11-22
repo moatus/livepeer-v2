@@ -6,10 +6,11 @@ import {Stage3} from "./Stage3.sol";
 import {Scores} from "../src/scores/Scores.sol";
 import {IScores} from "../interfaces/IScores.sol";
 import {StakeLedger} from "../src/money/StakeLedger.sol";
+import {IParameters} from "../interfaces/IParameters.sol";
 
 /// Scores on a stage 3 deployment: the real Registry, RoundClock and
 /// StakeLedger, with every stake made by real bonds and unbonds. Runs every
-/// `score` and `validators` case of vectors/october-main-text-v2.json, every
+/// `score` and `validators` case of vectors/october-main-text-v4.json, every
 /// input and expected number read from there.
 ///
 /// test_every_score_and_validators_case_is_run fails on a case left unrun.
@@ -39,12 +40,12 @@ contract ScoresTest is Stage3 {
     uint256 internal nextStep;
 
     function setUp() external {
-        loadVectors("october-main-text-v2");
+        loadVectors("october-main-text-v4");
     }
 
     function world() internal {
         deployStage3();
-        vset = new Scores(registry, clock, ledger);
+        vset = new Scores(registry, clock, ledger, params);
     }
 
     // --- the shared examples ----------------------------------------------
@@ -117,8 +118,21 @@ contract ScoresTest is Stage3 {
         validatorsCase("refusal-order-validators");
     }
 
+    /// R-25 (S-10 phase 3): the set size only rises, and a seat call reads
+    /// the size in force in the round it runs in (the spec's note N1).
+    function test_validators_set_size() external {
+        validatorsCase("validators-set-size");
+    }
+
+    /// The same rise, withdrawn before it counts, never counts.
+    function test_validators_set_size_withdrawn() external {
+        validatorsCase("validators-set-size-withdrawn");
+    }
+
+    /// Every score and validators case is run here, but for
+    /// validators-rotation, which is key rotation's (S-10 phase 4).
     function test_every_score_and_validators_case_is_run() external view {
-        string[17] memory ran = [
+        string[20] memory ran = [
             "score-none",
             "score-one-zero",
             "score-reduced",
@@ -135,7 +149,11 @@ contract ScoresTest is Stage3 {
             "validators-return-displaced",
             "validators-return-seat-taken",
             "validators-return-order",
-            "refusal-order-validators"
+            "refusal-order-validators",
+            "validators-set-size",
+            "validators-set-size-withdrawn",
+            // S-10 phase 4 runs it.
+            "validators-rotation"
         ];
         string[] memory ids = abi.decode(vm.parseJson(vectors, ".cases[*].id"), (string[]));
         string[] memory kinds = abi.decode(vm.parseJson(vectors, ".cases[*].kind"), (string[]));
@@ -190,6 +208,9 @@ contract ScoresTest is Stage3 {
         uint256 nStakes = count(string.concat(at, ".inputs.stakes"));
         uint256 nSteps = count(string.concat(at, ".inputs.steps"));
         string[] memory unregistered = list(string.concat(at, ".inputs.unregistered"));
+        if (has(at, ".inputs.authority")) {
+            require(params.authority() == who(str(at, ".inputs.authority")), "the case's authority");
+        }
 
         uint256 last = 1;
         for (uint256 i = 0; i < nStakes; i++) {
@@ -261,6 +282,20 @@ contract ScoresTest is Stage3 {
         } else if (eq(action, "vote")) {
             address n = who(str(s, ".node"));
             refused = as_(n, address(vset), abi.encodeCall(Scores.vote, (n, who(str(s, ".target")), num(s, ".score"))));
+        } else if (eq(action, "announce")) {
+            string[] memory raw = list(string.concat(s, ".values"));
+            uint256[] memory values = new uint256[](raw.length);
+            for (uint256 i = 0; i < raw.length; i++) {
+                values[i] = vm.parseUint(raw[i]);
+            }
+            refused = as_(
+                who(str(s, ".caller")),
+                address(params),
+                abi.encodeCall(IParameters.announce, (num(s, ".group"), values))
+            );
+        } else if (eq(action, "withdraw")) {
+            refused =
+                as_(who(str(s, ".caller")), address(params), abi.encodeCall(IParameters.withdraw, (num(s, ".group"))));
         } else if (eq(action, "observe")) {
             observedSteps.push(str(s, ".step"));
             observedMembers.push(memberNames(vset.membersAt(clock.currentRound())));

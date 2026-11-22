@@ -522,7 +522,10 @@ def write_manifest(chain_id: int) -> None:
         c["address"] = C[c["contract"]]
     m["deployment"] = {"deployed": True, "chain_id": chain_id, "deployed_at_block": common.FROM_BLOCK,
                        "deployer": STATE["deployer"], "source_commit": d["source_commit"],
-                       "accounts": {k: ADDR[k] for k in ROLES}, "treasury": ADDR["Treasury"]}
+                       "accounts": {k: ADDR[k] for k in ROLES}, "treasury": ADDR["Treasury"],
+                       # Parameters' one authority, read from the chain: an
+                       # address the run made up, whose key nobody holds.
+                       "parameters_authority": f"0x{call(C['Parameters'], 'authority()'):040x}"}
     if chain_id in LOCAL_CHAINS:
         m["chain"] = {"kind": "a local development chain, started apart from the run and mining on its own",
                       "chain_id": chain_id, "round_length_blocks": m["chain"]["round_length_blocks"]}

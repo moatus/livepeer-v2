@@ -43,7 +43,13 @@
     {
       "contract": "Scores",
       "source": "contracts/src/scores/Scores.sol",
-      "node_name": "none: Claims reads it as both its score source and its validator set"
+      "node_name": "none: Parameters names it as the deployment's score source, and Claims reads it as its validator set"
+    },
+    {
+      "contract": "Parameters",
+      "source": "contracts/src/authority/Parameters.sol",
+      "node_name": "none: the Broker reads its fee split from it, and Claims, StakeLedger and Scores their values",
+      "checks": "authority() is the made-up address of the stand-in Parameters with no key; deployed after Scores, at the address the Broker, StakeLedger and Scores were given"
     },
     {
       "contract": "Claims",
@@ -126,9 +132,9 @@
       "value": "SmolLM2-135M-Instruct served by llama.cpp; its answers are not checked, and a settled ticket does not show the work was done"
     },
     {
-      "stand_in": "No governance",
-      "for": "Parameter changes under D-12",
-      "value": "No contract has an owner key; the Controller's names and every parameter are fixed at deployment"
+      "stand_in": "Parameters with no key",
+      "for": "Parameter changes under D-12 (S-10 R-25)",
+      "value": "Parameters is deployed with an authority address the run makes up and whose key nobody holds, so no change can be announced and every value is the deployment's for every round; no contract has an owner key, and the Controller's names are fixed at deployment. ./dev demo buyback gives the authority to G, the governance stand-in"
     },
     {
       "stand_in": "No buyback",

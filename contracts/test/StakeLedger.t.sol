@@ -7,13 +7,13 @@ import {StakeLedger} from "../src/money/StakeLedger.sol";
 import {TestLPT} from "../src/money/TestLPT.sol";
 import {Registry} from "../src/authority/Registry.sol";
 
-/// Runs the v2 `ledger` cases with no claims, from
-/// vectors/october-main-text-v2.json, with the holding checks of rulebook
+/// Runs the `ledger` cases with no claims, from
+/// vectors/october-main-text-v4.json, with the holding checks of rulebook
 /// v2 after every step; then the refusals no case reaches, the mint
 /// refusals, and R-23's gas check. Claims.t.sol runs the cases with claims.
 contract StakeLedgerTest is LedgerRunnerV2 {
     function setUp() external {
-        loadVectors("october-main-text-v2");
+        loadVectors("october-main-text-v4");
     }
 
     function test_ledger_stake() external {
@@ -62,10 +62,11 @@ contract StakeLedgerTest is LedgerRunnerV2 {
         stepsV2(id);
     }
 
-    /// Every v2 ledger case is run here or in Claims.t.sol. A new case fails
-    /// this until someone runs it.
-    function test_every_v2_ledger_case_is_run() external view {
-        string[] memory ran = new string[](18);
+    /// Every ledger case is run here or in Claims.t.sol, but for
+    /// ledger-rotation, which is key rotation's (S-10 phase 4). A new case
+    /// fails this until someone runs it.
+    function test_every_ledger_case_is_run() external view {
+        string[] memory ran = new string[](22);
         ran[0] = "ledger-demo";
         ran[1] = "ledger-reserve";
         ran[2] = "ledger-partial";
@@ -86,6 +87,12 @@ contract StakeLedgerTest is LedgerRunnerV2 {
         // They name validator members (S-06 phase 4).
         ran[16] = "ledger-validator-pot";
         ran[17] = "ledger-mid-round";
+        // Parameters (S-10 phase 3).
+        ran[18] = "ledger-authority";
+        ran[19] = "ledger-delays";
+        ran[20] = "ledger-score-source";
+        // S-10 phase 4 runs it.
+        ran[21] = "ledger-rotation";
         string memory missing = ledgerCasesNotIn(ran);
         require(bytes(missing).length == 0, string.concat("ledger case not run:", missing));
     }
