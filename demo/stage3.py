@@ -350,10 +350,10 @@ def compare(what: str, chain: dict, calc: dict) -> tuple[int, int]:
 
 # --- rounds -------------------------------------------------------------------
 
-def start_keeper() -> None:
+def start_keeper(*options: str) -> None:
     start("keeper", [str(common.RUN / "bin" / "lp2-keeper"), "--rpc-url", common.RPC, "--keystore-file", str(KEYS["Keeper"]),
                      "--keystore-password-file", str(common.RUN / "pw"), "--controller-address", C["Controller"],
-                     "--claims-address", C["Claims"], "--poll", "1s"])
+                     "--claims-address", C["Claims"], "--poll", "1s", *options])
 
 
 def wait(what: str, ready, seconds: float = 60) -> None:
