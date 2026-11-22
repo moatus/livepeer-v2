@@ -1407,9 +1407,11 @@ up. A product that can pass 2^256 is taken at full width, never wrapped.
    elapsed is below the interval, when nothing is observed, or when the
    observed pool is not this round's pool (elapsed 0 in both). The TWAP is
    twapX112 = (cumulative now - O.cumulative) / elapsed, the difference
-   taken modulo 2^256. While anyone pokes or buys at least once an
-   interval, the window is one to two intervals long; it never runs from
-   the last buy, which stalls for good after a lasting price move.
+   taken modulo 2^256. Only a poke or a buy that takes effect records an
+   observation: a refused buy undoes its recording (rule 7). While one of
+   them comes at least once an interval, the window is one to two
+   intervals long; it never runs from the last buy, which stalls for good
+   after a lasting price move.
 4. **The bound.** With ru and rl the pool's USDC and LPT reserves:
    p = twapX112 x (10^6 + s) / 10^6; lim = p x 997 x rl;
    base = (1000 x ru) << 112; maxIn = (lim - base) / (997 << 112) when
@@ -1508,8 +1510,10 @@ held; maxIn is 859 and out(859) is 863 wei, whose least input is 859, so
 the buy spends all 859 for 863 wei, 0.081% over TWAP + s, within the one
 wei allowed (0.116% here).
 
-`LPT_SHORT` and `POOL_INVALID` at a buy or poke need a pool that lies, so
-the contracts' tests show them, not cases.
+`LPT_SHORT` needs a pool that delivers less than it quotes, and
+`POOL_INVALID` a pool with other code or, honest or not, other tokens
+(rule 13). Neither is arithmetic, so the contracts' tests show them, not
+cases.
 
 **Would change it.** The owner keeping the paper's revert of the whole
 buy over D-48's capped buy, or a run where buying up to the bound each

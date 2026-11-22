@@ -114,9 +114,13 @@ esac
 # Each deployed contract and the interface file that declares its public
 # shape. The two ABIs must hold the same functions, events and errors, with
 # the same types, indexed flags and mutability. The constructor is not
-# public shape; parameter names do not change a call's encoding, and a
-# public mapping's getter cannot name its own; pure counts as view, since a
-# caller cannot tell them apart.
+# public shape; pure counts as view, since a caller cannot tell them apart.
+# Position is meaning, and equal types cannot tell two positions apart, so
+# names are compared too: an event's or an error's parameters and a
+# struct's fields by name and order. A function's parameter names are the
+# contract's own (a public mapping's getter cannot name its own), so there
+# a contract fails only by giving a parameter the name its interface gives
+# another position: two equal-typed parameters swapped.
 run_clean python3 - <<'EOF'
 import json, subprocess, sys
 
@@ -135,30 +139,57 @@ PAIRS = [("Controller", "IController"), ("Registry", "IRegistryV2"), ("RoundCloc
 # line here when it builds them. Nothing else may be missing.
 LATER = {}
 
-def params(ps):
-    return [[p["type"], p.get("internalType"), p.get("indexed"), params(p.get("components", []))] for p in ps]
+# A struct's fields always carry their names; top-level parameters only
+# where named is set (events and errors).
+def params(ps, named=True):
+    return [[p["type"], p.get("internalType"), p.get("indexed"), p.get("name") if named else None,
+             params(p.get("components", []))] for p in ps]
 
-def shape(name):
-    abi = json.loads(subprocess.run(["forge", "inspect", name, "abi", "--json"],
-                                    check=True, capture_output=True, text=True).stdout)
+def inspect(name):
+    return json.loads(subprocess.run(["forge", "inspect", name, "abi", "--json"],
+                                     check=True, capture_output=True, text=True).stdout)
+
+def shape(abi, name):
     out = set()
     for e in abi:
         if e["type"] == "constructor" or e.get("name") in LATER.get(name, ()):
             continue
         mutability = "view" if e.get("stateMutability") == "pure" else e.get("stateMutability")
-        out.add(json.dumps([e["type"], e.get("name"), params(e.get("inputs", [])),
-                            params(e.get("outputs", [])), mutability, e.get("anonymous")]))
+        named = e["type"] != "function"
+        out.add(json.dumps([e["type"], e.get("name"), params(e.get("inputs", []), named),
+                            params(e.get("outputs", []), named), mutability, e.get("anonymous")]))
+    return out
+
+# The parameters of each function the two declare alike that the contract
+# names as its interface names another position. A trailing or leading
+# underscore is the contract's own spelling.
+def swapped(cabi, iabi):
+    def key(e):
+        return (e.get("name"), tuple(p["type"] for p in e.get("inputs", [])))
+    mine = {key(e): e for e in iabi if e["type"] == "function"}
+    out = []
+    for e in cabi:
+        theirs = mine.get(key(e)) if e["type"] == "function" else None
+        for part in ("inputs", "outputs") if theirs else ():
+            c = [p.get("name", "").strip("_") for p in e.get(part, [])]
+            i = [p.get("name", "").strip("_") for p in theirs.get(part, [])]
+            out += [f"{e['name']} {part[:-1]} {k} is named {n}, which is {part[:-1]} {i.index(n)} there"
+                    for k, n in enumerate(c) if n and n in i and i[k] != n]
     return out
 
 failed = False
 for contract, interface in PAIRS:
-    c, i = shape(contract), shape(interface)
+    cabi, iabi = inspect(contract), inspect(interface)
+    c, i = shape(cabi, contract), shape(iabi, interface)
+    swaps = swapped(cabi, iabi)
+    for s in swaps:
+        print(f"abi: {contract} swaps against {interface}: {s}")
     for e in sorted(c - i):
         print(f"abi: {contract} has, {interface} does not declare: {e}")
     for e in sorted(i - c):
         print(f"abi: {interface} declares, {contract} does not have: {e}")
-    failed = failed or c != i
-    if c == i:
+    failed = failed or c != i or bool(swaps)
+    if c == i and not swaps:
         later = sorted(LATER.get(interface, ()))
         print(f"abi: {contract} equals {interface}" + (f", less {', '.join(later)}" if later else ""))
 
@@ -166,71 +197,78 @@ for contract, interface in PAIRS:
 # whole surface as the spec gives it (S-10 and S-07, 3.2). The phase that
 # builds the contract moves it to PAIRS and removes it here. Mutability is
 # compared exactly: a contract cannot implement a pure declaration with a
-# view. A struct is written as its fields' types in parentheses.
+# view. Every named parameter, output and struct field is written with its
+# name, so order and names are frozen as well as types. A struct is written
+# as its fields in parentheses.
 FROZEN = {
     "interfaces/IParameters.sol:IParameters": {
         "function authority() returns (address) view",
-        "function announce(uint256,uint256[]) returns (uint256)",
-        "function withdraw(uint256)",
-        "function valuesAt(uint256,uint256) returns (uint256[]) view",
-        "function pending(uint256) returns (uint256[],uint256) view",
+        "function announce(uint256 group,uint256[] values) returns (uint256 countsFrom)",
+        "function withdraw(uint256 group)",
+        "function valuesAt(uint256 group,uint256 round) returns (uint256[]) view",
+        "function pending(uint256 group) returns (uint256[] values,uint256 countsFrom) view",
         "function poolCodeHash() returns (bytes32) view",
-        "function buybackValuesAt(uint256) returns ((address,uint256,uint256,uint256,uint256)) view",
-        "event Announced(uint256 indexed,uint256[],uint256)",
-        "event Withdrawn(uint256 indexed,uint256)",
+        "function buybackValuesAt(uint256 round) returns ((address pool,uint256 burnPpm,"
+            "uint256 twapSeconds,uint256 maxSlippagePpm,uint256 buyEveryRounds)) view",
+        "event Announced(uint256 indexed group,uint256[] values,uint256 countsFrom)",
+        "event Withdrawn(uint256 indexed group,uint256 countsFrom)",
         "error NOT_AUTHORIZED()", "error NOT_ADJUSTABLE()", "error SCHEDULE_RAISED()",
         "error VALUE_OUT_OF_RANGE()", "error IDENTITY_NOT_WHOLE()", "error NOTHING_PENDING()",
-        "error POOL_INVALID(address)",
+        "error POOL_INVALID(address pool)",
     },
     "interfaces/IRegistry.sol:IRegistryV3": {
         "function register()",
-        "function setPayout(address,address)",
-        "function setOperator(address,address)",
-        "function acceptOperator(address)",
-        "function isRegistered(address) returns (bool) view",
-        "function isActiveTranscoder(address) returns (bool) view",
-        "function payoutOf(address) returns (address) view",
-        "function operatorOf(address) returns (address) view",
-        "function proposedOperatorOf(address) returns (address) view",
-        "function mayActFor(address,address) returns (bool) view",
-        "event NodeRegistered(address indexed,uint256)",
-        "event PayoutSet(address indexed,address)",
-        "event OperatorProposed(address indexed,address indexed)",
-        "event OperatorSet(address indexed,address indexed)",
+        "function setPayout(address node,address payout)",
+        "function setOperator(address node,address next)",
+        "function acceptOperator(address node)",
+        "function isRegistered(address a) returns (bool) view",
+        "function isActiveTranscoder(address a) returns (bool) view",
+        "function payoutOf(address node) returns (address) view",
+        "function operatorOf(address node) returns (address) view",
+        "function proposedOperatorOf(address node) returns (address) view",
+        "function mayActFor(address caller,address node) returns (bool) view",
+        "event NodeRegistered(address indexed node,uint256 round)",
+        "event PayoutSet(address indexed node,address payout)",
+        "event OperatorProposed(address indexed node,address indexed next)",
+        "event OperatorSet(address indexed node,address indexed operator)",
         "error NOT_REGISTERED()", "error PAYOUT_INVALID()", "error NOT_AUTHORIZED()",
         "error OPERATOR_INVALID()",
     },
     "interfaces/IBuybackValues.sol:IBuybackValues": {
-        "function buybackValuesAt(uint256) returns ((address,uint256,uint256,uint256,uint256)) view",
+        "function buybackValuesAt(uint256 round) returns ((address pool,uint256 burnPpm,"
+            "uint256 twapSeconds,uint256 maxSlippagePpm,uint256 buyEveryRounds)) view",
     },
     "interfaces/IBuyback.sol:IBuyback": {
-        "function buy() returns (uint256,uint256,uint256)",
+        "function buy() returns (uint256 usdcIn,uint256 lptBought,uint256 burned)",
         "function poke()",
         "function values() returns (address) view",
         "function broker() returns (address) view",
         "function lastBuyRound() returns (uint256) view",
         "function observedPool() returns (address) view",
         "function poolCodeHash() returns (bytes32) view",
-        "function observations() returns (uint256,uint256,uint256,uint256) view",
-        "event Bought(uint256 indexed,uint256,uint256,uint256,uint256,uint256,uint256)",
-        "event Observed(address indexed,uint256,uint256)",
-        "error ALREADY_BOUGHT(uint256)", "error NOTHING_HELD()", "error NO_LIQUIDITY()",
-        "error TWAP_NOT_READY(uint256,uint256)", "error SLIPPAGE(uint256,uint256)",
-        "error NOT_DUE(uint256)", "error POOL_INVALID(address)", "error LPT_SHORT(uint256,uint256)",
+        "function observations() returns (uint256 cum0,uint256 time0,uint256 cum1,uint256 time1) view",
+        "event Bought(uint256 indexed round,uint256 held,uint256 usdcIn,uint256 lptBought,"
+            "uint256 burned,uint256 twapX112,uint256 maxIn)",
+        "event Observed(address indexed pool,uint256 cumulative,uint256 time)",
+        "error ALREADY_BOUGHT(uint256 nextRound)", "error NOTHING_HELD()", "error NO_LIQUIDITY()",
+        "error TWAP_NOT_READY(uint256 elapsed,uint256 needed)", "error SLIPPAGE(uint256 held,uint256 maxIn)",
+        "error NOT_DUE(uint256 dueTime)", "error POOL_INVALID(address pool)",
+        "error LPT_SHORT(uint256 quoted,uint256 received)",
     },
     "interfaces/ITestPool.sol:ITestPool": {
         "function token0() returns (address) view",
         "function token1() returns (address) view",
-        "function getReserves() returns (uint112,uint112,uint32) view",
+        "function getReserves() returns (uint112 reserve0,uint112 reserve1,uint32 blockTimestampLast) view",
         "function price0CumulativeLast() returns (uint256) view",
         "function price1CumulativeLast() returns (uint256) view",
         "function totalSupply() returns (uint256) view",
-        "function balanceOf(address) returns (uint256) view",
-        "function mint(address) returns (uint256)",
-        "function swap(uint256,uint256,address,bytes)",
-        "event Mint(address indexed,uint256,uint256)",
-        "event Swap(address indexed,uint256,uint256,uint256,uint256,address indexed)",
-        "event Sync(uint112,uint112)",
+        "function balanceOf(address owner) returns (uint256) view",
+        "function mint(address to) returns (uint256 liquidity)",
+        "function swap(uint256 amount0Out,uint256 amount1Out,address to,bytes data)",
+        "event Mint(address indexed sender,uint256 amount0,uint256 amount1)",
+        "event Swap(address indexed sender,uint256 amount0In,uint256 amount1In,uint256 amount0Out,"
+            "uint256 amount1Out,address indexed to)",
+        "event Sync(uint112 reserve0,uint112 reserve1)",
     },
     # ITestLPT and the burn; TestLPT implements ITestLPT until S-07's contracts phase.
     "interfaces/ITestLPT.sol:ITestLPTV2": {
@@ -238,38 +276,44 @@ FROZEN = {
         "function symbol() returns (string) view",
         "function decimals() returns (uint8) view",
         "function totalSupply() returns (uint256) view",
-        "function balanceOf(address) returns (uint256) view",
-        "function allowance(address,address) returns (uint256) view",
-        "function approve(address,uint256) returns (bool)",
-        "function transfer(address,uint256) returns (bool)",
-        "function transferFrom(address,address,uint256) returns (bool)",
-        "function mint(address,uint256)",
-        "function burn(uint256)",
-        "event Transfer(address indexed,address indexed,uint256)",
-        "event Approval(address indexed,address indexed,uint256)",
+        "function balanceOf(address account) returns (uint256) view",
+        "function allowance(address owner,address spender) returns (uint256) view",
+        "function approve(address spender,uint256 amount) returns (bool)",
+        "function transfer(address to,uint256 amount) returns (bool)",
+        "function transferFrom(address from,address to,uint256 amount) returns (bool)",
+        "function mint(address to,uint256 amount)",
+        "function burn(uint256 amount)",
+        "event Transfer(address indexed from,address indexed to,uint256 value)",
+        "event Approval(address indexed owner,address indexed spender,uint256 value)",
         "error NOT_AUTHORIZED()",
     },
     # ITicketBroker and the draw; the Broker implements ITicketBroker until
     # S-07's contracts phase.
     "interfaces/ITicketBroker.sol:ITicketBrokerV2": {
-        "function fund(uint256,address,uint256)",
-        "function requestRelease(address,uint256)",
-        "function release(address)",
-        "function earmarkOf(address,address) returns (uint256,uint256,uint256) view",
-        "function getSenderInfo(address) returns ((uint256,uint256),(uint256,uint256)) view",
-        "function claimableReserve(address,address) returns (uint256) view",
-        "function usedTickets(bytes32) returns (bool) view",
-        "function redeemWinningTicket((address,address,uint256,uint256,uint256,bytes32,bytes),bytes,uint256)",
-        "function feesOf(uint256,address) returns (uint256) view",
-        "function totalFees(uint256) returns (uint256) view",
+        "function fund(uint256 deposit,address node,uint256 earmark)",
+        "function requestRelease(address node,uint256 amount)",
+        "function release(address node)",
+        "function earmarkOf(address payer,address node) returns (uint256 amount,uint256 pending,"
+            "uint256 readyRound) view",
+        "function getSenderInfo(address payer) returns ((uint256 deposit,uint256 withdrawRound),"
+            "(uint256 fundsRemaining,uint256 claimedInCurrentRound)) view",
+        "function claimableReserve(address payer,address node) returns (uint256) view",
+        "function usedTickets(bytes32 ticketHash) returns (bool) view",
+        "function redeemWinningTicket((address recipient,address sender,uint256 faceValue,"
+            "uint256 winProb,uint256 senderNonce,bytes32 recipientRandHash,bytes auxData) t,"
+            "bytes sig,uint256 recipientRand)",
+        "function feesOf(uint256 round,address node) returns (uint256) view",
+        "function totalFees(uint256 round) returns (uint256) view",
         "function networkHeld() returns (uint256) view",
         "function buyback() returns (address) view",
-        "function drawNetwork(uint256,address)",
-        "event Funded(address indexed,uint256,address indexed,uint256)",
-        "event ReleaseRequested(address indexed,address indexed,uint256,uint256)",
-        "event Released(address indexed,address indexed,uint256)",
-        "event FeeSettled(uint256 indexed,address indexed,address indexed,bytes32,uint256,uint256,uint256,address)",
-        "event NetworkDrawn(address indexed,uint256)",
+        "function drawNetwork(uint256 amount,address to)",
+        "event Funded(address indexed payer,uint256 deposit,address indexed node,uint256 earmark)",
+        "event ReleaseRequested(address indexed payer,address indexed node,uint256 amount,"
+            "uint256 readyRound)",
+        "event Released(address indexed payer,address indexed node,uint256 amount)",
+        "event FeeSettled(uint256 indexed round,address indexed node,address indexed payer,"
+            "bytes32 ticketHash,uint256 gross,uint256 nodeAmount,uint256 networkAmount,address payout)",
+        "event NetworkDrawn(address indexed to,uint256 amount)",
         "error NOT_REGISTERED()", "error TICKET_EXPIRED()", "error TICKET_USED()", "error TICKET_INVALID()",
         "error NOTHING_TO_PAY()", "error AMOUNT_TOO_LARGE()", "error RELEASE_NOT_READY()",
         "error NOT_AUTHORIZED()",
@@ -280,7 +324,8 @@ def signature(e):
     def types(ps):
         return ",".join(("(" + types(p["components"]) + ")" + p["type"][len("tuple"):]
                          if p["type"].startswith("tuple") else p["type"])
-                        + (" indexed" if p.get("indexed") else "") for p in ps)
+                        + (" indexed" if p.get("indexed") else "")
+                        + (" " + p["name"] if p.get("name") else "") for p in ps)
     text = f"{e['type']} {e['name']}({types(e.get('inputs', []))})"
     if e.get("outputs"):
         text += f" returns ({types(e['outputs'])})"
