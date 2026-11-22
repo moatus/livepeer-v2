@@ -209,7 +209,7 @@ def main():
                                 ("vote(address,address,uint256)", (n, ADDR["V1"], 0))):
             result, = c.rpc_batch([("eth_call", [{"from": ADDR[old], "to": C["Scores"],
                                                  "data": c.calldata(signature, *args)}, "latest"])])
-            c.check(f"{old}'s {signature} refused: NOT_AUTHORIZED",
+            c.check(f"{old}'s simulated {signature} call refused: NOT_AUTHORIZED",
                     result.get("error", {}).get("data", "")[:10], c.sel("NOT_AUTHORIZED()"))
     s3.to_round(4)
     emission = next(s["values"] for s in fixture["steps"] if s.get("group") == "2")
@@ -253,12 +253,52 @@ def main():
     recover(start_node, face)
     s3.start_keeper()
     claim(11, int(calc["lpt_wei"]["W11"]))
-    shares = {}
-    for event in c.logs(C["Claims"], "RoundSharesMinted(uint256,uint256,uint256)"):
-        earned = str(int(event["topics"][1], 16))
-        shares[earned] = tuple(int(event["data"][2 + 64*i:66 + 64*i], 16) for i in range(2))
-    c.say("  Round 2 has no seated validators, so its validator allocation goes to the treasury.")
-    for earned, expected in calc["shares_wei"].items():
-        for label, value in zip(("validators", "treasury"), shares.get(earned, (0, 0))):
-            s3.side(f"Round {earned}: {label} allocation in LPT", value, int(expected[label + "_wei"]), c.lpt)
+    check_share_mints(fixture)
     return c.finish(started, "Stage 4: parameter change, key rotation, recovery and buyback")
+
+
+def check_share_mints(fixture):
+    steps = fixture["steps"]
+    mint_steps = [step for step in steps if step["action"] == "mint_shares"]
+    members = {step["earned_round"]: s3.members_at(int(step["earned_round"]))
+               for step in mint_steps}
+    # Use the announcement event only to locate each share-mint transaction.
+    transactions = {str(int(event["topics"][1], 16)): event["transactionHash"]
+                    for event in c.logs(C["Claims"], "RoundSharesMinted(uint256,uint256,uint256)")}
+    transfer = c.topic("Transfer(address,address,uint256)")
+    recipients = {C["Claims"].lower(): "Claims", ADDR["Treasury"].lower(): "Treasury"}
+    recipients.update({ADDR[member].lower(): member for group in members.values() for member in group})
+    for step in mint_steps:
+        earned = step["earned_round"]
+        prior = steps[:steps.index(step)]
+        inputs = {**fixture, "steps": prior, "members": members}
+        before = s3.calculate("ledger", inputs)["lpt_wei"]
+        after = s3.calculate("ledger", {**inputs, "steps": [*prior, step]})
+        expected = {recipient: int(balance) - int(before.get(recipient, 0))
+                    for recipient, balance in after["lpt_wei"].items()
+                    if int(balance) != int(before.get(recipient, 0))}
+        minted = {}
+        tx = transactions.get(earned)
+        if tx:
+            for log in c.receipt(tx)["logs"]:
+                topics = log["topics"]
+                if (log["address"].lower() == C["TestLPT"].lower() and topics[0] == transfer
+                        and int(topics[1], 16) == 0):
+                    address = "0x" + topics[2][-40:].lower()
+                    recipient = recipients.get(address, address)
+                    minted[recipient] = minted.get(recipient, 0) + int(log["data"], 16)
+        treasury = minted.pop("Treasury", 0)
+        if earned == "2" and not members[earned]:
+            allocation = int(after["shares_wei"][earned]["validators_wei"])
+            c.say(f"  Round 2: validator allocation {lpt_six_decimals(allocation)} LPT, minted to the treasury. "
+                  f"The treasury receives {lpt_six_decimals(treasury)} LPT.")
+        s3.side(f"Round {earned}: treasury receives LPT",
+                treasury, expected.pop("Treasury", 0), c.lpt)
+        s3.side(f"Round {earned}: validators receive LPT",
+                sum(minted.values()), sum(expected.values()), c.lpt)
+        c.check(f"Round {earned}: validator mints by recipient (wei)", minted, expected)
+
+
+def lpt_six_decimals(wei):
+    whole, fractional = divmod((wei + 5 * 10**11) // 10**12, 10**6)
+    return f"{whole}.{fractional:06d}"

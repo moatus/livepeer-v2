@@ -336,7 +336,7 @@ def side(label: str, chain, calc, fmt=str) -> None:
     mark = "equal" if chain == calc else "DIFFERS"
     say(f"  {label:<52}{fmt(chain):>26}{fmt(calc):>26}  {mark}")
     if chain != calc:
-        FAILURES.append(f"S-06 section 1: {label}: chain {chain}, calculator {calc}")
+        FAILURES.append(f"{label}: chain {chain}, calculator {calc}")
 
 
 def compare(what: str, chain: dict, calc: dict) -> tuple[int, int]:
