@@ -1,4 +1,4 @@
-"""Independent integer implementation of rulebook october-main-text-v2.
+"""Independent integer implementation of rulebook october-main-text-v3.
 
 LPT replay models round-start stake/cuts, bonding, transfers, unbonding,
 claims, minting and holder pots. It rejects overspending as invalid input.
@@ -7,11 +7,15 @@ get NOT_REGISTERED. Simultaneous refusals follow the rulebook units section
 (D-26, D-38, D-39, D-40); only a withdrawal that is both ALREADY_CLAIMED and
 NOT_CLAIMED remains an input error among simultaneous LPT refusals.
 
+From v3, Settings holds R-25's announced changes and the R-05 schedule
+triple, and Operators holds R-26's operator keys. Without an announcement or
+a rotation they give every v0 to v2 case the deployment's values.
+
 Only parameters and inputs enter these functions; expected vector outputs do not.
 Amounts returned by calculate() are Python integers in the rulebook's units.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import cache
 
 
@@ -48,6 +52,13 @@ class Parameters:
     unbonding_period_rounds: int = 21
     default_reward_cut_millionths: int = 0
     validator_set_size: int = 3
+    notice_rounds: int = 7
+    buyback_burn_ppm: int = MILLION
+    buyback_treasury_ppm: int = 0
+    buyback_validator_ppm: int = 0
+    buyback_twap_seconds: int = 3600
+    buyback_max_slippage_ppm: int = 10_000
+    buyback_every_rounds: int = 1
 
     @classmethod
     def from_strings(cls, values: dict) -> "Parameters":
@@ -100,6 +111,187 @@ def emission(parameters: Parameters, round_number: int) -> int:
                    parameters.emission_half_life_rounds, round_number)
 
 
+GROUPS = {1: "FEE", 2: "EMISSION", 3: "SCHEDULE", 4: "REWARD_DELAY",
+          5: "VALIDATOR_SET_SIZE", 6: "SCORE_SOURCE", 7: "UNBONDING",
+          8: "BUYBACK_CUTS", 9: "BUYBACK_VALUES"}
+STEPS = 840          # R-05: positions are 840ths of the deployment's half-life
+LARGEST_DROP = 840   # D-49: one announcement drops at most one halving
+LONGEST = 840        # D-47 (iii): reward delay, unbonding and a buy interval
+LARGEST_SET = 33     # D-47 (ii)
+ADDRESS_VALUES = {(6, 0), (9, 0)}
+
+
+class Settings:
+    """R-25: announced changes per group, and R-05's schedule triple.
+
+    Each group keeps (counts_from, values) entries in order. The deployment's
+    entry counts from round 0. An entry counting after the current round is
+    the group's one pending change. Values are integers, or names for the
+    score source and the pool.
+    """
+
+    def __init__(self, parameters: Parameters, authority=None, addresses=None):
+        p = parameters
+        if p.emission_half_life_rounds <= 0 or STEPS % p.emission_half_life_rounds:
+            raise ValueError("the deployment's half-life must divide 840")
+        self.p, self.authority = p, authority
+        self.addresses = {"Scores": {"code": True},
+                          "Pool": {"code": True, "pinned_pool_code": True,
+                                   "token0": "MockUSDC", "token1": "TestLPT"},
+                          **(addresses or {})}
+        deployment = {
+            1: (p.node_cut_millionths, MILLION - p.node_cut_millionths),
+            2: (p.node_emission_share_millionths, p.validator_emission_share_millionths,
+                p.treasury_emission_share_millionths),
+            3: (0, p.emission_half_life_rounds, 1),
+            4: (p.reward_delay_rounds,),
+            5: (p.validator_set_size,),
+            6: ("Scores",),
+            7: (p.unbonding_period_rounds,),
+            8: (p.buyback_burn_ppm, p.buyback_treasury_ppm, p.buyback_validator_ppm),
+            9: ("Pool", p.buyback_twap_seconds, p.buyback_max_slippage_ppm,
+                p.buyback_every_rounds),
+        }
+        self.history = {g: [(0, values)] for g, values in deployment.items()}
+
+    def values_at(self, group: int, round_number: int) -> tuple:
+        """The last change counting at or before the round."""
+        return [v for counts_from, v in self.history[group] if counts_from <= round_number][-1]
+
+    def pending(self, group: int, now: int):
+        last = self.history[group][-1]
+        return last if last[0] > now else None
+
+    def position(self, round_number: int) -> int:
+        """R-05: position + (R - start) x 840 / half-life, a whole number."""
+        position, half_life, start = self.values_at(3, round_number)
+        steps = (round_number - start) * STEPS
+        if steps % half_life or position * half_life + steps < 0:
+            raise ValueError(f"round {round_number} has no schedule position")
+        return position + steps // half_life
+
+    def ceiling_at(self, round_number: int) -> int:
+        """C(R) of an on-chain round R: the deployment's ceiling at R's position."""
+        return ceiling(self.p.emission_base_wei, STEPS, self.position(round_number))
+
+    def for_round(self, round_number: int) -> Parameters:
+        """The values a round reads, as the v2 parameter names hold them."""
+        emission_shares = self.values_at(2, round_number)
+        return replace(self.p,
+                       node_cut_millionths=self.values_at(1, round_number)[0],
+                       node_emission_share_millionths=emission_shares[0],
+                       validator_emission_share_millionths=emission_shares[1],
+                       treasury_emission_share_millionths=emission_shares[2],
+                       reward_delay_rounds=self.values_at(4, round_number)[0],
+                       validator_set_size=self.values_at(5, round_number)[0],
+                       unbonding_period_rounds=self.values_at(7, round_number)[0])
+
+    def read(self, group: int, raw: list) -> tuple:
+        values = []
+        for index, value in enumerate(raw):
+            values.append(value if (group, index) in ADDRESS_VALUES else integer(value))
+        return tuple(values)
+
+    def refusal(self, caller, group: int, values: tuple, now: int):
+        """R-25's checks in the units section's order; None when none applies."""
+        if caller != self.authority:
+            return "NOT_AUTHORIZED"
+        if group not in GROUPS:
+            return "NOT_ADJUSTABLE"
+        in_force = self.values_at(group, now)
+        if group == 3 and len(values) == 2 and values[1] > in_force[1]:
+            return "SCHEDULE_RAISED"
+        counts = {1: 2, 2: 3, 3: 2, 4: 1, 5: 1, 6: 1, 7: 1, 8: 3, 9: 4}
+        if len(values) != counts[group]:
+            return "VALUE_OUT_OF_RANGE"
+        if group in (1, 2) and any(v > MILLION for v in values):
+            return "VALUE_OUT_OF_RANGE"
+        if group == 3:
+            drop, half_life = values
+            if drop > LARGEST_DROP or half_life == 0 or STEPS % half_life:
+                return "VALUE_OUT_OF_RANGE"
+        if group in (4, 7) and not 1 <= values[0] <= LONGEST:
+            return "VALUE_OUT_OF_RANGE"
+        if group == 5 and not in_force[0] <= values[0] <= LARGEST_SET:
+            return "VALUE_OUT_OF_RANGE"
+        if group == 6 and not self.addresses.get(values[0], {}).get("code", False):
+            return "VALUE_OUT_OF_RANGE"
+        if group == 8 and values != (MILLION, 0, 0):
+            return "VALUE_OUT_OF_RANGE"
+        if group == 9:
+            _, twap, slippage, every = values
+            if (not 1_800 <= twap <= 7_200 or not 5_000 <= slippage <= 50_000
+                    or not 1 <= every <= LONGEST):
+                return "VALUE_OUT_OF_RANGE"
+        if group in (1, 2) and sum(values) != MILLION:
+            return "IDENTITY_NOT_WHOLE"
+        if group == 9:
+            pool = self.addresses.get(values[0], {})
+            if not (pool.get("pinned_pool_code", False)
+                    and {pool.get("token0"), pool.get("token1")} == {"MockUSDC", "TestLPT"}):
+                return "POOL_INVALID"
+        return None
+
+    def announce(self, caller, group: int, raw: list, now: int):
+        """Returns (code, None) or (None, counts_from)."""
+        values = self.read(group, raw) if group in GROUPS else tuple(raw)
+        code = self.refusal(caller, group, values, now)
+        if code:
+            return code, None
+        counts_from = now + self.p.notice_rounds
+        if self.pending(group, now):
+            self.history[group].pop()
+        if group == 3:
+            # With the pending change gone, the triple in force at E - 1 is
+            # the one in force now, so a replaced change never moves q.
+            before = counts_from - 1
+            values = (self.position(before) + values[0], values[1], before)
+        self.history[group].append((counts_from, values))
+        return None, counts_from
+
+    def withdraw(self, caller, group: int, now: int):
+        if caller != self.authority:
+            return "NOT_AUTHORIZED"
+        if group not in GROUPS:
+            return "NOT_ADJUSTABLE"
+        if not self.pending(group, now):
+            return "NOTHING_PENDING"
+        self.history[group].pop()
+        return None
+
+
+class Operators:
+    """R-26: one operator key per node, its own address until rotated."""
+
+    def __init__(self):
+        self.operator, self.proposed = {}, {}
+
+    def of(self, node):
+        return self.operator.get(node, node)
+
+    def may_act(self, caller, node) -> bool:
+        return caller == self.of(node)
+
+    def propose(self, caller, node, proposed, registered: bool):
+        if not self.may_act(caller, node):
+            return "NOT_AUTHORIZED"
+        if not registered:
+            return "NOT_REGISTERED"
+        if proposed == "zero":
+            return "OPERATOR_INVALID"
+        if proposed == self.of(node):
+            self.proposed.pop(node, None)
+        else:
+            self.proposed[node] = proposed
+        return None
+
+    def accept(self, caller, node):
+        if node not in self.proposed or self.proposed[node] != caller:
+            return "NOT_AUTHORIZED"
+        self.operator[node] = self.proposed.pop(node)
+        return None
+
+
 def fixed_shares(parameters: Parameters, cap: int) -> dict:
     """R-07, R-10: each non-node share has its own single floor division."""
     return {
@@ -138,21 +330,10 @@ def calculate(kind: str, inputs: dict, parameters: Parameters,
         return split(integer(inputs["paid_wei"]), inputs)
 
     if kind == "validator-pay":
-        stakes = {m["node"]: integer(m["stake_wei"]) for m in inputs["members"]}
-        if len(stakes) != len(inputs["members"]):
-            raise ValueError("duplicate member")
-        total = sum(stakes.values())
-        cap = emission(parameters, integer(inputs["round"]))
-        paid = {m: cap * parameters.validator_emission_share_millionths * stake
-                // (MILLION * total) if total else 0 for m, stake in stakes.items()}
-        result = {"paid_wei": paid,
-                  "to_treasury_wei": fixed_shares(parameters, cap)["validators_wei"] - sum(paid.values())}
-        if "splits" in inputs:
-            for m, details in inputs["splits"].items():
-                if sum(integer(b) for b in details["bonds_wei"].values()) != stakes[m]:
-                    raise ValueError("bonds must sum to member stake")
-            result["splits"] = {m: split(paid[m], details) for m, details in inputs["splits"].items()}
-        return result
+        return validator_pay(inputs, parameters, emission(parameters, integer(inputs["round"])))
+
+    if kind == "parameters":
+        return parameter_steps(inputs, parameters)
 
     if kind == "score":
         return {"score": median_score(inputs["members"], inputs["votes"])}
@@ -187,39 +368,100 @@ def calculate(kind: str, inputs: dict, parameters: Parameters,
 
     if kind == "claim":
         earned = rounds[inputs["earned_in"]]
-        earning_round = integer(earned["round"])
-        claim_round = integer(inputs["claim_round"])
-        score = integer(inputs["score"])
-        already_paid = boolean(inputs["already_paid"])
-        refusals = []
-        if claim_round < earning_round + parameters.reward_delay_rounds:
-            refusals.append("CLAIM_TOO_EARLY")
-        if (parameters.claim_window_rounds is not None and
-                claim_round > earning_round + parameters.reward_delay_rounds + parameters.claim_window_rounds):
-            refusals.append("CLAIM_EXPIRED")
-        if already_paid:
-            refusals.append("ALREADY_CLAIMED")
-        if score > MILLION:
-            refusals.append("SCORE_OUT_OF_RANGE")
-        if len(refusals) > 1 and parameters.claim_window_rounds is None:
-            raise ValueError("R-12 does not order simultaneous refusals: " + ", ".join(refusals))
-        if refusals:
-            return {"code": refusals[0]}
-        nodes = read_nodes(earned)
-        matching = [node for node in nodes if node.name == inputs["node"]]
-        if len(matching) != 1:
-            raise ValueError("claim node is absent from earning round")
-        return {"paid_wei": reward(parameters, emission(parameters, earning_round),
-                                   matching[0], sum(n.fees for n in nodes),
-                                   sum(n.stake for n in nodes), score)}
+        return claim(inputs, earned, parameters,
+                     lambda: emission(parameters, integer(earned["round"])))
 
     raise ValueError(f"unknown case kind: {kind!r}")
+
+
+def validator_pay(inputs: dict, parameters: Parameters, cap: int) -> dict:
+    """R-14: each member's pay by stake; the remainder goes to the treasury."""
+    stakes = {m["node"]: integer(m["stake_wei"]) for m in inputs["members"]}
+    if len(stakes) != len(inputs["members"]):
+        raise ValueError("duplicate member")
+    total = sum(stakes.values())
+    paid = {m: cap * parameters.validator_emission_share_millionths * stake
+            // (MILLION * total) if total else 0 for m, stake in stakes.items()}
+    result = {"paid_wei": paid,
+              "to_treasury_wei": fixed_shares(parameters, cap)["validators_wei"] - sum(paid.values())}
+    if "splits" in inputs:
+        for m, details in inputs["splits"].items():
+            if sum(integer(b) for b in details["bonds_wei"].values()) != stakes[m]:
+                raise ValueError("bonds must sum to member stake")
+        result["splits"] = {m: split(paid[m], details) for m, details in inputs["splits"].items()}
+    return result
+
+
+def claim(inputs: dict, earned: dict, parameters: Parameters, cap) -> dict:
+    """R-12: one claim against its earning round's inputs; cap() is its ceiling."""
+    earning_round = integer(earned["round"])
+    claim_round = integer(inputs["claim_round"])
+    score = integer(inputs["score"])
+    already_paid = boolean(inputs["already_paid"])
+    refusals = []
+    if claim_round < earning_round + parameters.reward_delay_rounds:
+        refusals.append("CLAIM_TOO_EARLY")
+    if (parameters.claim_window_rounds is not None and
+            claim_round > earning_round + parameters.reward_delay_rounds + parameters.claim_window_rounds):
+        refusals.append("CLAIM_EXPIRED")
+    if already_paid:
+        refusals.append("ALREADY_CLAIMED")
+    if score > MILLION:
+        refusals.append("SCORE_OUT_OF_RANGE")
+    if len(refusals) > 1 and parameters.claim_window_rounds is None:
+        raise ValueError("R-12 does not order simultaneous refusals: " + ", ".join(refusals))
+    if refusals:
+        return {"code": refusals[0]}
+    nodes = read_nodes(earned)
+    matching = [node for node in nodes if node.name == inputs["node"]]
+    if len(matching) != 1:
+        raise ValueError("claim node is absent from earning round")
+    return {"paid_wei": reward(parameters, cap(), matching[0], sum(n.fees for n in nodes),
+                               sum(n.stake for n in nodes), score)}
+
+
+def parameter_steps(inputs: dict, parameters: Parameters) -> dict:
+    """R-25 and R-05: announce, withdraw and read Parameters, step by step."""
+    settings = Settings(parameters, inputs["authority"], inputs.get("addresses"))
+    announced, observed, refused = [], [], []
+    previous = 0
+    for s in inputs["steps"]:
+        now = integer(s["round"])
+        if now < previous:
+            raise ValueError("parameter rounds decrease")
+        previous = now
+        group = integer(s["group"])
+        code = None
+        if s["action"] == "announce":
+            code, counts_from = settings.announce(s["caller"], group, s["values"], now)
+            if not code:
+                announced.append({"step": s["step"], "counts_from": counts_from})
+        elif s["action"] == "withdraw":
+            code = settings.withdraw(s["caller"], group, now)
+        elif s["action"] == "observe":
+            at = integer(s["at_round"])
+            shown = {"step": s["step"], "values": list(settings.values_at(group, at))}
+            if group == 3:
+                shown["ceiling_wei"] = settings.ceiling_at(at)
+            observed.append(shown)
+        elif s["action"] == "observe_pending":
+            entry = settings.pending(group, now)
+            observed.append({"step": s["step"],
+                             "values": list(entry[1]) if entry else [],
+                             "counts_from": entry[0] if entry else 0})
+        else:
+            raise ValueError(f"unknown parameters action: {s['action']!r}")
+        if code:
+            refused.append({"step": s["step"], "code": code})
+    return {"announced": announced, "observed": observed, "refused": refused}
 
 
 def ledger(inputs: dict, parameters: Parameters) -> dict:
     """R-01/03/04/21/22: replay a fresh account ledger from inputs alone."""
     steps = inputs["steps"]
-    lpt = LptReplay(inputs, parameters)
+    settings = Settings(parameters, inputs.get("authority"), inputs.get("addresses"))
+    operators = Operators()
+    lpt = LptReplay(inputs, parameters, settings, operators)
     previous_round = 0
     tickets = {}
     for s in steps:
@@ -278,10 +520,21 @@ def ledger(inputs: dict, parameters: Parameters) -> dict:
         if action == "register":
             payouts.setdefault(node, node)
         elif action == "set_payout":
-            if node not in payouts:
+            # R-01, R-26: the operator key, then registration.
+            if not operators.may_act(s.get("caller", node), node):
+                code = "NOT_AUTHORIZED"
+            elif node not in payouts:
                 code = "NOT_REGISTERED"
             else:
                 payouts[node] = s["payout"]
+        elif action == "set_operator":
+            code = operators.propose(s.get("caller", node), node, s["next"], node in payouts)
+        elif action == "accept_operator":
+            code = operators.accept(s["caller"], node)
+        elif action == "announce":
+            code, _ = settings.announce(s["caller"], integer(s["group"]), s["values"], round_number)
+        elif action == "withdraw":
+            code = settings.withdraw(s["caller"], integer(s["group"]), round_number)
         elif action == "fund":
             deposit = integer(s["deposit_micro_usdc"])
             earmark = integer(s["earmark_micro_usdc"])
@@ -333,7 +586,8 @@ def ledger(inputs: dict, parameters: Parameters) -> dict:
                 from_deposit = min(gross, deposits[payer])
                 debit(payer, None, from_deposit)
                 debit(payer, node, gross - from_deposit)
-                cut = gross * parameters.node_cut_millionths // MILLION
+                # R-03: the fee cut in force in the round the redemption runs in.
+                cut = gross * settings.values_at(1, round_number)[0] // MILLION
                 paid[payouts[node]] += cut
                 network += gross - cut
                 fees[s["round"]][node] += gross
@@ -378,6 +632,8 @@ def validators(inputs: dict, parameters: Parameters) -> dict:
     """R-13 / D-35: calls edit next round seats, never current membership."""
     current, pending, opted = [], [], set()
     votes, observed, refused = {}, [], []
+    settings = Settings(parameters, inputs.get("authority"), inputs.get("addresses"))
+    operators = Operators()
     previous = 0
     for step in inputs["steps"]:
         r = integer(step["round"])
@@ -394,8 +650,23 @@ def validators(inputs: dict, parameters: Parameters) -> dict:
                 stakes.update({n: integer(v) for n, v in entry["stake_wei"].items()})
         node, action = step.get("node"), step["action"]
         code = None
+        # R-26: rotation and R-25: parameter changes ride in the same steps.
+        if action in ("set_operator", "accept_operator", "announce", "withdraw"):
+            if action == "set_operator":
+                code = operators.propose(step.get("caller", node), node, step["next"],
+                                         node not in inputs.get("unregistered", []))
+            elif action == "accept_operator":
+                code = operators.accept(step["caller"], node)
+            elif action == "announce":
+                code, _ = settings.announce(step["caller"], integer(step["group"]), step["values"], r)
+            else:
+                code = settings.withdraw(step["caller"], integer(step["group"]), r)
+            if code:
+                refused.append({"step": step["step"], "code": code})
+            continue
         # Units / D-39: identity precedes node status and amount.
-        if action in ("opt_in", "opt_out") and step.get("caller", node) != node:
+        if (action in ("opt_in", "opt_out", "vote")
+                and not operators.may_act(step.get("caller", node), node)):
             refused.append({"step": step["step"], "code": "NOT_AUTHORIZED"})
             continue
         if action == "opt_in" and node in inputs.get("unregistered", []):
@@ -410,12 +681,14 @@ def validators(inputs: dict, parameters: Parameters) -> dict:
             if node not in opted:
                 code = "NOT_OPTED_IN"
             elif node not in pending:
+                # R-13, R-25: the set size of the round being seated, r + 1.
+                size = settings.values_at(5, r + 1)[0]
                 smallest = min(reversed(pending), key=lambda n: stakes.get(n, 0)) if pending else None
-                if not stakes.get(node, 0) or (len(pending) >= parameters.validator_set_size
+                if not stakes.get(node, 0) or (len(pending) >= size
                         and stakes[node] <= stakes.get(smallest, 0)):
                     code = "STAKE_TOO_LOW"
                 else:
-                    if len(pending) >= parameters.validator_set_size:
+                    if len(pending) >= size:
                         pending.remove(smallest)
                     pending.append(node)
                     # R-13 / D-37: undoing an exit preserves current tenure.
@@ -452,9 +725,10 @@ def validators(inputs: dict, parameters: Parameters) -> dict:
 class LptReplay:
     """Round snapshots are immutable; execution balances change immediately."""
 
-    def __init__(self, inputs, parameters):
+    def __init__(self, inputs, parameters, settings, operators):
         from collections import defaultdict
         self.p = parameters
+        self.settings, self.operators = settings, operators
         self.members = inputs.get('members', {})
         self.bal = {s[k]: 0 for s in inputs['steps'] for k in
                     ('node', 'payout', 'holder', 'caller', 'to') if k in s}
@@ -481,6 +755,10 @@ class LptReplay:
             self.snapshots[self.round] = bonds
             self.cut_snapshots[self.round] = self.cuts.copy()
 
+    def unbonding(self, r):
+        """R-15: the unbonding period in force in the round of the unbond or transfer."""
+        return self.settings.values_at(7, r)[0]
+
     def details(self, r, node):
         return {'cut_millionths': str(self.cut_snapshots[r].get(node, self.p.default_reward_cut_millionths)),
                 'bonds_wei': {h: str(b) for (h, n), b in self.snapshots[r].items() if n == node}}
@@ -499,7 +777,7 @@ class LptReplay:
             self.bal[s['to']] += amount
         elif a == 'set_cut':
             # R-24 and Units: who, then registration, then cut.
-            if s.get('caller', n) != n:
+            if not self.operators.may_act(s.get('caller', n), n):
                 return 'NOT_AUTHORIZED'
             if n not in payouts:
                 return 'NOT_REGISTERED'
@@ -528,9 +806,9 @@ class LptReplay:
                     return 'AMOUNT_TOO_LARGE'
                 self.staying[h, old] -= amount
                 if a == 'transfer':
-                    self.transfers.append([h, old, new, r + self.p.unbonding_period_rounds, amount])
+                    self.transfers.append([h, old, new, r + self.unbonding(r), amount])
                 else:
-                    self.unbonded.append([h, old, r + self.p.unbonding_period_rounds, amount])
+                    self.unbonded.append([h, old, r + self.unbonding(r), amount])
             else:
                 records = (sorted([t for t in self.transfers if t[:3] == [h, old, new]], key=lambda t: t[-2], reverse=True)
                            if a == 'unbond_transfer' else list(reversed([t for t in self.unbonded if t[:2] == [h, n] and t[-2] > r])))
@@ -542,7 +820,7 @@ class LptReplay:
                 if a == 'rebond':
                     self.staying[h, n] += amount
                 else:
-                    self.unbonded.append([h, old, r + self.p.unbonding_period_rounds, amount])
+                    self.unbonded.append([h, old, r + self.unbonding(r), amount])
         elif a == 'withdraw_unbonded':
             records = [t for t in self.unbonded if t[0] == h and t[-2] <= r]
             value = sum(t[-1] for t in records)
@@ -554,7 +832,7 @@ class LptReplay:
             self.bal['StakeLedger'] -= value
         elif a in ('claim', 'mint_shares'):
             earned = integer(s['earned_round'])
-            if a == 'claim' and s['caller'] != n:
+            if a == 'claim' and not self.operators.may_act(s['caller'], n):
                 return 'NOT_AUTHORIZED'
             # R-18 / D-40 and R-12: round zero follows authorization.
             if earned == 0:
@@ -567,8 +845,10 @@ class LptReplay:
                 if str(earned) in self.shares:
                     return 'ALREADY_CLAIMED'
                 members = self.members.get(str(earned), [])
-                result = calculate('validator-pay', {'round': str(earned - 1), 'members': [{'node': m, 'stake_wei': str(sum(integer(b) for b in self.details(earned, m)['bonds_wei'].values()))} for m in members]}, self.p, {})
-                shares = fixed_shares(self.p, emission(self.p, earned - 1))
+                # R-07, R-10, R-05: the earning round's shares and ceiling.
+                values, cap = self.settings.for_round(earned), self.settings.ceiling_at(earned)
+                result = validator_pay({'members': [{'node': m, 'stake_wei': str(sum(integer(b) for b in self.details(earned, m)['bonds_wei'].values()))} for m in members]}, values, cap)
+                shares = fixed_shares(values, cap)
                 self.shares[str(earned)] = shares
                 value = sum(shares.values())
                 self.bal['Treasury'] += shares['treasury_wei'] + result['to_treasury_wei']
@@ -577,7 +857,12 @@ class LptReplay:
             else:
                 nodes = set(payouts)
                 earned_input = {'round': str(earned - 1), 'nodes': [{'node': m, 'fees_micro_usdc': str(fees.get(str(earned), {}).get(m, 0)), 'stake_wei': str(sum(integer(b) for b in self.details(earned, m)['bonds_wei'].values())), 'score': str(MILLION)} for m in nodes]} if earned < r else {'round': str(earned - 1)}
-                result = calculate('claim', {'earned_in': 'round', 'claim_round': str(r - 1), 'node': n, 'score': s['score'], 'already_paid': ('node', earned, n) in self.pots}, self.p, {'round': earned_input})
+                # R-12, R-20: the score source in force when the claim runs; a
+                # source a step's scores do not name answers 10^6.
+                source = self.settings.values_at(6, r)[0]
+                score = s['score'] if 'score' in s else s['scores'].get(source, str(MILLION))
+                result = claim({'claim_round': str(r - 1), 'node': n, 'score': score, 'already_paid': ('node', earned, n) in self.pots},
+                               earned_input, self.settings.for_round(earned), lambda: self.settings.ceiling_at(earned))
                 if 'code' in result:
                     return result['code']
                 value = result['paid_wei']

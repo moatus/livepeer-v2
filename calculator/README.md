@@ -1,6 +1,6 @@
 # Independent calculator
 
-Implements `rulebook/october-main-text-v2.md` using Python 3.12 and its
+Implements `rulebook/october-main-text-v3.md` using Python 3.12 and its
 standard library. It was built from the rulebook and shared examples,
 without reading contract implementations. Python's arbitrary-size integers
 allow exact products and powers without dependencies or floating point.
@@ -23,7 +23,9 @@ without editing the frozen vectors.
 `calculate(kind, inputs, parameters, rounds)`. The `rounds` argument maps
 round case IDs to their **inputs only**, for claim lookups. Returned amounts
 are integers; the checker converts them to the vectors' decimal strings.
-No expected value enters the calculation. Ceiling calculations return the
+No expected value enters the calculation: the checker refuses a case with
+any key besides `id`, `kind`, `inputs` and `expected`, and passes only
+`inputs` to `calculate`. Ceiling calculations return the
 ceiling and both fixed shares; the checker compares the output shape named
 by the case.
 
@@ -34,7 +36,7 @@ divided once, as R-08 and R-19 require. Claims recompute from the earning
 round's inputs with the claim's score.
 
 Ledger cases replay registration, funding, redemption, payout, observation and
-release in fresh in-memory state. The default check covers 74 v2, 35 v1 and 26 v0 cases. No state survives a calculation. The check also runs ledger input regressions.
+release in fresh in-memory state. The default check covers 92 v3, 74 v2, 35 v1 and 26 v0 cases. No state survives a calculation. The check also runs ledger input regressions.
 Decreasing rounds, conflicting details for one ticket ID (including refused
 attempts), and observations without a node raise `ValueError` with a
 `ledger input error` message, rather than returning a rule refusal code.
@@ -53,3 +55,14 @@ per-node pots. Bonds exceeding holder LPT are invalid inputs. Earning round
 zero gets `NO_SUCH_ROUND`; unregistered self-claims and self-cuts get
 `NOT_REGISTERED`. Among simultaneous LPT refusals, only a withdrawal that
 is both `ALREADY_CLAIMED` and `NOT_CLAIMED` remains an input error.
+
+From v3, `Settings` keeps R-25's parameter history: each group's changes in
+order, each counting from its announce round plus 7, with at most one
+pending. A ledger round reads the values of the round the rulebook names:
+the fee cut of the redemption round, the shares, ceiling and reward delay of
+the earning round, the unbonding period of the unbond's round, the score
+source of the claim's round, and the set size of the round being seated.
+The ceiling after a schedule change is the deployment's ceiling at the
+triple's position (R-05, x3-grid), so the same exact floor serves every
+schedule. `Operators` keeps R-26's operator keys and one-slot proposals.
+A `parameters` case runs announcements, withdrawals and reads alone.

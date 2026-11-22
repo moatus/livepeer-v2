@@ -7,7 +7,7 @@ from pathlib import Path
 from reference import Parameters, calculate
 
 
-DEFAULT_VECTORS = Path(__file__).resolve().parent.parent / "vectors/october-main-text-v2.json"
+DEFAULT_VECTORS = Path(__file__).resolve().parent.parent / "vectors/october-main-text-v3.json"
 
 
 def decimal_strings(value):
@@ -31,12 +31,18 @@ def check(path: Path) -> int:
         return 1
 
     try:
-        if document["profile"] not in ("october-main-text-v0", "october-main-text-v1", "october-main-text-v2"):
+        if document["profile"] not in ("october-main-text-v0", "october-main-text-v1",
+                                       "october-main-text-v2", "october-main-text-v3"):
             raise ValueError("unknown rulebook profile")
         parameters = Parameters.from_strings(document["parameters"])
         cases = document["cases"]
         if not cases:
             raise ValueError("no cases to check")
+        # Inputs and expected outputs are separate keys of each case; nothing
+        # else may ride along where the calculator could read it.
+        for case in cases:
+            if set(case) != {"id", "kind", "inputs", "expected"}:
+                raise ValueError(f"case {case.get('id')!r} must have exactly id, kind, inputs and expected")
         ids = [case["id"] for case in cases]
         if len(set(ids)) != len(ids):
             raise ValueError("duplicate case ID")
