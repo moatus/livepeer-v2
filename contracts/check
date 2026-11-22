@@ -164,7 +164,8 @@ for contract, interface in PAIRS:
 
 # Interfaces a freeze declares and no contract implements yet, each with its
 # whole surface as the spec gives it (S-10, 3.2). The phase that builds the
-# contract moves it to PAIRS and removes it here.
+# contract moves it to PAIRS and removes it here. Mutability is compared
+# exactly: a contract cannot implement a pure declaration with a view.
 FROZEN = {
     "interfaces/IParameters.sol:IParameters": {
         "function authority() returns (address) view",
@@ -204,10 +205,8 @@ def signature(e):
     text = f"{e['type']} {e['name']}({types(e.get('inputs', []))})"
     if e.get("outputs"):
         text += f" returns ({types(e['outputs'])})"
-    if e.get("stateMutability") in ("view", "pure"):
-        text += " view"
-    elif e.get("stateMutability") == "payable":
-        text += " payable"
+    if e.get("stateMutability") in ("view", "pure", "payable"):
+        text += " " + e["stateMutability"]
     return text
 
 for interface, want in FROZEN.items():
