@@ -19,6 +19,7 @@ interface Vm {
     }
 
     function roll(uint256 blockNumber) external;
+    function warp(uint256 timestamp) external;
     function recordLogs() external;
     function getRecordedLogs() external returns (Log[] memory logs);
     function prank(address sender) external;
@@ -34,6 +35,7 @@ interface Vm {
     function keyExistsJson(string calldata json, string calldata key) external view returns (bool);
     function parseUint(string calldata value) external pure returns (uint256);
     function toString(uint256 value) external pure returns (string memory);
+    function toString(bytes calldata value) external pure returns (string memory);
     function lastFrameGas() external view returns (Gas memory gas);
     function cool(address target) external;
     function snapshotState() external returns (uint256 snapshotId);

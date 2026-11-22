@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {ITicketBroker} from "../../interfaces/ITicketBroker.sol";
+import {ITicketBrokerV2} from "../../interfaces/ITicketBroker.sol";
 import {IRoundClock} from "../../interfaces/IRoundClock.sol";
 import {IMockUSDC} from "../../interfaces/IMockUSDC.sol";
 import {IRegistry} from "../../interfaces/IRegistry.sol";
@@ -9,8 +9,9 @@ import {IRegistry} from "../../interfaces/IRegistry.sol";
 /// Holds all USDC: payer accounts, used tickets, fees per round and node,
 /// and the network share (rulebook R-03, R-04, R-21, R-22). The node finds
 /// it under the name "TicketBroker" and calls it with the current
-/// protocol's names, shapes and ticket hash.
-contract Broker is ITicketBroker {
+/// protocol's names, shapes and ticket hash. The network share leaves it
+/// only through drawNetwork, to the Buyback fixed at deployment (R-16).
+contract Broker is ITicketBrokerV2 {
     /// Node cut (R-03): 500,000 over 10^6.
     uint256 private constant NODE_CUT = 500_000;
     uint256 private constant ONE = 1_000_000;
@@ -25,6 +26,10 @@ contract Broker is ITicketBroker {
     IMockUSDC private immutable usdc;
     IRegistry private immutable registry;
     IRoundClock private immutable clock;
+    /// The one address that may draw the network share (R-16). It is
+    /// deployed after the Broker, so the deployer passes the address it will
+    /// have; address(0), as in a deployment with no Buyback, lets nobody draw.
+    address public immutable buyback;
 
     /// One balance of a payer: its deposit (node address(0)) or its earmark
     /// for one node, with the release pending on it (R-22). A pending
@@ -47,10 +52,11 @@ contract Broker is ITicketBroker {
     mapping(uint256 => uint256) public totalFees;
     uint256 public networkHeld;
 
-    constructor(IMockUSDC usdc_, IRegistry registry_, IRoundClock clock_) {
+    constructor(IMockUSDC usdc_, IRegistry registry_, IRoundClock clock_, address buyback_) {
         usdc = usdc_;
         registry = registry_;
         clock = clock_;
+        buyback = buyback_;
     }
 
     // --- payer ---------------------------------------------------------
@@ -166,6 +172,19 @@ contract Broker is ITicketBroker {
         address payout = registry.payoutOf(t.recipient);
         emit FeeSettled(round, t.recipient, t.sender, ticketHash, paid, nodeAmount, networkAmount, payout);
         if (nodeAmount > 0) require(usdc.transfer(payout, nodeAmount), "USDC transfer failed");
+    }
+
+    // --- the network share --------------------------------------------
+
+    /// Only the Buyback: pays `amount` of the network share to `to`, the
+    /// pool it buys from (R-16). Refused with NOT_AUTHORIZED from any other
+    /// address, then AMOUNT_TOO_LARGE above networkHeld.
+    function drawNetwork(uint256 amount, address to) external {
+        if (msg.sender != buyback || buyback == address(0)) revert NOT_AUTHORIZED();
+        if (amount > networkHeld) revert AMOUNT_TOO_LARGE();
+        networkHeld -= amount;
+        emit NetworkDrawn(to, amount);
+        require(usdc.transfer(to, amount), "USDC transfer failed");
     }
 
     // --- internals ------------------------------------------------------

@@ -21,14 +21,20 @@ abstract contract Stage2 {
     string internal vectors;
 
     /// Deploys the five contracts at block 100 (round 1 starts there). The
-    /// Registry is given the address the Broker will be created at.
+    /// Registry is given the address the Broker will be created at. No
+    /// Buyback: nobody may draw the network share.
     function deploy() internal {
+        deploy(address(0));
+    }
+
+    /// As deploy(), with the Broker given the Buyback that may draw.
+    function deploy(address buyback) internal {
         vm.roll(100);
         clock = new RoundClock();
         usdc = new MockUSDC();
         address next = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1);
         registry = new Registry(clock, next);
-        broker = new Broker(usdc, registry, clock);
+        broker = new Broker(usdc, registry, clock, buyback);
         require(address(broker) == next, "Broker at the address the Registry was given");
         controller = new Controller(address(registry), address(clock), address(broker));
     }

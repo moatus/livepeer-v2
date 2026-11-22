@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {ITestLPT} from "../../interfaces/ITestLPT.sol";
+import {ITestLPTV2} from "../../interfaces/ITestLPT.sol";
 
 /// Stand-in for LPT: an ERC-20 with 18 decimals. The constructor creates the
 /// genesis supply for the deployer, outside every round's issuance (R-09);
 /// after that the one address that may mint is Claims, fixed here at
-/// deployment and never changed. The deployment manifest names it as a
+/// deployment and never changed. Any holder may burn from its own balance
+/// (R-16), which lowers totalSupply. The deployment manifest names it as a
 /// stand-in.
-contract TestLPT is ITestLPT {
+contract TestLPT is ITestLPTV2 {
     string public constant name = "Test LPT";
     string public constant symbol = "tLPT";
     uint8 public constant decimals = 18;
@@ -56,6 +57,15 @@ contract TestLPT is ITestLPT {
         totalSupply += amount;
         balanceOf[to] += amount;
         emit Transfer(address(0), to, amount);
+    }
+
+    /// Any holder, from its own balance: the balance and totalSupply fall
+    /// by amount (R-16). Refused as a transfer is, "balance too low".
+    function burn(uint256 amount) external {
+        require(balanceOf[msg.sender] >= amount, "balance too low");
+        balanceOf[msg.sender] -= amount;
+        totalSupply -= amount;
+        emit Transfer(msg.sender, address(0), amount);
     }
 
     function _move(address from, address to, uint256 amount) private {

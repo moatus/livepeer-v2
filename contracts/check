@@ -132,8 +132,9 @@ def not_run(kind, value, tb):
 sys.excepthook = not_run
 
 PAIRS = [("Controller", "IController"), ("Registry", "IRegistryV2"), ("RoundClock", "IRoundClock"),
-         ("Broker", "ITicketBroker"), ("MockUSDC", "IMockUSDC"), ("StakeLedger", "IStakeLedger"),
-         ("TestLPT", "ITestLPT"), ("Claims", "IClaims"), ("Scores", "IScores")]
+         ("Broker", "ITicketBrokerV2"), ("MockUSDC", "IMockUSDC"), ("StakeLedger", "IStakeLedger"),
+         ("TestLPT", "ITestLPTV2"), ("Claims", "IClaims"), ("Scores", "IScores"),
+         ("Buyback", "IBuyback"), ("TestPool", "ITestPool"), ("FixedBuybackValues", "IBuybackValues")]
 
 # Declared in an interface but built by a later phase, which removes its
 # line here when it builds them. Nothing else may be missing.
@@ -194,8 +195,8 @@ for contract, interface in PAIRS:
         print(f"abi: {contract} equals {interface}" + (f", less {', '.join(later)}" if later else ""))
 
 # Interfaces a freeze declares and no contract implements yet, each with its
-# whole surface as the spec gives it (S-10 and S-07, 3.2). The phase that
-# builds the contract moves it to PAIRS and removes it here. Mutability is
+# whole surface as the spec gives it (S-10). The phase that builds the
+# contract moves it to PAIRS and removes it here. Mutability is
 # compared exactly: a contract cannot implement a pure declaration with a
 # view. Every named parameter, output and struct field is written with its
 # name, so order and names are frozen as well as types. A struct is written
@@ -233,90 +234,6 @@ FROZEN = {
         "event OperatorSet(address indexed node,address indexed operator)",
         "error NOT_REGISTERED()", "error PAYOUT_INVALID()", "error NOT_AUTHORIZED()",
         "error OPERATOR_INVALID()",
-    },
-    "interfaces/IBuybackValues.sol:IBuybackValues": {
-        "function buybackValuesAt(uint256 round) returns ((address pool,uint256 burnPpm,"
-            "uint256 twapSeconds,uint256 maxSlippagePpm,uint256 buyEveryRounds)) view",
-    },
-    "interfaces/IBuyback.sol:IBuyback": {
-        "function buy() returns (uint256 usdcIn,uint256 lptBought,uint256 burned)",
-        "function poke()",
-        "function values() returns (address) view",
-        "function broker() returns (address) view",
-        "function lastBuyRound() returns (uint256) view",
-        "function observedPool() returns (address) view",
-        "function poolCodeHash() returns (bytes32) view",
-        "function observations() returns (uint256 cum0,uint256 time0,uint256 cum1,uint256 time1) view",
-        "event Bought(uint256 indexed round,uint256 held,uint256 usdcIn,uint256 lptBought,"
-            "uint256 burned,uint256 twapX112,uint256 maxIn)",
-        "event Observed(address indexed pool,uint256 cumulative,uint256 time)",
-        "error ALREADY_BOUGHT(uint256 nextRound)", "error NOTHING_HELD()", "error NO_LIQUIDITY()",
-        "error TWAP_NOT_READY(uint256 elapsed,uint256 needed)", "error SLIPPAGE(uint256 held,uint256 maxIn)",
-        "error NOT_DUE(uint256 dueTime)", "error POOL_INVALID(address pool)",
-        "error LPT_SHORT(uint256 quoted,uint256 received)",
-    },
-    "interfaces/ITestPool.sol:ITestPool": {
-        "function token0() returns (address) view",
-        "function token1() returns (address) view",
-        "function getReserves() returns (uint112 reserve0,uint112 reserve1,uint32 blockTimestampLast) view",
-        "function price0CumulativeLast() returns (uint256) view",
-        "function price1CumulativeLast() returns (uint256) view",
-        "function totalSupply() returns (uint256) view",
-        "function balanceOf(address owner) returns (uint256) view",
-        "function mint(address to) returns (uint256 liquidity)",
-        "function swap(uint256 amount0Out,uint256 amount1Out,address to,bytes data)",
-        "event Mint(address indexed sender,uint256 amount0,uint256 amount1)",
-        "event Swap(address indexed sender,uint256 amount0In,uint256 amount1In,uint256 amount0Out,"
-            "uint256 amount1Out,address indexed to)",
-        "event Sync(uint112 reserve0,uint112 reserve1)",
-    },
-    # ITestLPT and the burn; TestLPT implements ITestLPT until S-07's contracts phase.
-    "interfaces/ITestLPT.sol:ITestLPTV2": {
-        "function name() returns (string) view",
-        "function symbol() returns (string) view",
-        "function decimals() returns (uint8) view",
-        "function totalSupply() returns (uint256) view",
-        "function balanceOf(address account) returns (uint256) view",
-        "function allowance(address owner,address spender) returns (uint256) view",
-        "function approve(address spender,uint256 amount) returns (bool)",
-        "function transfer(address to,uint256 amount) returns (bool)",
-        "function transferFrom(address from,address to,uint256 amount) returns (bool)",
-        "function mint(address to,uint256 amount)",
-        "function burn(uint256 amount)",
-        "event Transfer(address indexed from,address indexed to,uint256 value)",
-        "event Approval(address indexed owner,address indexed spender,uint256 value)",
-        "error NOT_AUTHORIZED()",
-    },
-    # ITicketBroker and the draw; the Broker implements ITicketBroker until
-    # S-07's contracts phase.
-    "interfaces/ITicketBroker.sol:ITicketBrokerV2": {
-        "function fund(uint256 deposit,address node,uint256 earmark)",
-        "function requestRelease(address node,uint256 amount)",
-        "function release(address node)",
-        "function earmarkOf(address payer,address node) returns (uint256 amount,uint256 pending,"
-            "uint256 readyRound) view",
-        "function getSenderInfo(address payer) returns ((uint256 deposit,uint256 withdrawRound),"
-            "(uint256 fundsRemaining,uint256 claimedInCurrentRound)) view",
-        "function claimableReserve(address payer,address node) returns (uint256) view",
-        "function usedTickets(bytes32 ticketHash) returns (bool) view",
-        "function redeemWinningTicket((address recipient,address sender,uint256 faceValue,"
-            "uint256 winProb,uint256 senderNonce,bytes32 recipientRandHash,bytes auxData) t,"
-            "bytes sig,uint256 recipientRand)",
-        "function feesOf(uint256 round,address node) returns (uint256) view",
-        "function totalFees(uint256 round) returns (uint256) view",
-        "function networkHeld() returns (uint256) view",
-        "function buyback() returns (address) view",
-        "function drawNetwork(uint256 amount,address to)",
-        "event Funded(address indexed payer,uint256 deposit,address indexed node,uint256 earmark)",
-        "event ReleaseRequested(address indexed payer,address indexed node,uint256 amount,"
-            "uint256 readyRound)",
-        "event Released(address indexed payer,address indexed node,uint256 amount)",
-        "event FeeSettled(uint256 indexed round,address indexed node,address indexed payer,"
-            "bytes32 ticketHash,uint256 gross,uint256 nodeAmount,uint256 networkAmount,address payout)",
-        "event NetworkDrawn(address indexed to,uint256 amount)",
-        "error NOT_REGISTERED()", "error TICKET_EXPIRED()", "error TICKET_USED()", "error TICKET_INVALID()",
-        "error NOTHING_TO_PAY()", "error AMOUNT_TOO_LARGE()", "error RELEASE_NOT_READY()",
-        "error NOT_AUTHORIZED()",
     },
 }
 
