@@ -175,14 +175,15 @@ contract Handler is Stage2 {
         ran["register"]++;
     }
 
-    /// R-01: only a registered node sets its payout, never to the Broker;
+    /// R-01, R-26: only a registered node, its own operator key here (the
+    /// handler never rotates), sets its payout, never to the Broker;
     /// address(0) makes it the node itself again.
     function setNodePayout(uint256 a, uint256 p) external {
         address n = actor(a);
         uint256 k = p % (ACTORS + WALLETS + 2);
         address target = k == 0 ? address(0) : k == 1 ? address(broker) : tracked(k - 2);
         vm.prank(n);
-        (bool ok, bytes memory ret) = address(registry).call(abi.encodeCall(Registry.setPayout, (target)));
+        (bool ok, bytes memory ret) = address(registry).call(abi.encodeCall(Registry.setPayout, (n, target)));
         if (!registeredInModel[n]) {
             refused(ok, ret, "NOT_REGISTERED", "", "setPayout by an address not registered");
         } else if (target == address(broker)) {

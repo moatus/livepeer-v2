@@ -524,7 +524,8 @@ def later() -> int:
 
 
 def address_of(to: str, signature: str, *args) -> str:
-    return NAMES.get(f"0x{call(to, signature, *args):040x}", f"0x{call(to, signature, *args):040x}")
+    a = f"0x{call(to, signature, *args):040x}"
+    return NAMES.get(a, a)
 
 
 def rotation(password: Path) -> None:

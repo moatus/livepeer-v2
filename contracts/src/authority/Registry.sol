@@ -42,7 +42,7 @@ contract Registry is IRegistryV3 {
     /// node itself again. The event names the address the node is now paid
     /// at.
     function setPayout(address node, address payout_) external {
-        if (msg.sender != operatorOf(node)) revert NOT_AUTHORIZED();
+        if (!mayActFor(msg.sender, node)) revert NOT_AUTHORIZED();
         if (!registered[node]) revert NOT_REGISTERED();
         if (payout_ == broker) revert PAYOUT_INVALID();
         payout[node] = payout_;
@@ -52,11 +52,10 @@ contract Registry is IRegistryV3 {
     /// The operator key proposes `next`, replacing any proposal. Proposing
     /// the current operator key clears the slot: nobody is then proposed.
     function setOperator(address node, address next) external {
-        address current = operatorOf(node);
-        if (msg.sender != current) revert NOT_AUTHORIZED();
+        if (!mayActFor(msg.sender, node)) revert NOT_AUTHORIZED();
         if (!registered[node]) revert NOT_REGISTERED();
         if (next == address(0)) revert OPERATOR_INVALID();
-        address slot = next == current ? address(0) : next;
+        address slot = next == operatorOf(node) ? address(0) : next;
         proposed[node] = slot;
         emit OperatorProposed(node, slot);
     }
@@ -101,8 +100,9 @@ contract Registry is IRegistryV3 {
     /// Whether `caller` may act for `node`: it is the node's operator key
     /// (R-26). It reads nothing else about the node, so the caller that
     /// checks it gives NOT_REGISTERED itself, after it (D-39). Read at
-    /// execution by every call that acts for a node.
-    function mayActFor(address caller, address node) external view returns (bool) {
+    /// execution by every call that acts for a node, setPayout and
+    /// setOperator here included.
+    function mayActFor(address caller, address node) public view returns (bool) {
         return caller == operatorOf(node);
     }
 }
