@@ -11,13 +11,17 @@
 // else started, is minted when it runs again. Anyone may mint them, once,
 // and they never expire, so a late mint pays the same amounts.
 //
-// Given --buyback-address, it also tries the buyback each tick (R-16): it
-// asks buy() and then poke() by a call, sends only what would succeed,
-// and logs a refusal by its code as an expected outcome, once each time
-// the code changes. SLIPPAGE between capped buys in a backlog means it is
+// Given --parameters-address, it also tries the buyback each tick (R-16):
+// it reads the executor in force for the current round, group 10 of
+// Parameters (R-25), so a keeper that is running follows a change of
+// executor from the round it counts, with no restart. It asks the
+// executor's buy() and then poke() by a call, sends only what would
+// succeed, and logs a refusal by its code as an expected outcome, once
+// each time the code changes. With no executor in force (address 0) it
+// calls nothing. SLIPPAGE between capped buys in a backlog means it is
 // waiting for the average price to follow the pool; NOT_DUE and
 // TWAP_NOT_READY mean the average is not yet an interval old. A pool the
-// Buyback finds invalid, or one that delivers short, is reported as an
+// executor finds invalid, or one that delivers short, is reported as an
 // error: those are faults, not waits.
 //
 // It signs with a keystore file, as the node does, and finds the clock
@@ -47,7 +51,11 @@ type chainOps interface {
 	Send(ctx context.Context, at common.Address, method string, args ...any) (*types.Receipt, error)
 	Uint(ctx context.Context, at common.Address, method string, args ...any) (*big.Int, error)
 	Bool(ctx context.Context, at common.Address, method string, args ...any) (bool, error)
+	Call(ctx context.Context, at common.Address, method string, args ...any) ([]any, error)
 }
+
+// executorGroup is R-25's group 10, BUYBACK_EXECUTOR.
+var executorGroup = big.NewInt(10)
 
 func main() {
 	rpcURL := flag.String("rpc-url", "", "the chain's JSON-RPC URL")
@@ -55,7 +63,7 @@ func main() {
 	passwordFile := flag.String("keystore-password-file", "", "the file holding the keystore's password")
 	controller := flag.String("controller-address", "", "the Controller the node is given")
 	claimsAddr := flag.String("claims-address", "", "Claims (stage 3): also mint each ended round's validator and treasury amounts")
-	buybackAddr := flag.String("buyback-address", "", "Buyback (stage 4): also buy and poke when either would succeed")
+	paramsAddr := flag.String("parameters-address", "", "Parameters (stage 4): also buy and poke at the executor in force, when either would succeed")
 	every := flag.Duration("poll", 2*time.Second, "how often to ask the clock")
 	once := flag.Bool("once", false, "try once and exit: 0 started a round, 3 the round is not over")
 	flag.Parse()
@@ -66,8 +74,8 @@ func main() {
 		fail(fmt.Errorf("--claims-address %q is not an address", *claimsAddr))
 	}
 
-	if *buybackAddr != "" && !common.IsHexAddress(*buybackAddr) {
-		fail(fmt.Errorf("--buyback-address %q is not an address", *buybackAddr))
+	if *paramsAddr != "" && !common.IsHexAddress(*paramsAddr) {
+		fail(fmt.Errorf("--parameters-address %q is not an address", *paramsAddr))
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -91,9 +99,9 @@ func main() {
 		k.claims = common.HexToAddress(*claimsAddr)
 		log.Printf("and minting each ended round's shares at Claims %s", k.claims)
 	}
-	if *buybackAddr != "" {
-		k.buyback = common.HexToAddress(*buybackAddr)
-		log.Printf("and buying and poking at Buyback %s", k.buyback)
+	if *paramsAddr != "" {
+		k.params = common.HexToAddress(*paramsAddr)
+		log.Printf("and buying and poking at the executor Parameters %s names for each round", k.params)
 	}
 
 	for {
@@ -124,8 +132,9 @@ type keeper struct {
 	claims common.Address // zero: stage 2, no shares to mint
 	next   uint64         // the first round whose shares it has not seen minted
 
-	buyback common.Address    // zero: no buyback to call
-	waiting map[string]string // the expected refusal last logged, by method
+	params   common.Address    // zero: no buyback to call
+	executor common.Address    // the executor in force at the last tick
+	waiting  map[string]string // the expected refusal last logged, by method
 }
 
 // tick starts the next round if the current one is over, then mints the
@@ -138,13 +147,13 @@ func (k *keeper) tick(ctx context.Context) (bool, error) {
 	if k.claims != (common.Address{}) {
 		err = k.mintDue(ctx)
 	}
-	if err == nil && k.buyback != (common.Address{}) {
+	if err == nil && k.params != (common.Address{}) {
 		err = k.buyAndPoke(ctx)
 	}
 	return started, err
 }
 
-// expected are the Buyback's refusals that mean "not now": nothing to
+// expected are the executor's refusals that mean "not now": nothing to
 // buy, already bought this round, or the average not ready or not yet
 // following the pool.
 var expected = map[string]string{
@@ -156,15 +165,39 @@ var expected = map[string]string{
 	"NOT_DUE":        "the average was recorded less than an interval ago",
 }
 
-// buyAndPoke tries buy() and then poke(), sending each only when its call
-// would succeed. An expected refusal is logged when it differs from the
-// last one logged for that method; any other refusal is an error.
+// buyAndPoke reads the executor in force for the current round, then
+// tries its buy() and then poke(), sending each only when its call would
+// succeed. A change of executor is logged once. An expected refusal is
+// logged when it differs from the last one logged for that method; any
+// other refusal is an error.
 func (k *keeper) buyAndPoke(ctx context.Context) error {
-	if k.waiting == nil {
+	round, err := k.ops.Uint(ctx, k.clock, "currentRound")
+	if err != nil {
+		return err
+	}
+	out, err := k.ops.Call(ctx, k.params, "valuesAt", executorGroup, round)
+	if err != nil {
+		return err
+	}
+	values, ok := out[0].([]*big.Int)
+	if !ok || len(values) != 1 {
+		return fmt.Errorf("valuesAt(10, %s) is not one address", round)
+	}
+	executor := common.BigToAddress(values[0])
+	if k.waiting == nil || executor != k.executor {
+		if executor == (common.Address{}) {
+			log.Printf("round %s: no buyback executor in force", round)
+		} else {
+			log.Printf("round %s: buying and poking at executor %s", round, executor)
+		}
+		k.executor = executor
 		k.waiting = map[string]string{}
 	}
+	if executor == (common.Address{}) {
+		return nil
+	}
 	for _, method := range []string{"buy", "poke"} {
-		code, err := k.ops.Try(ctx, k.buyback, method)
+		code, err := k.ops.Try(ctx, executor, method)
 		if err != nil {
 			return err
 		}
@@ -179,7 +212,7 @@ func (k *keeper) buyAndPoke(ctx context.Context) error {
 			}
 			continue
 		}
-		receipt, err := k.ops.Send(ctx, k.buyback, method)
+		receipt, err := k.ops.Send(ctx, executor, method)
 		if err != nil {
 			return err
 		}

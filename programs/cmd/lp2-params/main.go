@@ -8,10 +8,10 @@
 //
 // GROUP is a group's name or its number: fee (1), emission (2), schedule
 // (3), reward-delay (4), set-size (5), score-source (6), unbonding (7),
-// buyback-cuts (8) and buyback-values (9). A number with no group, such as
-// 0, reaches the contract and is refused NOT_ADJUSTABLE. Each VALUE is a
-// whole number or, for an address (the score source, a buyback pool), an
-// address. A schedule change is typed as (drop, half-life); Parameters
+// buyback-cuts (8), buyback-values (9) and buyback-executor (10). A number
+// with no group, such as 0, reaches the contract and is refused
+// NOT_ADJUSTABLE. Each VALUE is a whole number or, for an address (the
+// score source, a buyback pool, the buyback executor), an address. A schedule change is typed as (drop, half-life); Parameters
 // records it as the triple (position, half-life, start) that counts.
 //
 // announce and withdraw ask the contract by a call first, at the newest
@@ -45,7 +45,7 @@ import (
 
 // groups are R-25's group names by number.
 var groups = []string{1: "fee", 2: "emission", 3: "schedule", 4: "reward-delay", 5: "set-size",
-	6: "score-source", 7: "unbonding", 8: "buyback-cuts", 9: "buyback-values"}
+	6: "score-source", 7: "unbonding", 8: "buyback-cuts", 9: "buyback-values", 10: "buyback-executor"}
 
 // command is one parsed command line.
 type command struct {
@@ -146,7 +146,8 @@ func shown(g *big.Int, values []*big.Int) string {
 	parts := make([]string, len(values))
 	for i, v := range values {
 		parts[i] = v.String()
-		if (name(g) == "score-source" || (name(g) == "buyback-values" && i == 0)) && v.BitLen() <= 160 {
+		address := name(g) == "score-source" || name(g) == "buyback-executor" || (name(g) == "buyback-values" && i == 0)
+		if address && v.BitLen() <= 160 {
 			parts[i] = common.BigToAddress(v).Hex()
 		}
 	}

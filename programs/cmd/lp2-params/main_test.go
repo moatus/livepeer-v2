@@ -14,7 +14,7 @@ const pool = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
 
 func TestParseNamesEachGroup(t *testing.T) {
 	for i, n := range []string{"fee", "emission", "schedule", "reward-delay", "set-size", "score-source",
-		"unbonding", "buyback-cuts", "buyback-values"} {
+		"unbonding", "buyback-cuts", "buyback-values", "buyback-executor"} {
 		c, err := parse([]string{"withdraw", n})
 		if err != nil {
 			t.Fatalf("withdraw %s: %v", n, err)
@@ -47,6 +47,13 @@ func TestAnnounceKeepsTheValues(t *testing.T) {
 	}
 	if got := shown(b.group, b.values); got != common.HexToAddress(pool).Hex()+"/7200/50000/2" {
 		t.Fatalf("shown %s", got)
+	}
+	x, err := parse([]string{"announce", "10", pool})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := shown(x.group, x.values); name(x.group) != "buyback-executor" || got != common.HexToAddress(pool).Hex() {
+		t.Fatalf("group 10 shown as %s %s", name(x.group), got)
 	}
 	s, err := parse([]string{"show", "schedule", "101"})
 	if err != nil || s.round.Cmp(big.NewInt(101)) != 0 {

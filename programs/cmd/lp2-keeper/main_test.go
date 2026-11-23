@@ -18,17 +18,34 @@ var (
 	clockAt   = common.HexToAddress("0xc1")
 	claimsAt  = common.HexToAddress("0xc2")
 	buybackAt = common.HexToAddress("0xc3")
+	paramsAt  = common.HexToAddress("0xc4")
+	movedTo   = common.HexToAddress("0xc5")
 )
 
-// fakeChain is a round clock and Claims' share mint, as the rulebook has
-// them: a round starts only once it is over (R-18), and a round's shares
-// may be minted once, by anyone, any time after it has ended (R-10).
+// fakeChain is a round clock, Claims' share mint and Parameters' group 10,
+// as the rulebook has them: a round starts only once it is over (R-18), a
+// round's shares may be minted once, by anyone, any time after it has
+// ended (R-10), and the executor in force is group 10's for the round
+// (R-25): buybackAt, or movedTo from the round moveAt when it is set.
 type fakeChain struct {
 	round  uint64
 	over   bool              // the current round has lasted its length
 	minted map[uint64]bool   // rounds whose shares are minted
 	sent   []string          // every transaction, in order
-	refuse map[string]string // the Buyback's refusal of buy or poke, if any
+	refuse map[string]string // the executor's refusal of buy or poke, if any
+	moveAt uint64            // the round movedTo is in force from; 0 never
+	none   bool              // group 10 is address 0
+}
+
+// executorAt is group 10's value in round r.
+func (f *fakeChain) executorAt(r uint64) common.Address {
+	switch {
+	case f.none:
+		return common.Address{}
+	case f.moveAt != 0 && r >= f.moveAt:
+		return movedTo
+	}
+	return buybackAt
 }
 
 func (f *fakeChain) Try(_ context.Context, at common.Address, method string, args ...any) (string, error) {
@@ -47,7 +64,10 @@ func (f *fakeChain) Try(_ context.Context, at common.Address, method string, arg
 			return "ALREADY_CLAIMED", nil
 		}
 		return "", nil
-	case at == buybackAt && (method == "buy" || method == "poke"):
+	case (at == buybackAt || at == movedTo) && (method == "buy" || method == "poke"):
+		if at != f.executorAt(f.round) {
+			return "NOT_AUTHORIZED", nil
+		}
 		return f.refuse[method], nil
 	}
 	return "", fmt.Errorf("unexpected Try %s", method)
@@ -67,7 +87,7 @@ func (f *fakeChain) Send(ctx context.Context, at common.Address, method string, 
 		f.minted[r] = true
 		f.sent = append(f.sent, fmt.Sprintf("mint %d", r))
 	case "buy", "poke":
-		f.sent = append(f.sent, method)
+		f.sent = append(f.sent, fmt.Sprintf("%s %s", method, strings.ToLower(at.Hex()[40:])))
 	}
 	return &types.Receipt{BlockNumber: big.NewInt(1)}, nil
 }
@@ -77,6 +97,14 @@ func (f *fakeChain) Uint(_ context.Context, at common.Address, method string, _ 
 		return new(big.Int).SetUint64(f.round), nil
 	}
 	return nil, fmt.Errorf("unexpected Uint %s", method)
+}
+
+func (f *fakeChain) Call(_ context.Context, at common.Address, method string, args ...any) ([]any, error) {
+	if at == paramsAt && method == "valuesAt" && args[0].(*big.Int).Cmp(big.NewInt(10)) == 0 {
+		e := f.executorAt(args[1].(*big.Int).Uint64())
+		return []any{[]*big.Int{new(big.Int).SetBytes(e.Bytes())}}, nil
+	}
+	return nil, fmt.Errorf("unexpected Call %s", method)
 }
 
 func (f *fakeChain) Bool(_ context.Context, at common.Address, method string, args ...any) (bool, error) {
@@ -148,7 +176,7 @@ func TestWithoutClaimsItOnlyStartsRounds(t *testing.T) {
 }
 
 func newBuybackKeeper(f *fakeChain) *keeper {
-	return &keeper{ops: f, clock: clockAt, next: 1, buyback: buybackAt}
+	return &keeper{ops: f, clock: clockAt, next: 1, params: paramsAt}
 }
 
 // logged runs fn and returns what it logged.
@@ -163,7 +191,7 @@ func logged(fn func()) string {
 func TestItBuysAndPokesWhenBothWouldSucceed(t *testing.T) {
 	f := &fakeChain{round: 1, refuse: map[string]string{}}
 	tick(t, newBuybackKeeper(f))
-	if !slices.Equal(f.sent, []string{"buy", "poke"}) {
+	if !slices.Equal(f.sent, []string{"buy c3", "poke c3"}) {
 		t.Fatalf("sent %v, want buy then poke", f.sent)
 	}
 }
@@ -180,7 +208,7 @@ func TestSlippageIsAnExpectedWaitLoggedOnce(t *testing.T) {
 		f.refuse["poke"] = ""
 		tick(t, k)
 	})
-	if !slices.Equal(f.sent, []string{"poke"}) {
+	if !slices.Equal(f.sent, []string{"poke c3"}) {
 		t.Fatalf("sent %v, want only the poke that would succeed", f.sent)
 	}
 	if n := strings.Count(out, "buy refused SLIPPAGE, as expected: waiting for the average to follow"); n != 1 {
@@ -203,5 +231,35 @@ func TestAFaultyPoolIsAnError(t *testing.T) {
 		if len(f.sent) != 0 {
 			t.Fatalf("%s: sent %v, want nothing", code, f.sent)
 		}
+	}
+}
+
+// A keeper that is running follows a change of executor (D-51): from the
+// round group 10 names another, it buys and pokes there and no longer at
+// the executor it started with, whose buy the Broker would refuse.
+func TestARunningKeeperFollowsAMoveOfTheExecutor(t *testing.T) {
+	f := &fakeChain{round: 1, refuse: map[string]string{}, moveAt: 2}
+	k := newBuybackKeeper(f)
+	out := logged(func() {
+		tick(t, k)
+		f.over = true
+		tick(t, k)
+		tick(t, k)
+	})
+	want := []string{"buy c3", "poke c3", "start 2", "buy c5", "poke c5", "buy c5", "poke c5"}
+	if !slices.Equal(f.sent, want) {
+		t.Fatalf("sent %v, want %v", f.sent, want)
+	}
+	if n := strings.Count(out, "buying and poking at executor"); n != 2 {
+		t.Fatalf("logged the executor %d times, want once each:\n%s", n, out)
+	}
+}
+
+// With group 10 address 0, a deployment with no executor, it calls nothing.
+func TestWithNoExecutorItCallsNothing(t *testing.T) {
+	f := &fakeChain{round: 1, refuse: map[string]string{}, none: true}
+	tick(t, newBuybackKeeper(f))
+	if len(f.sent) != 0 {
+		t.Fatalf("sent %v, want nothing", f.sent)
 	}
 }
