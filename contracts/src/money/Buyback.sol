@@ -140,11 +140,18 @@ contract Buyback is IBuyback {
     /// Rule 13: the pinned code hash, then this deployment's two tokens in
     /// either order. A pool with the pinned hash is a TestPool, whose token
     /// views cannot revert, so this answers false and never reverts for a
-    /// pool it does not accept. Buy and poke use this same check.
-    function acceptsPool(address pool) public view returns (bool) {
-        if (pool.code.length == 0 || pool.codehash != poolCodeHash) return false;
+    /// pool it does not accept. Buy and poke use this same check (_accepts).
+    function acceptsPool(address pool) external view returns (bool ok) {
+        (ok,) = _accepts(pool);
+    }
+
+    /// Whether this Buyback accepts `pool` (rule 13), and whether USDC is
+    /// its token0, read once for both.
+    function _accepts(address pool) private view returns (bool ok, bool usdcIs0) {
+        if (pool.code.length == 0 || pool.codehash != poolCodeHash) return (false, false);
         (address t0, address t1) = (ITestPool(pool).token0(), ITestPool(pool).token1());
-        return (t0 == address(usdc) && t1 == address(lpt)) || (t0 == address(lpt) && t1 == address(usdc));
+        usdcIs0 = t0 == address(usdc) && t1 == address(lpt);
+        ok = usdcIs0 || (t0 == address(lpt) && t1 == address(usdc));
     }
 
     /// R-16 rule 8, refusals in rule 11's order.
@@ -165,14 +172,14 @@ contract Buyback is IBuyback {
 
     // --- internals ------------------------------------------------------
 
-    /// Rule 13 (acceptsPool), then the reserves (NO_LIQUIDITY) and the cumulative price
+    /// Rule 13 (_accepts, as acceptsPool), then the reserves (NO_LIQUIDITY) and the cumulative price
     /// of LPT in µUSDC per wei now, as v2's oracle library reads it: the
     /// stored cumulative plus the spot price times the seconds since the
     /// pool's last update.
     function _read(address pool) private view returns (Pool memory p) {
-        if (!acceptsPool(pool)) revert POOL_INVALID(pool);
+        (bool ok, bool usdcIs0) = _accepts(pool);
+        if (!ok) revert POOL_INVALID(pool);
         ITestPool t = ITestPool(pool);
-        bool usdcIs0 = t.token0() == address(usdc);
         (uint112 r0, uint112 r1, uint32 last) = t.getReserves();
         if (r0 == 0 || r1 == 0) revert NO_LIQUIDITY();
         p.at = pool;
