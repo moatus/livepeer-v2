@@ -28,11 +28,11 @@
 // the receipt says whether the grant happened, and with none (another
 // transaction took the nonce) the chain's Transfers from the faucet to the
 // node say so. A grant mined and reverted is recorded as not granted, and
-// the node stays due. So a crash after the journal is written and before
+// the node stays due and keeps its place: no node registered after it is
+// granted before it. So a crash after the journal is written and before
 // the broadcast is sent again, and a crash after the broadcast and before
 // the receipt is read finds the grant mined, or sends the same bytes again.
-// A journal for another chain, token or faucet key is refused at start, and
-// a second faucet on the same --state-dir is refused while one runs.
+// A journal for another chain, token or faucet key is refused at start.
 //
 // # Waiting
 //
@@ -138,11 +138,6 @@ func main() {
 	if err := os.MkdirAll(*stateDir, 0o700); err != nil {
 		fail(err)
 	}
-	unlock, err := lock(filepath.Join(*stateDir, "lock"))
-	if err != nil {
-		fail(err)
-	}
-	defer unlock()
 	key, err := chain.LoadKey(*keystoreFile, *passwordFile)
 	if err != nil {
 		fail(err)
@@ -192,20 +187,6 @@ func main() {
 		case <-t.C:
 		}
 	}
-}
-
-// lock takes an exclusive lock on path, so that one faucet at a time uses
-// a state directory.
-func lock(path string) (func(), error) {
-	fd, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		return nil, err
-	}
-	if err := syscall.Flock(int(fd.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		fd.Close()
-		return nil, fmt.Errorf("%s: another lp2-faucet holds this state directory (%v)", path, err)
-	}
-	return func() { fd.Close() }, nil
 }
 
 // live is the ledger of a real chain, through its JSON-RPC.

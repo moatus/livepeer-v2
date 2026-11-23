@@ -210,8 +210,10 @@ how, the log lines it writes, and how to run it. In the demo the deployer
 funds the faucet; it grants each node registered before it starts and one
 registered while it runs, and is killed three times with a grant in flight:
 after the broadcast reached the chain, with the broadcast dropped from the
-chain's pool, and with the grant mined and reverted. The token's Transfer
-logs then show every registered node granted exactly once.
+chain's pool, and with the grant mined and reverted. It then waits out of
+test LPT, out of gas and at its cap in turn, each into a new round in which
+the sender pays on. The token's Transfer logs then show every registered
+node granted exactly once.
 
 ### Run results
 

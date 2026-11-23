@@ -68,20 +68,24 @@ func (f *faucet) init() {
 	f.sentTo = map[common.Address]bool{}
 }
 
-// pages splits the blocks from..to into ranges of at most size blocks.
-func pages(from, to, size uint64) [][2]uint64 {
-	var out [][2]uint64
-	for a := from; a <= to; a += size {
+// eachPage calls do on each range of at most size blocks that covers
+// from..to, in order, one range at a time, while do returns true and no
+// error.
+func eachPage(from, to, size uint64, do func(a, b uint64) (bool, error)) error {
+	for a := from; a <= to; {
 		b := a + size - 1
 		if b > to || b < a {
 			b = to
 		}
-		out = append(out, [2]uint64{a, b})
-		if b == to {
-			break
+		if more, err := do(a, b); !more || err != nil {
+			return err
 		}
+		if b == to {
+			return nil
+		}
+		a = b + 1
 	}
-	return out
+	return nil
 }
 
 // read reads the blocks from f.next to the head, a page at a time: the
@@ -96,17 +100,17 @@ func (f *faucet) read(ctx context.Context) error {
 	if head < f.next {
 		return nil
 	}
-	for _, p := range pages(f.next, head, f.page) {
-		from, to := new(big.Int).SetUint64(p[0]), new(big.Int).SetUint64(p[1])
+	return eachPage(f.next, head, f.page, func(a, b uint64) (bool, error) {
+		from, to := new(big.Int).SetUint64(a), new(big.Int).SetUint64(b)
 		regs, err := f.l.Logs(ctx, ethereum.FilterQuery{FromBlock: from, ToBlock: to, Addresses: []common.Address{f.registry},
 			Topics: [][]common.Hash{{nodeRegistered}}})
 		if err != nil {
-			return fmt.Errorf("NodeRegistered logs of blocks %d to %d: %w", p[0], p[1], err)
+			return false, fmt.Errorf("NodeRegistered logs of blocks %d to %d: %w", a, b, err)
 		}
 		sent, err := f.l.Logs(ctx, ethereum.FilterQuery{FromBlock: from, ToBlock: to, Addresses: []common.Address{f.token},
 			Topics: [][]common.Hash{{transferEvent}, {common.BytesToHash(f.self.Bytes())}}})
 		if err != nil {
-			return fmt.Errorf("the faucet's Transfer logs of blocks %d to %d: %w", p[0], p[1], err)
+			return false, fmt.Errorf("the faucet's Transfer logs of blocks %d to %d: %w", a, b, err)
 		}
 		for _, l := range regs {
 			if l.Address != f.registry || len(l.Topics) != 2 || l.Topics[0] != nodeRegistered || l.Removed {
@@ -124,9 +128,9 @@ func (f *faucet) read(ctx context.Context) error {
 				f.sentTo[to] = true
 			}
 		}
-		f.next = p[1] + 1
-	}
-	return nil
+		f.next = b + 1
+		return true, nil
+	})
 }
 
 // transferTo is the recipient of a Transfer log of token from `from`.
@@ -153,6 +157,9 @@ func (f *faucet) loadJournal() (*entry, error) {
 
 // tick is one poll: it resolves a grant left in flight, reads the new
 // blocks and grants each node due, in registration order, one at a time.
+// A node keeps its place: until it is granted, no later node is, so a
+// grant that reverted or lost its nonce is tried again at the next poll
+// before any node after it, and the cap is never reached past it.
 func (f *faucet) tick(ctx context.Context) error {
 	e, err := f.loadJournal()
 	if err != nil {
@@ -171,7 +178,7 @@ func (f *faucet) tick(ctx context.Context) error {
 		if f.sentTo[n] {
 			continue
 		}
-		if done, err := f.grant(ctx, n); !done || err != nil {
+		if done, err := f.grant(ctx, n); !done || err != nil || !f.sentTo[n] {
 			return err
 		}
 	}
@@ -345,8 +352,9 @@ func (f *faucet) sentSince(ctx context.Context, node common.Address, after uint6
 	if err != nil || head <= after {
 		return false, err
 	}
-	for _, p := range pages(after+1, head, f.page) {
-		logs, err := f.l.Logs(ctx, ethereum.FilterQuery{FromBlock: new(big.Int).SetUint64(p[0]), ToBlock: new(big.Int).SetUint64(p[1]),
+	sent := false
+	err = eachPage(after+1, head, f.page, func(a, b uint64) (bool, error) {
+		logs, err := f.l.Logs(ctx, ethereum.FilterQuery{FromBlock: new(big.Int).SetUint64(a), ToBlock: new(big.Int).SetUint64(b),
 			Addresses: []common.Address{f.token},
 			Topics:    [][]common.Hash{{transferEvent}, {common.BytesToHash(f.self.Bytes())}, {common.BytesToHash(node.Bytes())}}})
 		if err != nil {
@@ -354,11 +362,12 @@ func (f *faucet) sentSince(ctx context.Context, node common.Address, after uint6
 		}
 		for _, l := range logs {
 			if to, ok := transferTo(l, f.token, f.self); ok && to == node {
-				return true, nil
+				sent = true
 			}
 		}
-	}
-	return false, nil
+		return !sent, nil
+	})
+	return sent, err
 }
 
 // movedTo is whether the receipt logs the token's Transfer of amount from

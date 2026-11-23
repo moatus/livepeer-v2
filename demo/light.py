@@ -19,7 +19,8 @@ is read: for every node one ticket per round and one ticket for each paid
 request sent, and N's and M's payouts up by their half of each.
 
 The faucet grants N, M, S and X one grant each, in registration order, and
-V, registered while it runs, within one poll. It is killed three times
+V, registered while it runs, mined within one poll and one block of its
+registration in the chain's own time. It is killed three times
 with a grant in flight, each with mining paused so the moment is exact:
 once after the broadcast reached the chain and before the receipt was read
 (A), once with the broadcast then dropped from the chain's pool, the state
@@ -27,9 +28,12 @@ a kill between the journal's write and the broadcast leaves (B), and once
 with the grant mined and reverted, its LPT taken from the faucet's balance
 while it waited (C). Each restart settles the journal: A's grant is found
 mined, B's journal bytes are sent again, and C stays due while the empty
-faucet waits, the sender paying on, until the deployer refills it. At the
-end the token's Transfer logs show every registered node granted exactly
-once, and U, never registered, nothing.
+faucet waits until the deployer refills it. Then D waits while the faucet
+has no ETH, and E while the faucet is at its cap, until it is restarted
+with a larger one. Each of the three waits lasts into a new round, in
+which the sender pays N and M and the faucet sends nothing. At the end the
+token's Transfer logs show every registered node granted exactly once,
+and U, never registered, nothing.
 
 Exit 0 every check passed; 1 one failed; 2 the run could not run.
 """
@@ -199,12 +203,12 @@ def start_sender() -> None:
     wait("the sender to answer joins", lambda: post(f"http://127.0.0.1:{SENDER}/join", {})[0] == 400, 30)
 
 
-def start_faucet() -> None:
+def start_faucet(max_grants: int = 10) -> None:
     before = len(faucet_runs())
     start("faucet", [str(common.RUN / "bin" / "lp2-faucet"), "--rpc-url", common.RPC, "--keystore-file", str(KEYS["F"]),
                      "--keystore-password-file", str(common.RUN / "pw"), "--controller-address", C["Controller"],
                      "--lpt-address", C["TestLPT"], "--state-dir", str(FAUCET_DIR), "--from-block", "0",
-                     "--log-page-blocks", "100", "--grant-wei", str(GRANT), "--max-grants", "10",
+                     "--log-page-blocks", "100", "--grant-wei", str(GRANT), "--max-grants", str(max_grants),
                      "--poll", f"{FAUCET_POLL}s", "--receipt-timeout", "30s"])
     wait("the faucet to start", lambda: len(faucet_runs()) > before, 30)
 
@@ -249,12 +253,38 @@ def first_sent() -> str | None:
     return None
 
 
-def granted_by_faucet() -> list[tuple[str, int]]:
-    """Each Transfer of test LPT from the faucet, read from the token's logs
-    in chain order: (recipient, amount)."""
-    return [(name("0x" + x["topics"][2][-40:]), int(x["data"], 16))
-            for x in logs(C["TestLPT"], "Transfer(address,address,uint256)")
+def faucet_transfers() -> list[dict]:
+    """Each Transfer log of test LPT from the faucet, in chain order."""
+    return [x for x in logs(C["TestLPT"], "Transfer(address,address,uint256)")
             if x["topics"][1][-40:].lower() == ADDR["F"][2:].lower()]
+
+
+def granted_by_faucet() -> list[tuple[str, int]]:
+    """Each Transfer of test LPT from the faucet: (recipient, amount)."""
+    return [(name("0x" + x["topics"][2][-40:]), int(x["data"], 16)) for x in faucet_transfers()]
+
+
+def block_time(number: str) -> int:
+    """The timestamp of the block numbered `number` (hex), in the chain's seconds."""
+    return int(rpc("eth_getBlockByNumber", [number, False])["timestamp"], 16)
+
+
+def into_a_round(waiting: str, n: str) -> None:
+    """While the faucet waits (`waiting`) with n due, the chain goes on into
+    the next round: the sender pays N and M in it, and the faucet sends
+    nothing. The blocks before the round's last two are mined at once, after
+    S's paid request of the round has ended, so every round is still paid."""
+    r = current_round()
+    sent = len(faucet_transfers())
+    wait(f"S's paid request of round {r} to end", lambda: any(x[0] == r for x in gave_up().get("S", [])), BOUND + 5)
+    left = round_started_at() + MANIFEST["chain"]["round_length_blocks"] - block_number()
+    if left > 2:
+        mine(left - 2)
+    wait(f"the sender to pay N and M in round {r + 1}",
+         lambda: all(any(x["round"] == r + 1 for x in relays().get(m, [])) for m in ("N", "M")), 30)
+    say(f"  while the faucet waited {waiting}, the chain went into round {r + 1}, and the sender paid N and M in it")
+    check(f"{waiting}: the sender paid N and M in round {r + 1}, and the faucet sent nothing, {n} still due",
+          (len(faucet_transfers()) - sent, lpt_of(n), faucet_line("granted", n)), (0, 0, None))
 
 
 def lpt_of(who: str) -> int:
@@ -332,7 +362,7 @@ def main() -> int:
     pw = common.RUN / "pw"
     pw.write_text("pw-" + os.urandom(8).hex())
     pw.chmod(0o600)
-    for who in ("deployer", "N", "M", "S", "X", "U", "P", "Keeper", "F", "V", "A", "B", "C"):
+    for who in ("deployer", "N", "M", "S", "X", "U", "P", "Keeper", "F", "V", "A", "B", "C", "D", "E"):
         new_key(who)
         if who != "deployer":
             KEYS[who] = keystore(who, pw)
@@ -438,14 +468,15 @@ def main() -> int:
     say(f"  granted from the start, in the token's Transfer logs: {', '.join(n for n, _ in granted_by_faucet())}")
     check("the faucet granted N, M, S and X in registration order, each the grant", granted_by_faucet(),
           [(n, GRANT) for n in ("N", "M", "S", "X")])
-    send(KEY["V"], C["Registry"], "register()")
-    registered_at = time.time()
-    wait("V's grant to be sent", lambda: faucet_line("sent", "V") is not None, 10)
-    sent_after = time.time() - registered_at
-    wait("V's grant", lambda: faucet_line("granted", "V") is not None, 10)
-    say(f"  V registers while the faucet runs: its grant sent {sent_after:.1f} s after the registration was mined, "
-        f"granted {time.time() - registered_at:.1f} s after")
-    check(f"V's grant was sent within one poll ({FAUCET_POLL} s, and 1 s of slack) of its registration", sent_after <= FAUCET_POLL + 1, True)
+    v_registered = send(KEY["V"], C["Registry"], "register()")
+    wait("V's grant", lambda: lpt_of("V") == GRANT, 10)
+    v_granted = [x for x in faucet_transfers() if x["topics"][2][-40:].lower() == ADDR["V"][2:].lower()][0]
+    block = MANIFEST["chain"]["block_time_seconds"]
+    took = block_time(v_granted["blockNumber"]) - block_time(v_registered["blockNumber"])
+    say(f"  V registers while the faucet runs: its grant mined {took} s after the registration, in the chain's time "
+        f"(blocks {int(v_registered['blockNumber'], 16)} and {int(v_granted['blockNumber'], 16)})")
+    check(f"V's grant was mined within one poll and one block ({FAUCET_POLL} s and {block} s) of its registration, "
+          "in the chain's time", took <= FAUCET_POLL + block, True)
     check("V holds its grant", lpt_of("V"), GRANT)
 
     # A: the broadcast reached the chain; the faucet died before the receipt.
@@ -482,9 +513,37 @@ def main() -> int:
         f"local chain before the block was mined; the restart: {faucet_line('reverted', 'C')}")
     say(f"  then: {faucet_line('out of LPT', 'C')}")
     check("C: the reverted grant left C with nothing and still due", lpt_of("C"), 0)
-    relays_when_empty = sum(len(x) for x in relays().values())
 
-    say(f"\n7. Each node is paid once a round, with nobody acting, until N and M have been paid in {ROUNDS} rounds")
+    say(f"\n7. Each node is paid once a round, with nobody acting, until N and M have been paid in {ROUNDS} rounds; "
+        "the sender pays on while the faucet waits out of LPT, out of gas and at its cap")
+    into_a_round("out of LPT", "C")
+    send(KEY["deployer"], C["TestLPT"], "transfer(address,uint256)", ADDR["F"], 3 * GRANT)   # C, D and E
+    refilled_at = time.time()
+    wait("C's grant once the faucet is refilled", lambda: faucet_line("granted", "C") is not None, 10)
+    say(f"  the deployer refills the faucet with {3 * GRANT // 10**18:,} test LPT: C granted {time.time() - refilled_at:.1f} s later")
+    check("C was granted within one poll and two blocks of the refill", time.time() - refilled_at <= FAUCET_POLL + 3, True)
+
+    eth = rpc("eth_getBalance", [ADDR["F"], "latest"])
+    rpc("anvil_setBalance", [ADDR["F"], "0x0"])
+    send(KEY["D"], C["Registry"], "register()")
+    wait("the faucet to wait out of gas for D", lambda: faucet_line("out of gas", "D") is not None, 10)
+    say(f"  the faucet's ETH set to 0 on the local chain, and D registers: {faucet_line('out of gas', 'D')}")
+    into_a_round("out of gas", "D")
+    rpc("anvil_setBalance", [ADDR["F"], eth])
+    wait("D's grant once the faucet has ETH again", lambda: faucet_line("granted", "D") is not None, 10)
+    check("D was granted once the faucet had ETH again", lpt_of("D"), GRANT)
+
+    stop("faucet")
+    start_faucet(max_grants=len(granted_by_faucet()))
+    send(KEY["E"], C["Registry"], "register()")
+    wait("the faucet to wait at its cap for E", lambda: faucet_line("cap reached", "E") is not None, 10)
+    say(f"  the faucet restarted with --max-grants {len(granted_by_faucet())}, and E registers: {faucet_line('cap reached', 'E')}")
+    into_a_round("at its cap", "E")
+    stop("faucet")
+    start_faucet()
+    wait("E's grant once the faucet is restarted with a larger cap", lambda: faucet_line("granted", "E") is not None, 10)
+    check("E was granted once the faucet was restarted with a larger cap", lpt_of("E"), GRANT)
+
     last = {n: round0[n] + ROUNDS - 1 for n in ("N", "M")}
     wait(f"N and M paid in {ROUNDS} rounds", lambda: all(any(x["round"] >= last[n] for x in relays().get(n, [])) for n in ("N", "M")),
          ROUNDS * 80)
@@ -492,15 +551,6 @@ def main() -> int:
     # the restart: a repeat in the round can come any time before it ends.
     check("the restarted sender sent no node, S included, a paid request in the round it was restarted in",
           sorted(n for n, rs in paid_requests(runs()[-1]).items() if r in rs), [])
-    relayed = sum(len(x) for x in relays().values()) - relays_when_empty
-    say(f"  while the faucet waited out of LPT, the sender paid on: {relayed} relays")
-    check("the sender paid listed nodes while the faucet waited out of LPT", relayed > 0, True)
-    check("the empty faucet granted nothing meanwhile", (lpt_of("C"), faucet_line("granted", "C")), (0, None))
-    send(KEY["deployer"], C["TestLPT"], "transfer(address,uint256)", ADDR["F"], GRANT)
-    refilled_at = time.time()
-    wait("C's grant once the faucet is refilled", lambda: faucet_line("granted", "C") is not None, 10)
-    say(f"  the deployer refills the faucet with {GRANT // 10**18:,} test LPT: C granted {time.time() - refilled_at:.1f} s later")
-    check("C was granted within one poll and two blocks of the refill", time.time() - refilled_at <= FAUCET_POLL + 3, True)
     stop("sender")
     STOP.set()
     stuck.shutdown()
@@ -573,7 +623,7 @@ def main() -> int:
     check("each registered node was granted exactly once, each the grant, in registration order", grants,
           [(n, GRANT) for n in registered])
     check("U, never registered, holds no test LPT", lpt_of("U"), 0)
-    check("the faucet's journal ends with C's grant, granted", (journal()["outcome"], journal()["node"].lower()),
-          ("granted", ADDR["C"].lower()))
+    check("the faucet's journal ends with E's grant, granted", (journal()["outcome"], journal()["node"].lower()),
+          ("granted", ADDR["E"].lower()))
     return finish(started, "joins refused and accepted, each node paid once a round, a stuck node bounded, a restart paid "
-                  "nobody twice, each registered node granted test LPT once through three kills")
+                  "nobody twice, each registered node granted test LPT once through three kills and three waits")

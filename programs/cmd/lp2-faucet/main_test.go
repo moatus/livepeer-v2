@@ -437,9 +437,20 @@ func TestPages(t *testing.T) {
 		{5, 4, 5, "[]"},
 		{^uint64(0) - 2, ^uint64(0), 5000, fmt.Sprintf("[[%d %d]]", ^uint64(0)-2, ^uint64(0))},
 	} {
-		if got := fmt.Sprint(pages(c.from, c.to, c.size)); got != c.want {
-			t.Errorf("pages(%d, %d, %d) = %s, want %s", c.from, c.to, c.size, got, c.want)
+		var got [][2]uint64
+		eachPage(c.from, c.to, c.size, func(a, b uint64) (bool, error) {
+			got = append(got, [2]uint64{a, b})
+			return true, nil
+		})
+		if fmt.Sprint(got) != c.want {
+			t.Errorf("eachPage(%d, %d, %d) = %v, want %s", c.from, c.to, c.size, got, c.want)
 		}
+	}
+	// It stops at the first range its caller is done with, or fails on.
+	var asked int
+	eachPage(0, 12, 5, func(a, b uint64) (bool, error) { asked++; return a < 5, nil })
+	if asked != 2 {
+		t.Errorf("eachPage went on for %d ranges after its caller was done at the second", asked)
 	}
 }
 
@@ -678,6 +689,34 @@ func TestAMinedRevertLeavesTheNodeDue(t *testing.T) {
 	again.tick(t)
 	again.tick(t)
 	wantGrants(t, c, map[common.Address]int{node(1): 1})
+}
+
+// A grant that reverts while the faucet runs leaves its node due and in
+// its place: with one grant left under the cap, no later node takes it,
+// and the node is granted once the faucet can pay.
+func TestARevertedNodeKeepsItsPlace(t *testing.T) {
+	c := newFake(t)
+	c.register(node(1))
+	c.register(node(2))
+	c.onBroadcast = func(tx *types.Transaction) {
+		c.onBroadcast = nil
+		held := c.lpt[c.self]
+		c.pool[tx.Nonce()] = tx
+		c.lpt[c.self] = new(big.Int) // the faucet's LPT is gone when the grant is mined
+		c.mine()
+		c.lpt[c.self] = held // and back before anything else is sent
+	}
+	r := start(c, t.TempDir(), 1, 5000, 0)
+	for i := 0; i < 3; i++ {
+		r.tick(t)
+	}
+	if len(r.lines("reverted: grant to "+node(1).Hex())) != 1 {
+		t.Fatalf("the log: %v", r.logs)
+	}
+	wantGrants(t, c, map[common.Address]int{node(1): 1})
+	if cap := r.lines("cap reached: "); len(cap) != 1 || !strings.Contains(cap[0], node(2).Hex()) {
+		t.Fatalf("the cap's line: %v", r.logs)
+	}
 }
 
 // A nonce another transaction took leaves the grant not granted, read
