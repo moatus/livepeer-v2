@@ -1,4 +1,4 @@
-"""Independent integer implementation of rulebook october-main-text-v4.
+"""Independent integer implementation of rulebook october-main-text-v5.
 
 LPT replay models round-start stake/cuts, bonding, transfers, unbonding,
 claims, minting and holder pots. It rejects overspending as invalid input.
@@ -62,10 +62,12 @@ class Parameters:
     buyback_twap_seconds: int = 3600
     buyback_max_slippage_ppm: int = 10_000
     buyback_every_rounds: int = 1
+    parameter_groups: int = 10
 
     @classmethod
-    def from_strings(cls, values: dict) -> "Parameters":
-        parameters = cls(**{key: integer(value) for key, value in values.items()})
+    def from_strings(cls, values: dict, *, parameter_groups: int = 10) -> "Parameters":
+        parameters = cls(**{key: integer(value) for key, value in values.items()},
+                         parameter_groups=parameter_groups)
         if parameters.emission_half_life_rounds == 0:
             raise ValueError("emission half-life must be positive")
         return parameters
@@ -116,12 +118,12 @@ def emission(parameters: Parameters, round_number: int) -> int:
 
 GROUPS = {1: "FEE", 2: "EMISSION", 3: "SCHEDULE", 4: "REWARD_DELAY",
           5: "VALIDATOR_SET_SIZE", 6: "SCORE_SOURCE", 7: "UNBONDING",
-          8: "BUYBACK_CUTS", 9: "BUYBACK_VALUES"}
+          8: "BUYBACK_CUTS", 9: "BUYBACK_VALUES", 10: "BUYBACK_EXECUTOR"}
 STEPS = 840          # R-05: positions are 840ths of the deployment's half-life
 LARGEST_DROP = 840   # D-49: one announcement drops at most one halving
 LONGEST = 840        # D-47 (iii): reward delay, unbonding and a buy interval
 LARGEST_SET = 33     # D-47 (ii)
-ADDRESS_VALUES = {(6, 0), (9, 0)}
+ADDRESS_VALUES = {(6, 0), (9, 0), (10, 0)}
 
 
 class Settings:
@@ -138,7 +140,8 @@ class Settings:
         if p.emission_half_life_rounds <= 0 or STEPS % p.emission_half_life_rounds:
             raise ValueError("the deployment's half-life must divide 840")
         self.p, self.authority = p, authority
-        self.addresses = {"Scores": {"code": True},
+        self.groups = {g for g in GROUPS if g <= p.parameter_groups}
+        self.addresses = {"Scores": {"code": True}, "Buyback": {"code": True},
                           "Pool": {"code": True, "pinned_pool_code": True,
                                    "token0": "MockUSDC", "token1": "TestLPT"},
                           **(addresses or {})}
@@ -155,6 +158,8 @@ class Settings:
             9: ("Pool", p.buyback_twap_seconds, p.buyback_max_slippage_ppm,
                 p.buyback_every_rounds),
         }
+        if 10 in self.groups:
+            deployment[10] = ("Buyback",)
         self.history = {g: [(0, values)] for g, values in deployment.items()}
 
     def values_at(self, group: int, round_number: int) -> tuple:
@@ -199,12 +204,12 @@ class Settings:
         """R-25's checks in the units section's order; None when none applies."""
         if caller != self.authority:
             return "NOT_AUTHORIZED"
-        if group not in GROUPS:
+        if group not in self.groups:
             return "NOT_ADJUSTABLE"
         in_force = self.values_at(group, now)
         if group == 3 and len(values) == 2 and values[1] > in_force[1]:
             return "SCHEDULE_RAISED"
-        counts = {1: 2, 2: 3, 3: 2, 4: 1, 5: 1, 6: 1, 7: 1, 8: 3, 9: 4}
+        counts = {1: 2, 2: 3, 3: 2, 4: 1, 5: 1, 6: 1, 7: 1, 8: 3, 9: 4, 10: 1}
         if len(values) != counts[group]:
             return "VALUE_OUT_OF_RANGE"
         if group in (1, 2) and any(v > MILLION for v in values):
@@ -217,7 +222,7 @@ class Settings:
             return "VALUE_OUT_OF_RANGE"
         if group == 5 and not in_force[0] <= values[0] <= LARGEST_SET:
             return "VALUE_OUT_OF_RANGE"
-        if group == 6 and not self.addresses.get(values[0], {}).get("code", False):
+        if group in (6, 10) and not self.addresses.get(values[0], {}).get("code", False):
             return "VALUE_OUT_OF_RANGE"
         if group == 8 and values != (MILLION, 0, 0):
             return "VALUE_OUT_OF_RANGE"
@@ -229,15 +234,25 @@ class Settings:
         if group in (1, 2) and sum(values) != MILLION:
             return "IDENTITY_NOT_WHOLE"
         if group == 9:
-            pool = self.addresses.get(values[0], {})
-            if not (pool.get("pinned_pool_code", False)
-                    and {pool.get("token0"), pool.get("token1")} == {"MockUSDC", "TestLPT"}):
+            executor = "Buyback"
+            if 10 in self.groups:
+                pending = self.pending(10, now)
+                executor = pending[1][0] if pending else self.values_at(10, now)[0]
+            if not self.accepts_pool(executor, values[0]):
                 return "POOL_INVALID"
         return None
 
+    def accepts_pool(self, executor, name):
+        """Shared examples: Buyback's pool design or another executor's list."""
+        if executor == "Buyback":
+            pool = self.addresses.get(name, {})
+            return (pool.get("pinned_pool_code", False)
+                    and {pool.get("token0"), pool.get("token1")} == {"MockUSDC", "TestLPT"})
+        return name in self.addresses.get(executor, {}).get("accepts", [])
+
     def announce(self, caller, group: int, raw: list, now: int):
         """Returns (code, None) or (None, counts_from)."""
-        values = self.read(group, raw) if group in GROUPS else tuple(raw)
+        values = self.read(group, raw) if group in self.groups else tuple(raw)
         code = self.refusal(caller, group, values, now)
         if code:
             return code, None
@@ -255,7 +270,7 @@ class Settings:
     def withdraw(self, caller, group: int, now: int):
         if caller != self.authority:
             return "NOT_AUTHORIZED"
-        if group not in GROUPS:
+        if group not in self.groups:
             return "NOT_ADJUSTABLE"
         if not self.pending(group, now):
             return "NOTHING_PENDING"

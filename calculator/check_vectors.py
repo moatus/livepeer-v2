@@ -8,7 +8,7 @@ from pathlib import Path
 from reference import Parameters, calculate
 
 
-DEFAULT_VECTORS = Path(__file__).resolve().parent.parent / "vectors/october-main-text-v4.json"
+DEFAULT_VECTORS = Path(__file__).resolve().parent.parent / "vectors/october-main-text-v5.json"
 
 
 def decimal_strings(value):
@@ -53,9 +53,11 @@ def check(path: Path) -> int:
     try:
         if document["profile"] not in ("october-main-text-v0", "october-main-text-v1",
                                        "october-main-text-v2", "october-main-text-v3",
-                                       "october-main-text-v4"):
+                                       "october-main-text-v4", "october-main-text-v5"):
             raise ValueError("unknown rulebook profile")
-        parameters = Parameters.from_strings(document["parameters"])
+        parameters = Parameters.from_strings(
+            document["parameters"],
+            parameter_groups=10 if document["profile"] == "october-main-text-v5" else 9)
         cases = document["cases"]
         if not cases:
             raise ValueError("no cases to check")
@@ -74,6 +76,7 @@ def check(path: Path) -> int:
         print(f"calculator: FAILED: {error}")
         return 1
 
+    print(f"calculator: profile {document['profile']}")
     failures = 0
     for case in cases:
         try:
