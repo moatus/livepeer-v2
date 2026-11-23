@@ -10,29 +10,120 @@
 # call or event, and the calling path where slither gives one. Then one
 # indented line gives the reason. A finding slither reports twice under the
 # same key is listed twice, or the second one fails the check.
-# Slither 0.11.6, first run: 12 findings, all accepted below.
 
+assembly: Buyback._div512(uint256,uint256,uint256) uses assembly | - INLINE ASM
+    Remco Bloemen's 512-bit division as OpenZeppelin's Math.mulDiv writes it, which R-16 rule 4's bound needs at full width; memory-safe, it reads and writes only its stack values, and the bound it gives is checked against the shared examples.
+assembly: Buyback._mul512(uint256,uint256) uses assembly | - INLINE ASM
+    The 512-bit product by mulmod modulo 2^256 - 1 and the borrow, as OpenZeppelin's Math.mulDiv takes it; Solidity has no wider integer, and the block reads and writes only its stack values.
 calls-loop: Claims._part(uint256,address,address,uint256) has external calls inside a loop: RewardMath.partOf(pot,ledger.bondAt(holder,node,round),ledger.stakeAt(node,round)) | Calls stack containing the loop: | Claims.withdrawParts(address,uint256[])
     The calls are views on StakeLedger, fixed at deployment; the loop is over the rounds the caller lists, so a long list costs only the caller.
 calls-loop: Claims._part(uint256,address,address,uint256) has external calls inside a loop: RewardMath.partOf(pot,ledger.bondAt(holder,node,round),ledger.stakeAt(node,round)) | Calls stack containing the loop: | Claims.withdrawValidatorParts(address,uint256[])
     The calls are views on StakeLedger, fixed at deployment; the loop is over the rounds the caller lists, so a long list costs only the caller.
-calls-loop: Claims._payMember(address,uint256,uint256,uint256,uint256) has external calls inside a loop: cut = RewardMath.cutOf(paid,ledger.cutAt(m,round)) | Calls stack containing the loop: | Claims.mintRoundShares(uint256)
-    A view on StakeLedger, fixed at deployment, once per member of the round, at most Scores' N = 3.
-calls-loop: Claims._payMember(address,uint256,uint256,uint256,uint256) has external calls inside a loop: lpt.mint(payout,cut) | Calls stack containing the loop: | Claims.mintRoundShares(uint256)
-    TestLPT, fixed at deployment, mints without calling the recipient; once per member of the round, at most N = 3.
-calls-loop: Claims._payMember(address,uint256,uint256,uint256,uint256) has external calls inside a loop: payout = registry.payoutOf(m) | Calls stack containing the loop: | Claims.mintRoundShares(uint256)
-    A view on Registry, fixed at deployment, once per member of the round, at most N = 3.
+calls-loop: Claims._payMember(address,uint256,uint256,uint256,uint256,uint256) has external calls inside a loop: cut = RewardMath.cutOf(paid,ledger.cutAt(m,round)) | Calls stack containing the loop: | Claims.mintRoundShares(uint256)
+    A view on StakeLedger, fixed at deployment, once per member of the round, at most the validator set size, which only rises and never past 33 (R-25).
+calls-loop: Claims._payMember(address,uint256,uint256,uint256,uint256,uint256) has external calls inside a loop: lpt.mint(payout,cut) | Calls stack containing the loop: | Claims.mintRoundShares(uint256)
+    TestLPT, fixed at deployment, mints without calling the recipient; once per member of the round, at most the validator set size, which only rises and never past 33 (R-25).
+calls-loop: Claims._payMember(address,uint256,uint256,uint256,uint256,uint256) has external calls inside a loop: payout = registry.payoutOf(m) | Calls stack containing the loop: | Claims.mintRoundShares(uint256)
+    A view on Registry, fixed at deployment, once per member of the round, at most the validator set size, which only rises and never past 33 (R-25).
 calls-loop: Claims.mintRoundShares(uint256) has external calls inside a loop: stakes[i] = ledger.stakeAt(members[i],round)
-    A view on StakeLedger, fixed at deployment, once per member of the round, at most N = 3.
+    A view on StakeLedger, fixed at deployment, once per member of the round, at most the validator set size, which only rises and never past 33 (R-25).
 calls-loop: Scores._seat(address,uint256) has external calls inside a loop: s = ledger.stakeAt(next[j],r) | Calls stack containing the loop: | Scores.optIn(address)
-    A view on StakeLedger, fixed at deployment, over the N = 3 seats.
+    A view on StakeLedger, fixed at deployment, over the seats, at most the validator set size, which only rises and never past 33 (R-25).
 calls-loop: Scores._seat(address,uint256) has external calls inside a loop: s = ledger.stakeAt(next[j],r) | Calls stack containing the loop: | Scores.seat(address)
-    A view on StakeLedger, fixed at deployment, over the N = 3 seats.
-divide-before-multiply: Broker.redeemWinningTicket(ITicketBroker.Ticket,bytes,uint256) performs a multiplication on the result of a division: | - nodeAmount = paid / ONE * NODE_CUT + paid % ONE * NODE_CUT / ONE
-    paid / ONE * NODE_CUT + paid % ONE * NODE_CUT / ONE is exactly floor(paid * NODE_CUT / ONE), since paid = (paid / ONE) * ONE + paid % ONE; it is split so no product overflows.
+    A view on StakeLedger, fixed at deployment, over the seats, at most the validator set size, which only rises and never past 33 (R-25).
+divide-before-multiply: Broker._nodeAmount(uint256,uint256) performs a multiplication on the result of a division: | - paid / ONE * cut + paid % ONE * cut / ONE
+    paid / ONE * cut + paid % ONE * cut / ONE is exactly floor(paid * cut / ONE), since paid = (paid / ONE) * ONE + paid % ONE and the first part divides by ONE with no remainder; it is split so no product overflows, cut being at most ONE (R-25's range).
+divide-before-multiply: Buyback._div512(uint256,uint256,uint256) performs a multiplication on the result of a division: | - d = d / twos__div512_asm_0 | - inverse__div512_asm_0 = 3 * d ^ 2
+    d / twos divides out d's lowest set bit, twos, which divides d exactly, leaving the odd part whose inverse modulo 2^256 this line seeds; no remainder is dropped.
+divide-before-multiply: Buyback._div512(uint256,uint256,uint256) performs a multiplication on the result of a division: | - d = d / twos__div512_asm_0 | - inverse__div512_asm_0 = inverse__div512_asm_0 * 2 - d * inverse__div512_asm_0
+    One of the six Newton steps on the inverse of d's odd part, which d / twos gives exactly because twos is d's lowest set bit; no remainder is dropped (the same code as OpenZeppelin's Math.mulDiv).
+divide-before-multiply: Buyback._div512(uint256,uint256,uint256) performs a multiplication on the result of a division: | - d = d / twos__div512_asm_0 | - inverse__div512_asm_0 = inverse__div512_asm_0 * 2 - d * inverse__div512_asm_0
+    One of the six Newton steps on the inverse of d's odd part, which d / twos gives exactly because twos is d's lowest set bit; no remainder is dropped (the same code as OpenZeppelin's Math.mulDiv).
+divide-before-multiply: Buyback._div512(uint256,uint256,uint256) performs a multiplication on the result of a division: | - d = d / twos__div512_asm_0 | - inverse__div512_asm_0 = inverse__div512_asm_0 * 2 - d * inverse__div512_asm_0
+    One of the six Newton steps on the inverse of d's odd part, which d / twos gives exactly because twos is d's lowest set bit; no remainder is dropped (the same code as OpenZeppelin's Math.mulDiv).
+divide-before-multiply: Buyback._div512(uint256,uint256,uint256) performs a multiplication on the result of a division: | - d = d / twos__div512_asm_0 | - inverse__div512_asm_0 = inverse__div512_asm_0 * 2 - d * inverse__div512_asm_0
+    One of the six Newton steps on the inverse of d's odd part, which d / twos gives exactly because twos is d's lowest set bit; no remainder is dropped (the same code as OpenZeppelin's Math.mulDiv).
+divide-before-multiply: Buyback._div512(uint256,uint256,uint256) performs a multiplication on the result of a division: | - d = d / twos__div512_asm_0 | - inverse__div512_asm_0 = inverse__div512_asm_0 * 2 - d * inverse__div512_asm_0
+    One of the six Newton steps on the inverse of d's odd part, which d / twos gives exactly because twos is d's lowest set bit; no remainder is dropped (the same code as OpenZeppelin's Math.mulDiv).
+divide-before-multiply: Buyback._div512(uint256,uint256,uint256) performs a multiplication on the result of a division: | - d = d / twos__div512_asm_0 | - inverse__div512_asm_0 = inverse__div512_asm_0 * 2 - d * inverse__div512_asm_0
+    One of the six Newton steps on the inverse of d's odd part, which d / twos gives exactly because twos is d's lowest set bit; no remainder is dropped (the same code as OpenZeppelin's Math.mulDiv).
+divide-before-multiply: RewardMath.position(uint256,uint256,uint256,uint256) performs a multiplication on the result of a division: | - p + (round - s) * (HALF_LIFE / h)
+    h divides HALF_LIFE = 840: the deployment's h is 840 and Parameters refuses a schedule whose h does not divide 840 (MOST % h == 0), so HALF_LIFE / h is exact and the product drops nothing.
+incorrect-equality: Buyback._div512(uint256,uint256,uint256) uses a dangerous strict equality: | - hi == 0
+    hi is the top word of a product computed by the caller in the same call, not a balance anyone can move; hi == 0 only picks the plain 256-bit division, which gives the same quotient as the long one.
+incorrect-equality: Buyback._maxIn(uint256,uint256,uint256) uses a dangerous strict equality: | - hi == 0 && lo <= base
+    hi and lo are the 512-bit product price * 997 * rl computed one line above, not a balance; the test is exactly product <= base, where R-16 rule 4's bound is 0.
+incorrect-equality: Buyback._quote(Buyback.Pool,IBuybackValues.BuybackValues,uint256) uses a dangerous strict equality: | - q.lptOut == 0
+    q.lptOut is computed one line above from the reserves read and the bound, not a token balance; 0 is exactly the case R-16 rule 11 refuses as SLIPPAGE.
+incorrect-exp: Buyback._div512(uint256,uint256,uint256) has bitwise-xor operator ^ instead of the exponentiation operator **: | - inverse__div512_asm_0 = 3 * d ^ 2
+    xor is meant: (3 * d) xor 2 is the standard seed (OpenZeppelin's Math.mulDiv), the inverse of the odd d modulo 16, which the six Newton steps below lift to modulo 2^256; (3 * d) ** 2 would give a wrong quotient whenever hi != 0.
+low-level-calls: Low level call in Parameters._token(address,bytes4): | - (ok,ret) = p.staticcall(abi.encodeWithSelector(selector))
+    A staticcall so that announce refuses a pool whose token0 or token1 view reverts or returns other than one address word as POOL_INVALID rather than with no reason (R-16 rule 13); a view, it moves nothing.
+low-level-calls: Low level call in TestPool._balanceOf(address): | - (ok,ret) = token.staticcall(abi.encodeWithSelector(0x70a08231,address(this)))
+    Uniswap v2's balance read as v2 writes it: a staticcall to one of the pool's two tokens, fixed at construction, refusing a failed or short return.
+low-level-calls: Low level call in TestPool._safeTransfer(address,address,uint256): | - (ok,ret) = token.call(abi.encodeWithSelector(0xa9059cbb,to,value))
+    Uniswap v2's _safeTransfer as v2 writes it: accepts a token that returns nothing or true and refuses one that fails or returns false; the token is one of the pool's two, fixed at construction.
+missing-zero-check: Broker.constructor(IMockUSDC,IRegistryV3,IRoundClock,IParameters,address).buyback_ lacks a zero-check on : | - buyback = buyback_
+    address(0) is a deployment with no Buyback (stages 2 and 3), as the comment on buyback says: drawNetwork then refuses every caller, checking buyback != address(0) itself, so the network share stays held.
+missing-zero-check: Parameters.constructor(address,IRoundClock,address,address,bytes32,address,address).lpt_ lacks a zero-check on : | - lpt = lpt_
+    address(0) in a deployment with no TestLPT (stage 2); lpt is read only by group 9's pool check, where no TestPool can hold address(0) (its constructor refuses it), so every pool announce is refused.
+missing-zero-check: Parameters.constructor(address,IRoundClock,address,address,bytes32,address,address).pool_ lacks a zero-check on : | - pool = pool_
+    address(0) is the deployment's pool where there is no Buyback (stages 2 and 3); a Buyback reading it refuses a pool with no code as POOL_INVALID (R-16 rule 13).
+missing-zero-check: Parameters.constructor(address,IRoundClock,address,address,bytes32,address,address).scoreSource_ lacks a zero-check on : | - scoreSource = scoreSource_
+    address(0) where the deployment has no Scores (stage 2, the buyback-only tests); Claims' node claim calls scoreOf on it, which reverts on an address with no code, so no node reward is paid without a score.
+missing-zero-check: Parameters.constructor(address,IRoundClock,address,address,bytes32,address,address).usdc_ lacks a zero-check on : | - usdc = usdc_
+    usdc is read only by group 9's pool check; were it address(0), no TestPool could match (its constructor refuses address(0) as a token) and every pool announce would be refused. Every deployment passes its MockUSDC.
+missing-zero-check: TestPool.constructor(address,address).t1 lacks a zero-check on : | - token1 = t1
+    token1 is the larger of the two sorted addresses, and token0, the smaller, is refused when it is address(0) the line before, so token1 is never address(0).
+reentrancy-balance: Reentrancy in Buyback.buy(): | External call allowing reentrancy: | - ITestPool(p.at).swap(out0,out1,address(this),) | Balance read before the call: | - before = lpt.balanceOf(address(this)) | Possible stale balance used after the call in a condition: | - lptBought < q.lptOut | - stale variable `lptBought`
+    lptBought is the LPT balance change across the swap, in one transaction, and reentry cannot lower it: lastBuyRound is set before the calls so a nested buy reverts ALREADY_BOUGHT; the pool has the pinned code hash and this deployment's two tokens (R-16 rule 13), so it is a TestPool, which refuses flash-swap data; MockUSDC and TestLPT call no one. LPT arriving from elsewhere only raises lptBought, and all of it is burned (burn share ONE).
+reentrancy-balance: Reentrancy in Buyback.buy(): | External call allowing reentrancy: | - broker_.drawNetwork(usdcIn,p.at) | Balance read before the call: | - before = lpt.balanceOf(address(this)) | Possible stale balance used after the call in a condition: | - lptBought < q.lptOut | - stale variable `lptBought`
+    drawNetwork is the Broker fixed at deployment, which only moves MockUSDC to the pool and calls no one else; lastBuyRound is set before it so a nested buy reverts ALREADY_BOUGHT, and LPT arriving from elsewhere could only raise lptBought, all of which is burned (burn share ONE).
+reentrancy-benign: Reentrancy in TestPool.swap(uint256,uint256,address,bytes): | External calls: | - _safeTransfer(token0,to,amount0Out) | - (ok,ret) = token.call(abi.encodeWithSelector(0xa9059cbb,to,value)) | - _safeTransfer(token1,to,amount1Out) | - (ok,ret) = token.call(abi.encodeWithSelector(0xa9059cbb,to,value)) | State variables written after the call(s): | - (amount0In,amount1In) = _checkIn(amount0Out,amount1Out,_reserve0,_reserve1) | - price0CumulativeLast += uint256(uint224(_reserve1) * Q112 / _reserve0) * timeElapsed | - (amount0In,amount1In) = _checkIn(amount0Out,amount1Out,_reserve0,_reserve1) | - price1CumulativeLast += uint256(uint224(_reserve0) * Q112 / _reserve1) * timeElapsed
+    Uniswap v2's order, the output sent before the input is read from the balances. swap and mint hold the lock, so no state-changing call can re-enter, and the two tokens, fixed at construction (MockUSDC and TestLPT in every deployment), call no one, so no code runs while getReserves shows the old reserves.
+reentrancy-events: Reentrancy in Buyback.buy(): | External calls: | - broker_.drawNetwork(usdcIn,p.at) | - ITestPool(p.at).swap(out0,out1,address(this),) | - lpt.burn(burned) | Event emitted after the call(s): | - Bought(round,held,usdcIn,lptBought,burned,q.twapX112,q.maxIn)
+    The calls go to the Broker fixed at deployment, the checked TestPool and TestLPT, none of which calls back, and lastBuyRound is set before them; Bought comes last because it reports what the swap and the burn gave.
 reentrancy-events: Reentrancy in StakeLedger.bond(address,uint256): | External calls: | - require(bool,string)(lpt.transferFrom(msg.sender,address(this),amount),transfer failed) | Event emitted after the call(s): | - Bonded(msg.sender,node,amount,now_ + 1)
     Every state change comes before the transfer, and the token is TestLPT, fixed at deployment, which calls no one; only the event follows it.
 reentrancy-events: Reentrancy in StakeLedger.withdrawUnbonded(): | External calls: | - require(bool,string)(lpt.transfer(msg.sender,ready),transfer failed) | Event emitted after the call(s): | - UnbondedWithdrawn(msg.sender,ready)
     Every state change comes before the transfer, and the token is TestLPT, fixed at deployment, which calls no one; only the event follows it.
-uninitialized-local: Scores.scoreOf(address).s is a local variable never initialized
-    A memory array starts as zeros, and the insertion sort reads only the entries s[0..k) it has already written.
+reentrancy-events: Reentrancy in TestPool.swap(uint256,uint256,address,bytes): | External calls: | - _safeTransfer(token0,to,amount0Out) | - (ok,ret) = token.call(abi.encodeWithSelector(0xa9059cbb,to,value)) | - _safeTransfer(token1,to,amount1Out) | - (ok,ret) = token.call(abi.encodeWithSelector(0xa9059cbb,to,value)) | Event emitted after the call(s): | - Swap(msg.sender,amount0In,amount1In,amount0Out,amount1Out,to) | - Sync(reserve0,reserve1) | - (amount0In,amount1In) = _checkIn(amount0Out,amount1Out,_reserve0,_reserve1)
+    Uniswap v2's order, the events after the transfers; swap holds the lock and the pool's two tokens, fixed at construction, call no one.
+reentrancy-no-eth: Reentrancy in TestPool.swap(uint256,uint256,address,bytes): | External calls: | - _safeTransfer(token0,to,amount0Out) | - (ok,ret) = token.call(abi.encodeWithSelector(0xa9059cbb,to,value)) | - _safeTransfer(token1,to,amount1Out) | - (ok,ret) = token.call(abi.encodeWithSelector(0xa9059cbb,to,value)) | State variables written after the call(s): | - (amount0In,amount1In) = _checkIn(amount0Out,amount1Out,_reserve0,_reserve1) | - blockTimestampLast = blockTimestamp | TestPool.blockTimestampLast can be used in cross function reentrancies: | - TestPool._update(uint256,uint256,uint112,uint112) | - TestPool.getReserves() | - (amount0In,amount1In) = _checkIn(amount0Out,amount1Out,_reserve0,_reserve1) | - reserve0 = uint112(balance0) | TestPool.reserve0 can be used in cross function reentrancies: | - TestPool._update(uint256,uint256,uint112,uint112) | - TestPool.getReserves() | - (amount0In,amount1In) = _checkIn(amount0Out,amount1Out,_reserve0,_reserve1) | - reserve1 = uint112(balance1) | TestPool.reserve1 can be used in cross function reentrancies: | - TestPool._update(uint256,uint256,uint112,uint112) | - TestPool.getReserves()
+    Uniswap v2's order, the output sent before the input is read from the balances. swap and mint hold the lock, so no state-changing call can re-enter, and the two tokens, fixed at construction (MockUSDC and TestLPT in every deployment), call no one, so no code runs while getReserves shows the old reserves.
+timestamp: Buyback._div512(uint256,uint256,uint256) uses timestamp for comparisons | Dangerous comparisons: | - hi == 0 | - require(bool,string)(d > hi,mulDiv overflow) | - hi = hi - rem__div512_asm_0 > lo
+    Pure arithmetic on its arguments; slither marks it because one caller's argument, the TWAP, is derived from block.timestamp. No comparison here reads the time.
+timestamp: Buyback._maxIn(uint256,uint256,uint256) uses timestamp for comparisons | Dangerous comparisons: | - hi == 0 && lo <= base | - lo < base
+    Pure arithmetic on its arguments; slither marks it because one caller's argument, the TWAP, is derived from block.timestamp. No comparison here reads the time.
+timestamp: Buyback._mul512(uint256,uint256) uses timestamp for comparisons | Dangerous comparisons: | - hi = mm__mul512_asm_0 - lo - mm__mul512_asm_0 < lo
+    Pure arithmetic on its arguments; slither marks it because one caller's argument, the TWAP, is derived from block.timestamp. No comparison here reads the time.
+timestamp: Buyback._mulDivUp(uint256,uint256,uint256) uses timestamp for comparisons | Dangerous comparisons: | - mulmod(uint256,uint256,uint256)(x,y,d) != 0
+    Pure arithmetic on its arguments; slither marks it because one caller's argument, the TWAP, is derived from block.timestamp. No comparison here reads the time.
+timestamp: Buyback._quote(Buyback.Pool,IBuybackValues.BuybackValues,uint256) uses timestamp for comparisons | Dangerous comparisons: | - observedPool == p.at | - elapsed < v.twapSeconds | - cap > 0 | - q.lptOut == 0 | - block.timestamp - time1 >= v.twapSeconds | - held < q.maxIn
+    R-16 rule 3 compares the seconds since an observation with twapSeconds, at least 1800 (D-49), so a block producer's few seconds of drift barely move the TWAP; the other comparisons are on amounts derived from it.
+timestamp: Buyback.buy() uses timestamp for comparisons | Dangerous comparisons: | - block.timestamp - time1 >= v.twapSeconds | - lptBought < q.lptOut
+    Whether the buy records an observation, once twapSeconds (at least 1800) have passed (R-16 rule 7); lptBought < q.lptOut compares token amounts and is marked only through the TWAP.
+timestamp: Buyback.poke() uses timestamp for comparisons | Dangerous comparisons: | - observedPool != p.at | - block.timestamp - time1 >= v.twapSeconds
+    An observation is due once twapSeconds (at least 1800) have passed since the last (R-16 rule 8); a block producer's seconds of drift only shift when a poke is due. observedPool != p.at compares addresses.
+timestamp: TestPool._checkIn(uint256,uint256,uint112,uint112) uses timestamp for comparisons | Dangerous comparisons: | - require(bool,string)(amount0In > 0 || amount1In > 0,UniswapV2: INSUFFICIENT_INPUT_AMOUNT) | - require(bool,string)(balance0Adjusted * balance1Adjusted >= uint256(_reserve0) * _reserve1 * 1000 ** 2,UniswapV2: K) | - balance0 > _reserve0 - amount0Out | - balance1 > _reserve1 - amount1Out
+    Comparisons of balances, reserves and amounts, as in Uniswap v2; slither marks them because _update, on the same path, reads block.timestamp. None compares a time.
+timestamp: TestPool._sqrt(uint256) uses timestamp for comparisons | Dangerous comparisons: | - y > 3 | - x < z | - y != 0
+    Comparisons of balances, reserves and amounts, as in Uniswap v2; slither marks them because _update, on the same path, reads block.timestamp. None compares a time.
+timestamp: TestPool._update(uint256,uint256,uint112,uint112) uses timestamp for comparisons | Dangerous comparisons: | - timeElapsed > 0 && _reserve0 != 0 && _reserve1 != 0
+    timeElapsed > 0 is Uniswap v2's once-per-block test for adding to the cumulative prices, the oracle the Buyback's TWAP reads; the time is used as v2 uses it.
+timestamp: TestPool.mint(address) uses timestamp for comparisons | Dangerous comparisons: | - require(bool,string)(liquidity > 0,UniswapV2: INSUFFICIENT_LIQUIDITY_MINTED) | - a < b
+    Comparisons of balances, reserves and amounts, as in Uniswap v2; slither marks them because _update, on the same path, reads block.timestamp. None compares a time.
+timestamp: TestPool.swap(uint256,uint256,address,bytes) uses timestamp for comparisons | Dangerous comparisons: | - require(bool,string)(amount0Out < _reserve0 && amount1Out < _reserve1,UniswapV2: INSUFFICIENT_LIQUIDITY)
+    Comparisons of balances, reserves and amounts, as in Uniswap v2; slither marks them because _update, on the same path, reads block.timestamp. None compares a time.
+uninitialized-local: Buyback._quote(Buyback.Pool,IBuybackValues.BuybackValues,uint256).elapsed is a local variable never initialized
+    Left 0 on purpose when the pool is not the one observed: 0 is below twapSeconds, so the next line refuses with TWAP_NOT_READY(0, twapSeconds) (R-16 rule 3).
+uninitialized-local: Buyback._quote(Buyback.Pool,IBuybackValues.BuybackValues,uint256).from is a local variable never initialized
+    Left 0 only when the pool is not the one observed, where elapsed is 0 and TWAP_NOT_READY refuses before from is read; otherwise both are set together.
+uninitialized-state: Parameters.changes is never initialized. It is used in: | - Parameters.announce(uint256,uint256[]) | - Parameters.withdraw(uint256) | - Parameters.pending(uint256) | - Parameters._at(uint256,uint256)
+    A mapping that starts empty by design: announce writes it through the storage reference list = changes[group] (push, or overwrite of the pending change) and withdraw pops it, which slither does not follow; an empty list reads as the deployment's values.
+weak-prng: Buyback._div512(uint256,uint256,uint256) uses a weak PRNG: "rem__div512_asm_0 = addmod(uint256,uint256,uint256)(mulmod(uint256,uint256,uint256)(hi,addmod(uint256,uint256,uint256)(~ 0 % d,1,d),d),lo % d,d)"
+    No randomness: mod(lo, d), mulmod and addmod compute the remainder of the 512-bit division, which is subtracted to make it exact.
+weak-prng: Buyback._read(address) uses a weak PRNG: "since = uint32(block.timestamp % 2 ** 32) - last"
+    No randomness: uint32(block.timestamp % 2 ** 32) is Uniswap v2's 32-bit time, subtracted wrapping from the pool's last update to give the seconds since, as v2's oracle library reads it.
+weak-prng: TestPool._update(uint256,uint256,uint112,uint112) uses a weak PRNG: "blockTimestamp = uint32(block.timestamp % 2 ** 32)"
+    No randomness: uint32(block.timestamp % 2 ** 32) is Uniswap v2's 32-bit time stamp for the cumulative prices, which wrap by design.
