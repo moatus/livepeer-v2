@@ -153,6 +153,48 @@ func TestAnRPCFailureHidesTheProvidersKey(t *testing.T) {
 		}
 		t.Logf("%s: %s", c.rpc, got)
 	}
+
+	// A provider that redirects to a second host, whose answer carries a
+	// marker in a Location that cannot be read: the redirect is not
+	// followed, and is told by its status.
+	second := answering(t, "307 Temporary Redirect\r\nLocation: http://[provider-written-marker")
+	redirecting := answering(t, "307 Temporary Redirect\r\nLocation: http://"+second+"/followed")
+	rpcURL := "http://synthetic-user:synthetic%40password@" + redirecting + "/v3/synthetic-key"
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	a, err := parse([]string{"state", node, other})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = dispatch(ctx, a, config{rpcURL: rpcURL, controller: other})
+	if got, want := message(a.name, err, rpcURL), "lp2-stake state: the RPC provider http://"+redirecting+
+		" redirected the request (HTTP 307)"; got != want {
+		t.Errorf("a redirecting provider:\n got %q\nwant %q", got, want)
+	}
+}
+
+// answering starts a provider that answers every request with the status
+// line and headers in head and no body, and returns its host.
+func answering(t *testing.T, head string) string {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { l.Close() })
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()
+				http.ReadRequest(bufio.NewReader(conn))
+				fmt.Fprintf(conn, "HTTP/1.1 %s\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", head)
+			}()
+		}
+	}()
+	return l.Addr().String()
 }
 
 // echoingProvider starts a provider that answers every request with 401,

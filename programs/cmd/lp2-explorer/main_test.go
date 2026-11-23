@@ -25,6 +25,8 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
+
+	"lp2core/programs/chain"
 )
 
 var (
@@ -641,10 +643,12 @@ func TestViewsAreDeclared(t *testing.T) {
 	}
 }
 
-// With the RPC provider down, or rejecting the key and echoing it, neither
-// the page, nor its JSON, nor the failure at start shows the key the URL
-// carries, nor a password escaped as the URL writes it; each says what
-// could not be read, and why by the failure's fixed category.
+// With the RPC provider down, rejecting the key and echoing it, or
+// redirecting to a host whose answer cannot be read, neither the page, nor
+// its JSON, nor the failure at start shows the key the URL carries, a
+// password escaped as the URL writes it, or what the second host wrote;
+// each says what could not be read, and why by the failure's fixed
+// category.
 func TestAnRPCFailureHidesTheProvidersKey(t *testing.T) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -654,12 +658,15 @@ func TestAnRPCFailureHidesTheProvidersKey(t *testing.T) {
 	l.Close() // nothing listens there now: the connection is refused
 	echo := echoingProvider(t, "synthetic-key-in-the-path", "synthetic-user", "synthetic-password", "synthetic-key-in-the-query")
 	escaped := echoingProvider(t, "synthetic%40password")
+	second := answering(t, "307 Temporary Redirect\r\nLocation: http://[provider-written-marker")
+	redirecting := answering(t, "307 Temporary Redirect\r\nLocation: http://"+second+"/followed")
 	for url, category := range map[string]string{
+		"http://synthetic-user:synthetic%40password@" + redirecting + "/rpc":                                                   "the RPC provider http://" + redirecting + " redirected the request (HTTP 307)",
 		"http://" + down + "/v3/synthetic-key-in-the-path?apikey=synthetic-key-in-the-query":                                   "the RPC provider http://" + down + " could not be reached",
 		"http://synthetic-user:synthetic-password@" + echo + "/v3/synthetic-key-in-the-path?apikey=synthetic-key-in-the-query": "the RPC provider http://" + echo + " refused the request (HTTP 401)",
 		"http://synthetic-user:synthetic%40password@" + escaped + "/rpc":                                                       "the RPC provider http://" + escaped + " refused the request (HTTP 401)",
 	} {
-		client, err := rpc.Dial(url)
+		client, err := chain.DialRPC(context.Background(), url)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -675,7 +682,7 @@ func TestAnRPCFailureHidesTheProvidersKey(t *testing.T) {
 			b.ReadFrom(r.Body)
 			r.Body.Close()
 			reason := "the chain's newest block: " + category
-			if strings.Contains(b.String(), "synthetic") ||
+			if strings.Contains(b.String(), "synthetic") || strings.Contains(b.String(), "marker") ||
 				!strings.Contains(b.String(), reason) && !strings.Contains(b.String(), html.EscapeString(reason)) {
 				t.Errorf("%s, with the provider at %s failing:\n%s", path, url, b.String())
 			}
@@ -688,7 +695,7 @@ func TestAnRPCFailureHidesTheProvidersKey(t *testing.T) {
 		"ws://synthetic-user:synthetic-password@" + echo + "/ws/synthetic-key-in-the-path?apikey=synthetic-key-in-the-query": "the RPC provider ws://" + echo + " refused the request (HTTP 401)",
 		"ws://synthetic-user:synthetic%40password@" + escaped + "/ws":                                                        "the RPC provider ws://" + escaped + " refused the request (HTTP 401)",
 	} {
-		_, err := rpc.Dial(url)
+		_, err := chain.DialRPC(context.Background(), url)
 		if err == nil {
 			t.Fatalf("%s: dialled", url)
 		}
@@ -720,6 +727,30 @@ func echoingProvider(t *testing.T, keys ...string) string {
 				http.ReadRequest(bufio.NewReader(conn))
 				fmt.Fprintf(conn, "HTTP/1.1 401 rejected %s\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s",
 					said, len(body), body)
+			}()
+		}
+	}()
+	return l.Addr().String()
+}
+
+// answering starts a provider that answers every request with the status
+// line and headers in head and no body, and returns its host.
+func answering(t *testing.T, head string) string {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { l.Close() })
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()
+				http.ReadRequest(bufio.NewReader(conn))
+				fmt.Fprintf(conn, "HTTP/1.1 %s\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", head)
 			}()
 		}
 	}()

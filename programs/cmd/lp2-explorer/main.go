@@ -78,7 +78,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/rpc"
 
 	"lp2core/programs/chain"
 )
@@ -112,7 +111,7 @@ func main() {
 	if err != nil {
 		fail(fmt.Errorf("--first-block %q is not a block number", *first))
 	}
-	client, err := rpc.Dial(*rpcURL)
+	client, err := chain.DialRPC(context.Background(), *rpcURL)
 	if err != nil {
 		fail(errors.New(failure(err, *rpcURL)))
 	}

@@ -16,18 +16,20 @@ and from then on only watches, kills and restarts it:
   3. a second container on the same data folder refuses to start;
   4. killed between a claim and its withdrawal (LP2_TEST_HOLD=claimed);
   5. restarted, it withdraws H's part;
-  6. a container whose RPC provider cannot be reached, and one whose
+  6. a container whose RPC provider cannot be reached, one whose
      provider rejects the request and echoes the key and the Basic-auth
-     password in its URL (escaped, as the URL writes it), each name the
-     step, the provider's host and the failure's category in their log,
-     and no credential; started again with public port 09000 (9000, where
-     the responder listened before, written with a leading zero) and that
-     RPC URL, its node comes up beside the responder (LP2_TEST_HOLD=started);
-     then its provider rejects and echoes, and then refuses connections,
-     and the explorer tells each by its category, and neither credential,
-     as written or decoded, appears in any of the container's Docker
-     output, the files under its logs folder, or the explorer's page and
-     JSON.
+     password in its URL (escaped, as the URL writes it), and one whose
+     provider redirects to a second host whose answer carries a marker,
+     each name the step, the provider's host and the failure's category in
+     their log, and no credential and no marker, and the redirect is not
+     followed; started again with public port 09000 (9000, where the
+     responder listened before, written with a leading zero) and that RPC
+     URL, its node comes up beside the responder (LP2_TEST_HOLD=started);
+     then its provider rejects and echoes, then redirects, and then refuses
+     connections, and the explorer tells each by its category, and neither
+     credential, as written or decoded, nor the marker appears in any of
+     the container's Docker output, the files under its logs folder, or
+     the explorer's page and JSON.
 
 Then the chain is read: no second registration, grant, bond or claim; N's
 key sent nothing after the node started but its own redemptions; N was
@@ -68,7 +70,8 @@ STARTED: dict[str, int] = {}  # the block the chain was at when the container sa
 ROUNDS: dict[str, int] = {}   # the round when N joined, was killed, was up again and was stopped
 SYNTHETIC_KEY = "synthetic-provider-key"
 SYNTHETIC_PASSWORD = "synthetic%40provider-password"  # a Basic-auth password, escaped as a URL writes it
-CREDENTIALS = (SYNTHETIC_KEY, SYNTHETIC_PASSWORD, urllib.parse.unquote(SYNTHETIC_PASSWORD))
+MARKER = "provider-written-marker"  # what the host a provider redirects to writes; in no URL the demo configures
+CREDENTIALS = (SYNTHETIC_KEY, SYNTHETIC_PASSWORD, urllib.parse.unquote(SYNTHETIC_PASSWORD), MARKER)
 PROVIDER = BASE + 30         # the stand-in RPC provider whose URL carries the credentials
 KEYED = (f"http://synthetic-user:{SYNTHETIC_PASSWORD}@host.docker.internal:{PROVIDER}"
          f"/v3/{SYNTHETIC_KEY}?apikey={SYNTHETIC_KEY}")
@@ -80,7 +83,11 @@ class Provider:
     chain; after reject() it answers each with 401 and the key and the
     password, escaped as the URL writes it, in its status line and its
     body, as a provider that rejects a key and quotes it does; after
-    refuse() it no longer listens, so each connection is refused."""
+    redirect() it answers each with a 307 to a second host (the same
+    server, named by its address), which answers with a 307 whose Location
+    carries MARKER and cannot be read, and counts in followed each request
+    that reaches it; after refuse() it no longer listens, so each
+    connection is refused. forward() makes it forward again."""
 
     def __init__(self, host: str):
         import http.server
@@ -90,7 +97,20 @@ class Provider:
         class Handler(http.server.BaseHTTPRequestHandler):
             def do_POST(self):
                 body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
-                if provider.rejecting:
+                if self.path == "/second":
+                    provider.followed += 1
+                    self.send_response(307)
+                    self.send_header("Location", f"http://[{MARKER}")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                if provider.mode == "redirect":
+                    self.send_response(307)
+                    self.send_header("Location", f"http://{host}:{PROVIDER}/second")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                if provider.mode == "reject":
                     said = f"invalid project id {SYNTHETIC_KEY} or password {SYNTHETIC_PASSWORD}"
                     out = json.dumps({"jsonrpc": "2.0", "id": None, "error": {"code": -32001, "message": said}}).encode()
                     self.send_response(401, f"Unauthorized: {said}")
@@ -107,15 +127,22 @@ class Provider:
             def log_message(self, *args):
                 pass
 
-        self.rejecting = False
+        self.mode = "forward"
+        self.followed = 0
         try:
             self.server = http.server.ThreadingHTTPServer((host, PROVIDER), Handler)
         except OSError as e:
             raise NotRun(f"port {PROVIDER} (the stand-in RPC provider) on {host}: {e}; set LP2_DEMO_PORT_BASE to move the demo's ports")
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
 
+    def forward(self) -> None:
+        self.mode = "forward"
+
     def reject(self) -> None:
-        self.rejecting = True
+        self.mode = "reject"
+
+    def redirect(self) -> None:
+        self.mode = "redirect"
 
     def refuse(self) -> None:
         self.server.shutdown()
@@ -498,7 +525,14 @@ def main() -> int:
           (code, "gave up after 10 tries: read_state" in said,
            f"lp2-stake state: the RPC provider http://host.docker.internal:{PROVIDER} refused the request (HTTP 401)" in said,
            [c for c in CREDENTIALS if c in said]), (1, True, True, []))
-    provider.rejecting = False
+    provider.redirect()
+    code, said = unreachable_start("redirected", KEYED)
+    check("a provider that redirects to a second host whose answer carries a marker: the log names the step, the "
+          "provider's host and the redirect's status, and no credential or marker, and the redirect is not followed",
+          (code, "gave up after 10 tries: read_state" in said,
+           f"lp2-stake state: the RPC provider http://host.docker.internal:{PROVIDER} redirected the request (HTTP 307)" in said,
+           [c for c in CREDENTIALS if c in said], provider.followed), (1, True, True, [], 0))
+    provider.forward()
     five = run_node(hold="started", ports=("explorer",), public="http://127.0.0.1:09000", rpc=KEYED)
     ports = wait_log(five, "ports:", 60).split(" ", 1)[1]
     say(f"  {ports}")
@@ -511,25 +545,30 @@ def main() -> int:
     time.sleep(15)
     shown["the explorer's JSON, the provider rejecting the key"] = explorer_get("/status.json")
     shown["the explorer's page, the provider rejecting the key"] = explorer_get("/")
+    provider.redirect()
+    time.sleep(15)
+    shown["the explorer's JSON, the provider redirecting"] = explorer_get("/status.json")
+    shown["the explorer's page, the provider redirecting"] = explorer_get("/")
     provider.refuse()
     time.sleep(15)
     shown["the explorer's JSON, the provider refusing connections"] = explorer_get("/status.json")
     shown["the explorer's page, the provider refusing connections"] = explorer_get("/")
     kill(five)
     failing = [json.loads(shown[k])["unavailable"] for k in shown if "JSON" in k and "answering" not in k]
-    say(f"  the explorer, its provider failing: {failing[0][0][:160]}; {failing[1][0][:160]}")
+    say(f"  the explorer, its provider failing: {'; '.join(f[0][:160] for f in failing)}")
     told = f"the chain's newest block: the RPC provider http://host.docker.internal:{PROVIDER} "
     check("the explorer shows each failure as unavailable, naming what it could not read and the failure's category",
           [any(x.startswith(told + why) for x in f) for f, why in zip(failing, ("refused the request (HTTP 401)",
-                                                                               "could not be reached"))], [True, True])
-    for label in (five, f"lp2-demo-node-{BASE}-unreachable", f"lp2-demo-node-{BASE}-rejected"):
+                                                                               "redirected the request (HTTP 307)",
+                                                                               "could not be reached"))], [True] * 3)
+    for label in (five, *(f"lp2-demo-node-{BASE}-{x}" for x in ("unreachable", "rejected", "redirected"))):
         shown[f"the Docker output of {label}"] = (common.RUN / "logs" / f"{label}.log").read_text()
-    for folder in (DATA, common.RUN / "container-unreachable", common.RUN / "container-rejected"):
+    for folder in (DATA, *(common.RUN / f"container-{x}" for x in ("unreachable", "rejected", "redirected"))):
         for f in sorted((folder / "logs").iterdir()):
             shown[where(f)] = f.read_text(errors="replace")
-    say(f"  read for the key and the password, as written and decoded: {len(shown)} outputs, "
+    say(f"  read for the key and the password, as written and decoded, and the marker: {len(shown)} outputs, "
         f"{sum(len(v) for v in shown.values())} characters")
-    check("no credential in the RPC URL appears in any Docker output, file under logs, or explorer page or JSON",
+    check("no credential in the RPC URL, nor the marker, appears in any Docker output, file under logs, or explorer page or JSON",
           [(k, c) for k, v in shown.items() for c in CREDENTIALS if c in v], [])
     s3.wait("N's last transactions to be mined", lambda: rpc("eth_getTransactionCount", [ADDR["N"], "pending"]) ==
             rpc("eth_getTransactionCount", [ADDR["N"], "latest"]), 60)

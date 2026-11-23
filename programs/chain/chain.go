@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -180,10 +181,11 @@ type Session struct {
 
 // Open dials the chain and prepares to sign as key.
 func Open(ctx context.Context, rpcURL string, key *ecdsa.PrivateKey) (*Session, error) {
-	client, err := ethclient.DialContext(ctx, rpcURL)
+	c, err := DialRPC(ctx, rpcURL)
 	if err != nil {
 		return nil, err
 	}
+	client := ethclient.NewClient(c)
 	id, err := client.ChainID(ctx)
 	if err != nil {
 		return nil, err
@@ -202,11 +204,22 @@ func (s *Session) Key() *ecdsa.PrivateKey { return s.key }
 // Dial connects to the chain to read only: a Session with no key, whose
 // calls are made from the zero address and which cannot send.
 func Dial(ctx context.Context, rpcURL string) (*Session, error) {
-	client, err := ethclient.DialContext(ctx, rpcURL)
+	c, err := DialRPC(ctx, rpcURL)
 	if err != nil {
 		return nil, err
 	}
-	return &Session{Client: client}, nil
+	return &Session{Client: ethclient.NewClient(c)}, nil
+}
+
+// DialRPC is how every program connects to the RPC provider at rpcURL. Over
+// HTTP it follows no redirect: a redirect is the provider's failure, told
+// by its status (Describe), so no request goes to a host the operator did
+// not configure, and nothing such a host writes reaches an output. A
+// WebSocket handshake follows none either.
+func DialRPC(ctx context.Context, rpcURL string) (*rpc.Client, error) {
+	return rpc.DialOptions(ctx, rpcURL, rpc.WithHTTPClient(&http.Client{
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}))
 }
 
 func (s *Session) contract(at common.Address) *bind.BoundContract {

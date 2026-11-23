@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/rpc"
@@ -24,6 +25,7 @@ import (
 //	the RPC provider <scheme://host> could not be reached
 //	the RPC provider <scheme://host> did not answer in time
 //	the RPC provider <scheme://host> refused the request (HTTP <status>)
+//	the RPC provider <scheme://host> redirected the request (HTTP <status>)
 //	the RPC provider <scheme://host> answered with an error (code <JSON-RPC code>)
 //	the RPC provider <scheme://host>'s answer could not be read
 //
@@ -101,9 +103,9 @@ func category(err error, rpcURL, host, p string) (string, bool) {
 		}
 		return unreachable(e.Timeout())
 	case rpc.HTTPError:
-		return fmt.Sprintf("%s refused the request (HTTP %d)", p, e.StatusCode), true
+		return refused(p, e.StatusCode), true
 	case *rpc.HTTPError:
-		return fmt.Sprintf("%s refused the request (HTTP %d)", p, e.StatusCode), true
+		return refused(p, e.StatusCode), true
 	case *tls.CertificateVerificationError, tls.RecordHeaderError, tls.AlertError:
 		return unreachable(false)
 	case *json.SyntaxError, *json.UnmarshalTypeError:
@@ -114,7 +116,8 @@ func category(err error, rpcURL, host, p string) (string, bool) {
 	}
 	if err == websocket.ErrBadHandshake || errors.Unwrap(err) == websocket.ErrBadHandshake {
 		if m := handshakeStatus.FindStringSubmatch(err.Error()); m != nil {
-			return fmt.Sprintf("%s refused the request (HTTP %s)", p, m[1]), true
+			status, _ := strconv.Atoi(m[1])
+			return refused(p, status), true
 		}
 		return p + " refused the request", true
 	}
@@ -125,4 +128,13 @@ func category(err error, rpcURL, host, p string) (string, bool) {
 		return p + "'s answer could not be read", true
 	}
 	return "", false
+}
+
+// refused tells an HTTP answer that is not a success by its status: a
+// redirect (DialRPC follows none) or a refusal.
+func refused(p string, status int) string {
+	if status >= 300 && status < 400 {
+		return fmt.Sprintf("%s redirected the request (HTTP %d)", p, status)
+	}
+	return fmt.Sprintf("%s refused the request (HTTP %d)", p, status)
 }

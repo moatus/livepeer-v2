@@ -10,8 +10,6 @@ import (
 	"net/url"
 	"testing"
 	"time"
-
-	"github.com/ethereum/go-ethereum/rpc"
 )
 
 // The password of the round 3 reproduction: a synthetic Basic-auth
@@ -68,7 +66,7 @@ func TestDescribeTellsAProvidersFailureByItsCategoryOnly(t *testing.T) {
 func ask(t *testing.T, rpcURL string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	client, err := rpc.DialContext(ctx, rpcURL)
+	client, err := DialRPC(ctx, rpcURL)
 	if err != nil {
 		return err
 	}
@@ -110,6 +108,64 @@ func provider(t *testing.T, statusLine, body string) string {
 				http.ReadRequest(bufio.NewReader(conn))
 				fmt.Fprintf(conn, "HTTP/1.1 %s\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s",
 					statusLine, len(body), body)
+			}()
+		}
+	}()
+	return l.Addr().String()
+}
+
+// A provider that redirects is a failure told by its status, and its
+// redirect is not followed: the second host, whose answer carries a marker
+// in a Location that cannot be read (the review's probe), is never asked,
+// and nothing it would write reaches the text. Over WebSocket a redirect is
+// refused by the handshake, and told the same way.
+func TestARedirectIsNotFollowed(t *testing.T) {
+	asked := make(chan string, 8)
+	second := respond(t, asked, "307 Temporary Redirect\r\nLocation: http://[provider-written-marker")
+	first := respond(t, nil, "307 Temporary Redirect\r\nLocation: http://"+second+"/followed")
+	moved := respond(t, nil, "302 Found\r\nLocation: http://"+second+"/followed")
+	for _, c := range []struct{ rpc, want string }{
+		{"http://synthetic-user:" + encodedPassword + "@" + first + "/v3/synthetic-key",
+			"read bondAt: the RPC provider http://" + first + " redirected the request (HTTP 307)"},
+		{"http://" + moved + "/v3/synthetic-key",
+			"read bondAt: the RPC provider http://" + moved + " redirected the request (HTTP 302)"},
+		{"ws://synthetic-user:" + encodedPassword + "@" + moved + "/ws/synthetic-key",
+			"read bondAt: the RPC provider ws://" + moved + " redirected the request (HTTP 302)"},
+	} {
+		got := Describe(fmt.Errorf("read bondAt: %w", ask(t, c.rpc)), c.rpc)
+		if got != c.want {
+			t.Errorf("%s:\n got %q\nwant %q", c.rpc, got, c.want)
+		}
+	}
+	select {
+	case path := <-asked:
+		t.Errorf("the redirect was followed to %s%s", second, path)
+	default:
+	}
+}
+
+// respond answers every request with the status line and headers in head
+// and an empty body, sends the path asked for to asked (when it is not
+// nil), and returns its host.
+func respond(t *testing.T, asked chan<- string, head string) string {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { l.Close() })
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()
+				req, err := http.ReadRequest(bufio.NewReader(conn))
+				if err == nil && asked != nil {
+					asked <- req.URL.Path
+				}
+				fmt.Fprintf(conn, "HTTP/1.1 %s\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", head)
 			}()
 		}
 	}()

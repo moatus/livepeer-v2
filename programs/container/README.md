@@ -171,8 +171,10 @@ provider fails, the container's log and the explorer's page and JSON say
 which step failed, name the provider by its scheme and host only, and say
 what went wrong in fixed words, never in the provider's: it could not be
 reached, did not answer in time, refused the request (with the HTTP
-status), answered with an error (with the JSON-RPC code), or its answer
-could not be read. So whatever a provider writes back, even the key or
+status), redirected the request (with the HTTP status), answered with an
+error (with the JSON-RPC code), or its answer could not be read. The
+container follows no redirect from the provider: if your provider's URL
+answers with one, give `LP2_RPC_URL` the URL it redirects to. So whatever a provider writes back, even the key or
 password it was sent, is not shown, and the rest of `LP2_RPC_URL`, where a
 provider puts its key, is hidden wherever it appears. The host is shown:
 it must be one you can share. A key in the host name itself, which few
