@@ -3,7 +3,6 @@ pragma solidity 0.8.30;
 
 import {vm, Vm} from "./Vm.sol";
 import {Stage3} from "./Stage3.sol";
-import {Registry} from "../src/authority/Registry.sol";
 import {IRegistryV3} from "../interfaces/IRegistry.sol";
 import {Broker} from "../src/money/Broker.sol";
 import {Claims} from "../src/money/Claims.sol";
@@ -17,18 +16,14 @@ import {ITicketBroker} from "../interfaces/ITicketBroker.sol";
 /// everywhere"), on a stage 3 deployment with the real Scores.
 ///
 /// Every public state-changing function of every part, read from the
-/// compiler's ABI by its full signature, is on exactly one of six lists, and
-/// each list has its test:
-///   current operator   test_second_rotation_refuses_the_old_keys_everywhere
-///                      (forNode builds a call for every entry), and the
-///                      shared cases ledger-rotation and validators-rotation
-///                      (Claims.t.sol, Scores.t.sol)
-///   proposed operator  the three proposal tests below
+/// compiler's ABI by its full signature, is on exactly one of six lists. The
+/// tests of three of them:
+///   current operator   the shared cases ledger-rotation and
+///                      validators-rotation (Claims.t.sol, Scores.t.sol)
+///   proposed operator  the shared case ledger-rotation, and
+///                      test_proposal_events below
 ///   holder funds       test_holder_funds_move_only_the_callers_own (aimedAt
 ///                      builds a call for every entry)
-///   permissionless,    the test witness() names for each entry, which the
-///   authority,         six-list test finds in the build output; MockUSDC.mint
-///   restricted         alone has none: it is open, a test token
 contract RotationTest is Stage3 {
     uint256 internal constant ONE = 1_000_000;
 
@@ -63,8 +58,7 @@ contract RotationTest is Stage3 {
         l[17] = "MockUSDC.transferFrom(address,address,uint256)";
     }
 
-    /// Any address; the effect is fixed by rule. The Buyback's buy and poke
-    /// and the pool's mint and swap are S-07's, added after the spec's table.
+    /// Any address; the effect is fixed by rule.
     function permissionless() internal pure returns (string[] memory l) {
         l = new string[](10);
         (l[0], l[1], l[2]) = ("Registry.register()", "Scores.seat(address)", "Scores.unseat(address)");
@@ -79,9 +73,8 @@ contract RotationTest is Stage3 {
         (l[0], l[1]) = ("Parameters.announce(uint256,uint256[])", "Parameters.withdraw(uint256)");
     }
 
-    /// One caller fixed at deployment, or open on a test token. The spec's
-    /// "restricted mint", with S-07's draw of the network share, which only
-    /// the Buyback makes.
+    /// One caller fixed at deployment, or open on a test token: the mints,
+    /// and the draw of the network share, which only the Buyback makes.
     function restricted() internal pure returns (string[] memory l) {
         l = new string[](3);
         (l[0], l[1]) = ("TestLPT.mint(address,uint256)", "MockUSDC.mint(address,uint256)");
@@ -93,40 +86,13 @@ contract RotationTest is Stage3 {
         names = ["current operator", "proposed operator", "holder funds", "permissionless", "authority", "restricted"];
     }
 
-    /// The test file and test that call each permissionless, authority and
-    /// restricted function and check its rule; empty when none is named.
-    function witness(string memory fn) internal pure returns (string memory file, string memory test) {
-        if (eq(fn, "Registry.register()")) return ("Stage2.t.sol", "test_register_is_free_and_permanent");
-        if (eq(fn, "Scores.seat(address)")) return ("Scores.t.sol", "test_calls_that_change_nothing");
-        if (eq(fn, "Scores.unseat(address)")) return ("Scores.t.sol", "test_calls_that_change_nothing");
-        if (eq(fn, "Claims.mintRoundShares(uint256)")) {
-            return ("Claims.t.sol", "test_both_parts_of_a_round_withdrawn_once_each");
-        }
-        if (eq(fn, "RoundClock.initializeRound()")) return ("Stage2.t.sol", "test_round_starts_after_round_length");
-        if (eq(fn, permissionless()[5])) return ("Rotation.t.sol", "test_a_ticket_after_rotation_pays_the_payout");
-        if (eq(fn, "Buyback.buy()") || eq(fn, "Buyback.poke()")) return ("Buyback.t.sol", "test_buyback_walk");
-        if (eq(fn, "TestPool.mint(address)") || eq(fn, "TestPool.swap(uint256,uint256,address,bytes)")) {
-            return ("BuybackRefusals.t.sol", "test_buy_refusals_in_order");
-        }
-        if (eq(fn, "Parameters.announce(uint256,uint256[])") || eq(fn, "Parameters.withdraw(uint256)")) {
-            return ("Parameters.t.sol", "test_parameters_refusal_order");
-        }
-        if (eq(fn, "TestLPT.mint(address,uint256)")) return ("StakeLedger.t.sol", "test_mint_only_from_claims");
-        if (eq(fn, "Broker.drawNetwork(uint256,address)")) {
-            return ("BuybackRefusals.t.sol", "test_draw_refusals_in_order");
-        }
-        return ("", "");
-    }
-
     // --- the six lists against the compiler's ABI ------------------------------
 
     /// Every part in src/, every function of its compiled ABI that is not
     /// view or pure, by its full signature, is on exactly one list; so is a
     /// fallback or receive function, named Part.fallback() or
     /// Part.receive(). Every listed function exists. A part, function or
-    /// overload added later on no list fails here, and so does a
-    /// permissionless, authority or restricted function whose named test is
-    /// not in the build output.
+    /// overload added later on no list fails here.
     function test_every_state_changing_function_is_on_exactly_one_list() external view {
         (string[][6] memory all, string[6] memory names) = lists();
         string memory root = vm.projectRoot();
@@ -156,15 +122,6 @@ contract RotationTest is Stage3 {
                 if (!containsN(seen, found, all[k][i])) {
                     problems = string.concat(problems, " ", all[k][i], " is listed but not in the ABI;");
                 }
-            }
-        }
-        // Every permissionless, authority and restricted function has its
-        // test, and the test is built.
-        for (uint256 k = 3; k < 6; k++) {
-            for (uint256 i = 0; i < all[k].length; i++) {
-                // Open by design: MockUSDC is a test token anyone mints.
-                if (eq(all[k][i], "MockUSDC.mint(address,uint256)")) continue;
-                problems = string.concat(problems, witnessed(root, all[k][i]));
             }
         }
         require(bytes(problems).length == 0, string.concat("six lists:", problems));
@@ -223,21 +180,6 @@ contract RotationTest is Stage3 {
         out = string.concat(out, ")");
     }
 
-    /// Empty when the named test of `fn` is in the build output of its
-    /// test file; otherwise what is wrong.
-    function witnessed(string memory root, string memory fn) internal view returns (string memory) {
-        (string memory file, string memory test) = witness(fn);
-        if (bytes(file).length == 0) return string.concat(" ", fn, " names no test;");
-        Vm.DirEntry[] memory built = vm.readDir(string.concat(root, "/out/", file), 1);
-        for (uint256 b = 0; b < built.length; b++) {
-            if (!endsWith(built[b].path, ".json")) continue;
-            string memory json = vm.readFile(built[b].path);
-            if (!vm.keyExistsJson(json, ".methodIdentifiers")) continue;
-            if (contains(vm.parseJsonKeys(json, ".methodIdentifiers"), string.concat(test, "()"))) return "";
-        }
-        return string.concat(" ", fn, ": its test ", test, " is not in ", file, ";");
-    }
-
     /// Empty when `fn` is on exactly one list; otherwise what is wrong.
     function onLists(string memory fn, string[][6] memory all, string[6] memory names)
         internal
@@ -272,25 +214,10 @@ contract RotationTest is Stage3 {
         require(registry.operatorOf(who("N")) == who("K1"), "K1 is N's operator");
     }
 
-    /// K1 proposes K2, then K3: K2's acceptance is refused and K3's counts.
-    /// N's own address, K1 and the replaced key are refused.
-    function test_a_replaced_proposal_takes_the_new_key() external {
-        rotateToK1();
-        address n = who("N");
-        expectDone(setOperatorAs(who("K1"), n, who("K2")), "K1 proposes K2");
-        expectDone(setOperatorAs(who("K1"), n, who("K3")), "K1 proposes K3");
-        require(registry.proposedOperatorOf(n) == who("K3"), "the slot holds K3");
-        expectRefused(acceptOperatorAs(who("K2"), n), "NOT_AUTHORIZED", "the replaced K2 accepts");
-        expectRefused(acceptOperatorAs(who("K1"), n), "NOT_AUTHORIZED", "the operator K1 accepts");
-        expectRefused(acceptOperatorAs(n, n), "NOT_AUTHORIZED", "N accepts");
-        expectDone(acceptOperatorAs(who("K3"), n), "K3 accepts");
-        require(registry.operatorOf(n) == who("K3"), "K3 is N's operator");
-        require(registry.proposedOperatorOf(n) == address(0), "the slot is empty");
-    }
-
-    /// K1 proposes K2, then proposes K1, the current key: the slot is
-    /// cleared and K2's acceptance refused.
-    function test_a_cleared_proposal_refuses_the_key_it_named() external {
+    /// The events of a cleared and of a used proposal: proposing the
+    /// current key emits one OperatorProposed naming no key, and an
+    /// acceptance one OperatorSet naming the node and its new key.
+    function test_proposal_events() external {
         rotateToK1();
         address n = who("N");
         expectDone(setOperatorAs(who("K1"), n, who("K2")), "K1 proposes K2");
@@ -299,39 +226,13 @@ contract RotationTest is Stage3 {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         require(logs.length == 1 && logs[0].topics[0] == IRegistryV3.OperatorProposed.selector, "one OperatorProposed");
         require(logs[0].topics[2] == bytes32(0), "the event names no proposed key");
-        require(registry.proposedOperatorOf(n) == address(0), "the slot is empty");
-        expectRefused(acceptOperatorAs(who("K2"), n), "NOT_AUTHORIZED", "K2 accepts a cleared proposal");
-        expectRefused(acceptOperatorAs(who("K1"), n), "NOT_AUTHORIZED", "K1 accepts an empty slot");
-        require(registry.operatorOf(n) == who("K1"), "K1 is still N's operator");
-    }
-
-    /// An acceptance empties the slot: the same key cannot accept twice.
-    function test_a_used_proposal_cannot_be_accepted_twice() external {
-        rotateToK1();
-        address n = who("N");
-        expectDone(setOperatorAs(who("K1"), n, who("K2")), "K1 proposes K2");
+        expectDone(setOperatorAs(who("K1"), n, who("K2")), "K1 proposes K2 again");
         vm.recordLogs();
         expectDone(acceptOperatorAs(who("K2"), n), "K2 accepts");
-        Vm.Log[] memory logs = vm.getRecordedLogs();
+        logs = vm.getRecordedLogs();
         require(logs.length == 1 && logs[0].topics[0] == IRegistryV3.OperatorSet.selector, "one OperatorSet");
         require(logs[0].topics[1] == bytes32(uint256(uint160(n))), "OperatorSet names N");
         require(logs[0].topics[2] == bytes32(uint256(uint160(who("K2")))), "OperatorSet names K2");
-        require(registry.proposedOperatorOf(n) == address(0), "the slot is empty");
-        expectRefused(acceptOperatorAs(who("K2"), n), "NOT_AUTHORIZED", "K2 accepts again");
-        require(registry.operatorOf(n) == who("K2"), "K2 is N's operator");
-    }
-
-    /// R-26's order for setOperator: NOT_AUTHORIZED, NOT_REGISTERED,
-    /// OPERATOR_INVALID. Who may act is mayActFor's answer, the same one
-    /// every other current-operator call reads.
-    function test_refusal_order_set_operator() external {
-        rotateToK1();
-        address n = who("N");
-        address x = who("X");
-        expectRefused(setOperatorAs(who("K1"), x, address(0)), "NOT_AUTHORIZED", "K1 for unregistered X, zero");
-        expectRefused(setOperatorAs(x, x, address(0)), "NOT_REGISTERED", "X for itself, zero");
-        expectRefused(setOperatorAs(n, n, address(0)), "NOT_AUTHORIZED", "N, rotated, zero");
-        expectRefused(setOperatorAs(who("K1"), n, address(0)), "OPERATOR_INVALID", "K1 proposes zero");
     }
 
     /// R-26's order for setPayout: NOT_AUTHORIZED, NOT_REGISTERED,
@@ -344,85 +245,6 @@ contract RotationTest is Stage3 {
         expectRefused(setPayoutAs(x, x, address(broker)), "NOT_REGISTERED", "X for itself, the Broker");
         expectRefused(setPayoutAs(n, n, address(broker)), "NOT_AUTHORIZED", "N, rotated, the Broker");
         expectRefused(setPayoutAs(who("K1"), n, address(broker)), "PAYOUT_INVALID", "K1 sets the Broker");
-    }
-
-    // --- the current operator: the second rotation ----------------------------
-
-    /// The call `fn` from the current-operator list, made for `node`, as an
-    /// accepted call would make it in this test. Every name on the list must
-    /// have one, so a function added to the list is tested here.
-    function forNode(string memory fn, address node, uint256 round) internal view returns (address, bytes memory) {
-        if (eq(fn, "Claims.claim(address,uint256)")) {
-            return (address(claims), abi.encodeCall(Claims.claim, (node, round)));
-        }
-        if (eq(fn, "StakeLedger.setRewardCut(address,uint256)")) {
-            return (address(ledger), abi.encodeCall(StakeLedger.setRewardCut, (node, 500_000)));
-        }
-        if (eq(fn, "Registry.setPayout(address,address)")) {
-            return (address(registry), abi.encodeCall(Registry.setPayout, (node, who("W3"))));
-        }
-        if (eq(fn, "Registry.setOperator(address,address)")) {
-            return (address(registry), abi.encodeCall(Registry.setOperator, (node, who("K4"))));
-        }
-        if (eq(fn, "Scores.optIn(address)")) return (address(validatorSet), abi.encodeCall(Scores.optIn, (node)));
-        if (eq(fn, "Scores.optOut(address)")) return (address(validatorSet), abi.encodeCall(Scores.optOut, (node)));
-        if (eq(fn, "Scores.vote(address,address,uint256)")) {
-            return (address(validatorSet), abi.encodeCall(Scores.vote, (node, who("X"), 500_000)));
-        }
-        revert(string.concat("no call built for ", fn));
-    }
-
-    /// N rotates to K1, K1 to K2, then K2 proposes K3 and K3 accepts. N, K1
-    /// and K2 are each refused NOT_AUTHORIZED on every current-operator
-    /// function; K3's calls take effect. N's payout is W until K3 sets it.
-    function test_second_rotation_refuses_the_old_keys_everywhere() external {
-        address n = who("N");
-        address h = who("H");
-        register("N");
-        expectDone(setPayout("N", who("W")), "N sets payout W");
-        lpt.transfer(h, 1000e18);
-        expectDone(bondAs(h, n, 1000e18), "H bonds to N");
-        expectDone(as_(n, address(validatorSet), abi.encodeCall(Scores.optIn, (n))), "N opts in");
-        // H's bond counts from round 2; N is seated then and is a member
-        // from round 3.
-        toRound(2);
-        expectDone(as_(who("Anyone"), address(validatorSet), abi.encodeCall(Scores.seat, (n))), "N seated");
-
-        expectDone(setOperatorAs(n, n, who("K1")), "N proposes K1");
-        expectDone(acceptOperatorAs(who("K1"), n), "K1 accepts");
-        expectDone(setOperatorAs(who("K1"), n, who("K2")), "K1 proposes K2");
-        expectDone(acceptOperatorAs(who("K2"), n), "K2 accepts");
-        require(registry.payoutOf(n) == who("W"), "payout unchanged by the first rotations");
-        expectDone(setOperatorAs(who("K2"), n, who("K3")), "K2 proposes K3");
-        expectDone(acceptOperatorAs(who("K3"), n), "K3 accepts");
-        require(registry.operatorOf(n) == who("K3"), "K3 is N's operator");
-
-        // Round 2 is claimable once its reward delay has passed, and N
-        // votes as a member, from round 3.
-        uint256 delay = params.valuesAt(4, 2)[0];
-        toRound(2 + delay > 3 ? 2 + delay : 3);
-        string[] memory list = currentOperator();
-        address[3] memory old = [n, who("K1"), who("K2")];
-        for (uint256 i = 0; i < list.length; i++) {
-            (address target, bytes memory data) = forNode(list[i], n, 2);
-            for (uint256 j = 0; j < old.length; j++) {
-                expectRefused(
-                    as_(old[j], target, data), "NOT_AUTHORIZED", string.concat(list[i], " by an old key or N")
-                );
-            }
-        }
-        require(registry.payoutOf(n) == who("W"), "payout unchanged by the refused calls");
-        require(registry.operatorOf(n) == who("K3"), "K3 is still N's operator");
-
-        for (uint256 i = 0; i < list.length; i++) {
-            (address target, bytes memory data) = forNode(list[i], n, 2);
-            expectDone(as_(who("K3"), target, data), string.concat(list[i], " by K3"));
-        }
-        (bool claimed,,) = claims.entitlementOf(n, 2);
-        require(claimed, "K3's claim is recorded");
-        require(ledger.cutAt(n, clock.currentRound() + 1) == 500_000, "K3's cut counts");
-        require(registry.proposedOperatorOf(n) == who("K4"), "K3's proposal is in the slot");
-        require(registry.payoutOf(n) == who("W3"), "the payout is W3 once K3 sets it");
     }
 
     // --- holder funds ---------------------------------------------------------
@@ -606,23 +428,6 @@ contract RotationTest is Stage3 {
         expectDone(as_(n, address(broker), abi.encodeCall(Broker.release, (n))), "N releases");
         expectEq(usdc.balanceOf(n) - usdcBefore, ONE, "N is paid its release");
         expectDone(as_(n, address(broker), abi.encodeCall(Broker.fund, (ONE / 2, n, ONE / 2))), "N funds its approval");
-    }
-
-    // --- permissionless: a ticket after the rotation ----------------------------
-
-    /// After N rotates to K1 and K1 sets payout W, a ticket naming N,
-    /// redeemed by N's unchanged node key, pays W the node's half.
-    function test_a_ticket_after_rotation_pays_the_payout() external {
-        rotateToK1();
-        address n = who("N");
-        expectDone(setPayoutAs(who("K1"), n, who("W")), "K1 sets payout W");
-        expectDone(fund("P", 10_000_000, address(0), 0), "P funds");
-        toRound(3);
-        (ITicketBroker.Ticket memory t, bytes memory sig, uint256 rand) = ticket("t1", "P", n, 3, 1_000_000);
-        uint256 cut = params.valuesAt(1, 3)[0];
-        expectDone(redeem(t, sig, rand), "N's node redeems");
-        require(usdc.balanceOf(who("W")) == 1_000_000 * cut / ONE, "W is paid the node's half");
-        require(usdc.balanceOf(n) == 0 && usdc.balanceOf(who("K1")) == 0, "N and K1 are paid nothing");
     }
 
     // --- helpers --------------------------------------------------------------

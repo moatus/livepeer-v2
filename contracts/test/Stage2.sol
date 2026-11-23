@@ -216,6 +216,17 @@ abstract contract Stage2 {
 
     // --- refusals -------------------------------------------------------
 
+    /// `caller` calls `target` with `data`. Returns the revert data, empty
+    /// when the call took effect. A revert with no data is a failure of the
+    /// test, never read as success.
+    function as_(address caller, address target, bytes memory data) internal returns (bytes memory) {
+        vm.prank(caller);
+        (bool ok, bytes memory ret) = target.call(data);
+        if (ok) return "";
+        require(ret.length > 0, "reverted with no data");
+        return ret;
+    }
+
     /// The stable code a call was refused with: a custom error's name, or
     /// the kept revert text.
     function code(bytes memory ret) internal pure returns (string memory) {

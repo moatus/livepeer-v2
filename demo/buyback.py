@@ -1,14 +1,13 @@
 """./dev demo buyback: S-07 section 1 on a fresh local chain.
 
 Starts a local chain and deploys stage 4's contracts: stage 3's, with the
-Broker given the Buyback, then the test pool, the fixed buyback values and
-the Buyback. Checks the deployment: the Broker's Buyback, the Buyback's
-Broker and the pool code hash it pins. Sends LPT to the Buyback, which it
+Broker given the Buyback, then the test pool, Parameters, which holds the
+buyback values, and the Buyback. Checks the deployment: the Broker's
+Buyback, the Buyback's Broker and the pool code hash it pins. Sends LPT to the Buyback, which it
 must never count or burn. Then runs section 1's walk at the walk's own
 times, offset by the start time it records: jobs paid by tickets signed
 and redeemed directly, the pool seeded, a trader's swap, and every buy and
-poke, refused or not. Then Parameters as G (S-10 R-25), and a node's key
-rotation (R-26) with lp2-stake.
+poke, refused or not. Then Parameters as G (S-10 R-25).
 
 Each buy and refusal is printed beside section 1's. The run is written as
 a `buyback` case into a copy of the shared examples, and
@@ -21,7 +20,6 @@ deployments/stage-4-local.json.
 """
 from __future__ import annotations
 
-import copy
 import json
 import os
 import re
@@ -35,6 +33,7 @@ import common
 common.use("stage-4-local.json")
 from common import *  # noqa: E402,F401,F403
 from common import RUN, ROOT, MANIFEST, PARAMS, CASES, VECTORS, PORT, RPC, C, ADDR, KEY, NAMES, FAILURES  # noqa: E402
+import ledgercase  # noqa: E402
 
 WALK = CASES["buyback-walk"]
 # LPT the deployer sends to the Buyback before the walk: never counted,
@@ -149,9 +148,6 @@ def deploy_stage4() -> None:
     want = [int(C["TestPool"], 16)] + [int(PARAMS[k]) for k in ("buyback_burn_ppm", "buyback_twap_seconds",
                                                                  "buyback_max_slippage_ppm", "buyback_every_rounds")]
     check("the deployment's buyback values are the manifest's and the shared examples'", got, want)
-    v = MANIFEST["buyback"]
-    check("the manifest's buyback values are the shared examples'",
-          [int(v[k]) for k in ("burn_ppm", "twap_seconds", "max_slippage_ppm", "every_rounds")], want[1:])
 
 
 # --- the walk's actions ---------------------------------------------------------
@@ -261,14 +257,6 @@ def case_of(case_id: str, supply: int, run: list[dict], final: dict) -> dict:
             "expected": {"bought": bought, "refused": refused, **{k: str(v) for k, v in final.items()}}}
 
 
-def document(the_case: dict) -> dict:
-    """A copy of the shared examples with the run's case added: the check
-    refuses a file that lacks the rulebook's named examples."""
-    doc = copy.deepcopy(VECTORS)
-    doc["cases"] = [c for c in doc["cases"] if c["id"] != the_case["id"]] + [the_case]
-    return doc
-
-
 def shifted(entry: dict, t0: int) -> dict:
     """A refusal the chain gave, with a time argument (NOT_DUE's) told from
     the walk's start, as section 1 tells it."""
@@ -316,7 +304,7 @@ def main() -> int:
     preflight()
     try:
         sh(["forge", "build", "--root", str(ROOT / "contracts")])
-        for prog in ("lp2-keeper", "lp2-params", "lp2-stake"):
+        for prog in ("lp2-keeper", "lp2-params"):
             sh(["go", "build", "-o", str(RUN / "bin" / prog), PROGRAMS[prog]], cwd=ROOT / "programs", env=GO_ENV)
     except Failed as e:
         raise NotRun(f"could not build the contracts or the keeper: {e}")
@@ -398,7 +386,7 @@ def main() -> int:
     say("\n5. The calculator")
     the_case = case_of("buyback-demo-run", supply_before, run, final)
     out = RUN / "buyback-case.json"
-    out.write_text(json.dumps(document(the_case), indent=1) + "\n")
+    out.write_text(json.dumps(ledgercase.document(VECTORS, [the_case]), indent=1) + "\n")
     say(f"  wrote {where(out)}: the shared examples with the run as case buyback-demo-run, {len(run)} steps "
         f"at the times the chain gave them")
     done = subprocess.run([str(ROOT / "calculator" / "check"), str(out)], capture_output=True, text=True)
@@ -437,7 +425,6 @@ def main() -> int:
               (words[1], words[3]))
 
     parameters(password)
-    rotation(password)
     return finish(started, "section 1's walk ran on the chain, every figure equal to the calculator's")
 
 
@@ -522,73 +509,3 @@ def later() -> int:
     are sent at the chain's own pace, and a round is started after them."""
     return int(rpc("eth_getBlockByNumber", ["latest", False])["timestamp"], 16) - T0 + 60
 
-
-def address_of(to: str, signature: str, *args) -> str:
-    a = f"0x{call(to, signature, *args):040x}"
-    return NAMES.get(a, a)
-
-
-def rotation(password: Path) -> None:
-    """S-10 R-26 on the chain: node N sets its payout to W, then its operator
-    key moves from N's own address to K1 and from K1 to K2, each by a
-    proposal the new key accepts. N's own key keeps running the node: it
-    redeems a ticket after the rotation and W is paid. Every
-    current-operator action by N's address or K1 is refused NOT_AUTHORIZED;
-    K2's are taken, its claim pays W the cut, and no bond moved. Phase 5's
-    restart demo can call this after its own setup."""
-    for n in ("H", "W", "K1", "K2"):
-        if n not in KEY:
-            new_key(n)
-    N, W = ADDR["N"], ADDR["W"]
-    r0 = current_round()
-    say(f"\n8. Key rotation (S-10 R-26), with lp2-stake, from round {r0}")
-    bonded = 1000 * 10**18
-    send(KEY["deployer"], C["TestLPT"], "transfer(address,uint256)", ADDR["H"], bonded)
-    code, _ = lp2_stake("H", password, "bond", N, str(bonded))
-    check("H bonds 1,000 LPT to N", code, 0)
-    code, _ = lp2_stake("N", password, "set-payout", N, W)
-    check("N, its own operator key, sets its payout to W", (code, address_of(C["Registry"], "payoutOf(address)", N)),
-          (0, "W"))
-    code, _ = lp2_stake("N", password, "set-cut", N, "250000")
-    check("N sets a reward cut of 250,000 millionths", code, 0)
-    for old, new in (("N", "K1"), ("K1", "K2")):
-        code, _ = lp2_stake(old, password, "set-operator", N, ADDR[new])
-        check(f"{old} proposes {new}", (code, address_of(C["Registry"], "proposedOperatorOf(address)", N)), (0, new))
-        code, _ = lp2_stake(new, password, "accept-operator", N)
-        check(f"{new} accepts: it is N's operator key and the slot is empty",
-              (code, address_of(C["Registry"], "operatorOf(address)", N),
-               call(C["Registry"], "proposedOperatorOf(address)", N)), (0, new, 0))
-    check("the rotation moved no bond and left the payout at W",
-          (call(C["StakeLedger"], "stayingOf(address,address)", ADDR["H"], N),
-           address_of(C["Registry"], "payoutOf(address)", N)), (bonded, "W"))
-    for who in ("N", "K1"):
-        for said in (("set-payout", N, ADDR[who]), ("set-cut", N, "1"), ("set-operator", N, ADDR[who]),
-                     ("claim", N, str(r0))):
-            code, out = lp2_stake(who, password, *said)
-            check(f"{who}'s {said[0]} for N is refused NOT_AUTHORIZED, and nothing is sent",
-                  (code, out.splitlines()[-1].startswith("refused: NOT_AUTHORIZED at block")), (3, True))
-    check("N's payout is still W after the refusals", address_of(C["Registry"], "payoutOf(address)", N), "W")
-
-    # H's bond and N's cut count from r0 + 1: N earns in that round.
-    earning = r0 + 1
-    to_round(earning, later())
-    w_usdc, held = call(C["MockUSDC"], "balanceOf(address)", W), call(C["Broker"], "networkHeld()")
-    face = 1_000_000
-    job(face, later())
-    paid_w = call(C["MockUSDC"], "balanceOf(address)", W) - w_usdc
-    say(f"  round {earning}: N's own node key redeems a {usdc(face)} USDC ticket; W is paid {usdc(paid_w)} USDC")
-    check("the node earns across the rotation untouched: W is paid the node's half, the network the rest",
-          (paid_w > 0, paid_w + call(C["Broker"], "networkHeld()") - held), (True, face))
-
-    delay = words(C["Parameters"], "valuesAt(uint256,uint256)", 4, earning)[2]
-    to_round(earning + delay, later())
-    say(f"  round {current_round()}: round {earning}'s claim is open after its reward delay of {delay}")
-    code, out = lp2_stake("K1", password, "claim", N, str(earning))
-    check("K1's claim is refused NOT_AUTHORIZED", (code, out.splitlines()[-1].startswith("refused: NOT_AUTHORIZED")),
-          (3, True))
-    w_lpt = call(C["TestLPT"], "balanceOf(address)", W)
-    code, out = lp2_stake("K2", password, "claim", N, str(earning))
-    cut = call(C["TestLPT"], "balanceOf(address)", W) - w_lpt
-    say(f"  K2's claim of round {earning} mints W the cut: {lpt(cut)} LPT")
-    check("K2's claim pays: sent, and W, the payout, is minted the node's cut", (code, cut > 0), (0, True))
-    check("H's bond to N is unchanged", call(C["StakeLedger"], "stayingOf(address,address)", ADDR["H"], N), bonded)

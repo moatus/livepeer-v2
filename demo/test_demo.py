@@ -261,10 +261,9 @@ class CaseDocuments(unittest.TestCase):
         # shared example's id replaces it.
         vectors = {"rulebook": "r", "cases": [{"id": "a"}, {"id": "b"}]}
         run = {"id": "run", "kind": "ledger"}
-        self.assertEqual(ledgercase.document(vectors, run)["cases"], [{"id": "a"}, {"id": "b"}, run])
-        self.assertEqual(ledgercase.document(vectors, {"id": "b", "x": 1})["cases"], [{"id": "a"}, {"id": "b", "x": 1}])
+        self.assertEqual(ledgercase.document(vectors, [run])["cases"], [{"id": "a"}, {"id": "b"}, run])
         two = [{"id": "a", "x": 2}, run]
-        doc = validatorcases.document(vectors, two)
+        doc = ledgercase.document(vectors, two)
         self.assertEqual(doc["cases"], [{"id": "b"}] + two)
         self.assertEqual(doc["rulebook"], "r")
         self.assertEqual(len(vectors["cases"]), 2)
@@ -360,15 +359,6 @@ class BuybackCase(unittest.TestCase):
         got = self.b.case_of("buyback-walk", int(self.walk["inputs"]["lpt_supply_wei"]), self.run_of(self.walk), final)
         self.assertEqual(got, self.walk)
 
-    def test_the_run_is_added_beside_every_named_example(self):
-        case = copy.deepcopy(self.walk)
-        case["id"] = "buyback-demo-run"
-        doc = self.b.document(case)
-        self.assertEqual([c["id"] for c in doc["cases"]], [c["id"] for c in common.VECTORS["cases"]] + [case["id"]])
-        again = self.b.document(dict(case, expected={}))
-        self.assertEqual(len(again["cases"]), len(doc["cases"]))
-        self.assertEqual(again["cases"][-1]["expected"], {})
-
     def test_only_not_due_is_told_from_the_walks_start(self):
         self.assertEqual(self.b.shifted({"code": "NOT_DUE", "args": ["1003600"]}, 1_000_000),
                          {"code": "NOT_DUE", "args": ["3600"]})
@@ -387,15 +377,11 @@ class BuybackCase(unittest.TestCase):
         self.assertEqual(m["lpt"]["genesis_supply_wei"], self.walk["inputs"]["lpt_supply_wei"])
 
     def test_the_manifest_names_parameters_and_g(self):
-        # S-10 phase 3: the Buyback reads its values from Parameters, whose
-        # one authority is G; FixedBuybackValues is gone.
         m = common.MANIFEST
         names = [c["contract"] for c in m["contracts"]]
-        self.assertNotIn("FixedBuybackValues", names)
         self.assertLess(names.index("Parameters"), names.index("Buyback"))
         named = [s["stand_in"].lower() for s in m["stand_ins"]]
         self.assertTrue(any(n.startswith("g, the governance stand-in") for n in named))
-        self.assertFalse(any("no governance" in n for n in named))
 
 
 class PublicState(unittest.TestCase):

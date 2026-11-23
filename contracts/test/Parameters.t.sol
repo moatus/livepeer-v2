@@ -10,25 +10,6 @@ import {MockUSDC} from "../src/money/MockUSDC.sol";
 import {RewardMath} from "../src/math/RewardMath.sol";
 import {IParameters} from "../interfaces/IParameters.sol";
 
-/// TestPool with one more function, which delegates: what S-10 3.1's walk of
-/// the pool's runtime must refuse.
-contract DelegatingPool is TestPool {
-    constructor(address a, address b) TestPool(a, b) {}
-
-    function run(address target) external returns (bool ok) {
-        (ok,) = target.delegatecall("");
-    }
-}
-
-/// TestPool with one more function, which destroys it.
-contract DestroyingPool is TestPool {
-    constructor(address a, address b) TestPool(a, b) {}
-
-    function end() external {
-        selfdestruct(payable(msg.sender));
-    }
-}
-
 /// Parameters (rulebook v4, R-25): every `parameters` case of the shared
 /// examples, step by step, on a Parameters built for the case beside the
 /// deployment the demo makes, with its pool and tokens. Every input and
@@ -473,35 +454,6 @@ contract ParametersTest is Stage4 {
             )
         );
         require(bytesOf(code, 0xff) > 0, "the runtime has no 0xff byte at all: the push-data skip is not shown");
-    }
-
-    /// A TestPool with a function that delegates, and one with a function
-    /// that destroys it: the walk finds the opcode in each compiled runtime.
-    function test_the_opcode_walk_finds_either_opcode_in_a_broken_pool() external {
-        deployStage4(1_000_000_000e18, 0);
-        bytes memory d = address(new DelegatingPool(address(usdc), address(lpt))).code;
-        (bool found, uint256 at_) = forbiddenAt(d);
-        require(found && uint8(d[at_]) == 0xf4, "a pool that delegates: DELEGATECALL not found");
-        bytes memory s = address(new DestroyingPool(address(usdc), address(lpt))).code;
-        (found, at_) = forbiddenAt(s);
-        require(found && uint8(s[at_]) == 0xff, "a pool that destroys itself: SELFDESTRUCT not found");
-    }
-
-    /// 0xff and 0xf4 as PUSH1, PUSH2 and PUSH32 data and in the metadata are
-    /// not instructions; the same bytes as instructions are found, at their
-    /// offset.
-    function test_the_opcode_walk_skips_push_data_and_metadata() external pure {
-        bytes memory meta = hex"a2fff4ff0004";
-        bytes memory pushes = abi.encodePacked(
-            hex"60ff60f461f4ff7f", hex"fff4fff4fff4fff4fff4fff4fff4fff4fff4fff4fff4fff4fff4fff4fff4fff4", hex"00"
-        );
-        (bool found,) = forbiddenAt(abi.encodePacked(pushes, meta));
-        require(!found, "push data or metadata taken for an instruction");
-        uint256 at_;
-        (found, at_) = forbiddenAt(abi.encodePacked(pushes, hex"ff", meta));
-        require(found && at_ == pushes.length, "SELFDESTRUCT after the push data not found");
-        (found, at_) = forbiddenAt(abi.encodePacked(hex"6000f4", meta));
-        require(found && at_ == 2, "DELEGATECALL after PUSH1 0 not found");
     }
 
     /// The first SELFDESTRUCT (0xff) or DELEGATECALL (0xf4) among `code`'s

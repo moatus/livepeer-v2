@@ -214,10 +214,6 @@ PAIRS = [("Controller", "IController"), ("Registry", "IRegistryV3"), ("RoundCloc
          ("TestLPT", "ITestLPTV2"), ("Claims", "IClaims"), ("Scores", "IScores"),
          ("Buyback", "IBuyback"), ("TestPool", "ITestPool"), ("Parameters", "IParameters")]
 
-# Declared in an interface but built by a later phase, which removes its
-# line here when it builds them. Nothing else may be missing.
-LATER = {}
-
 # A struct's fields always carry their names; top-level parameters only
 # where named is set (events and errors).
 def params(ps, named=True):
@@ -231,7 +227,7 @@ def inspect(name):
 def shape(abi, name):
     out = set()
     for e in abi:
-        if e["type"] == "constructor" or e.get("name") in LATER.get(name, ()):
+        if e["type"] == "constructor":
             continue
         mutability = "view" if e.get("stateMutability") == "pure" else e.get("stateMutability")
         named = e["type"] != "function"
@@ -269,42 +265,7 @@ for contract, interface in PAIRS:
         print(f"abi: {interface} declares, {contract} does not have: {e}")
     failed = failed or c != i or bool(swaps)
     if c == i and not swaps:
-        later = sorted(LATER.get(interface, ()))
-        print(f"abi: {contract} equals {interface}" + (f", less {', '.join(later)}" if later else ""))
+        print(f"abi: {contract} equals {interface}")
 
-# Interfaces a freeze declares and no contract implements yet, each with its
-# whole surface as the spec gives it (S-10). The phase that builds the
-# contract moves it to PAIRS and removes it here. Mutability is
-# compared exactly: a contract cannot implement a pure declaration with a
-# view. Every named parameter, output and struct field is written with its
-# name, so order and names are frozen as well as types. A struct is written
-# as its fields in parentheses.
-FROZEN = {}
-
-def signature(e):
-    def types(ps):
-        return ",".join(("(" + types(p["components"]) + ")" + p["type"][len("tuple"):]
-                         if p["type"].startswith("tuple") else p["type"])
-                        + (" indexed" if p.get("indexed") else "")
-                        + (" " + p["name"] if p.get("name") else "") for p in ps)
-    text = f"{e['type']} {e['name']}({types(e.get('inputs', []))})"
-    if e.get("outputs"):
-        text += f" returns ({types(e['outputs'])})"
-    if e.get("stateMutability") in ("view", "pure", "payable"):
-        text += " " + e["stateMutability"]
-    return text
-
-for interface, want in FROZEN.items():
-    abi = json.loads(subprocess.run(["forge", "inspect", interface, "abi", "--json"],
-                                    check=True, capture_output=True, text=True).stdout)
-    got = {signature(e) for e in abi}
-    name = interface.split(":")[1]
-    for e in sorted(want - got):
-        print(f"abi: {name} lacks the frozen {e}")
-    for e in sorted(got - want):
-        print(f"abi: {name} declares {e}, which the freeze does not")
-    failed = failed or got != want
-    if got == want:
-        print(f"abi: {name} equals its frozen surface")
 sys.exit(1 if failed else 0)
 EOF

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""./dev demo: the one-command demo of the newest stage, on a fresh local chain.
+"""./dev demo: the one-command demo, on a fresh local chain.
 
   ./dev demo              stage 3 (S-05 section 1): stake, scores, claims and
                           LPT rewards, with the node paid in mock USDC
@@ -8,8 +8,8 @@
   ./dev demo stage-4      announced parameters, key rotation and recovery
   ./dev demo buyback      the buyback (S-07 section 1): the network share
                           buys test LPT from a test pool and burns it,
-                          then Parameters (S-10 R-25) and a node's key
-                          rotation (R-26); no node, so no docker
+                          then Parameters (S-10 R-25); no node, so no
+                          docker
 
 Exit 0 every figure equal and every behaviour seen; 1 a figure differed or
 a behaviour was missing; 2 the demo could not run (a tool, a download or a

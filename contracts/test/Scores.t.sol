@@ -118,7 +118,7 @@ contract ScoresTest is Stage3 {
         validatorsCase("refusal-order-validators");
     }
 
-    /// R-25 (S-10 phase 3): the set size only rises, and a seat call reads
+    /// R-25: the set size only rises, and a seat call reads
     /// the size in force in the round it runs in (the spec's note N1).
     function test_validators_set_size() external {
         validatorsCase("validators-set-size");
@@ -129,7 +129,7 @@ contract ScoresTest is Stage3 {
         validatorsCase("validators-set-size-withdrawn");
     }
 
-    /// R-26 (S-10 phase 4): after V1 rotates to K1, V1's own vote, opt-out
+    /// R-26: after V1 rotates to K1, V1's own vote, opt-out
     /// and opt-in are refused and K1's count.
     function test_validators_rotation() external {
         validatorsCase("validators-rotation");
@@ -157,7 +157,7 @@ contract ScoresTest is Stage3 {
             "refusal-order-validators",
             "validators-set-size",
             "validators-set-size-withdrawn",
-            // Key rotation (S-10 phase 4).
+            // Key rotation.
             "validators-rotation"
         ];
         string[] memory ids = abi.decode(vm.parseJson(vectors, ".cases[*].id"), (string[]));

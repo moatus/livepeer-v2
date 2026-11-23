@@ -22,7 +22,7 @@ once. Stage 4 has yet to be deployed on a public test chain.
 
 | Part | State |
 |---|---|
-| Rulebook and shared examples | `october-main-text-v2`: stage 3's rules and 74 worked cases (v1, stage 2's, is kept) |
+| Rulebook and shared examples | `october-main-text-v4`: stage 4's rules and 97 worked cases (the earlier versions are kept) |
 | Independent calculator | Computes every shared example from the rulebook alone |
 | Contracts | Stage 2: Controller, Registry, RoundClock, Broker, MockUSDC. Stage 3: TestLPT, StakeLedger, Scores, Claims. Stage 4: Parameters, TestPool, Buyback |
 | Node integration | The unmodified node, configured by flags alone; no fork |
@@ -53,108 +53,26 @@ the run.
 ### Stage 3: one reward cycle and the scripted validators
 
 `./dev demo` runs one full reward cycle, the one the shared example
-`ledger-cycle` describes, and around it the validator set and its pay. What
-it does, in this order, printing each step:
+`ledger-cycle` describes, on a fresh local chain with four nodes running
+the real node. Holders bond test LPT to the nodes, the nodes are paid in
+mock USDC for real jobs, and scripted validators (`programs/validators`,
+run from `demo/validators.script`) opt in, take the three seats and vote on
+the nodes. Each node then claims its round's LPT reward at the median of
+the votes, split between its payout address and its holders, and the
+validators are paid for the rounds they sat. Along the way it shows the
+refusals: a claim too early or by someone else, a second claim or
+withdrawal, a vote by a validator not seated. It stops the keeper while a
+round ends: anyone may start the next round, and the restarted keeper
+mints what was missed, in full.
 
-1. Starts a fresh local chain and deploys the nine contracts, with a
-   genesis supply of 10,000,000 test LPT held by the deployer. It starts
-   the tiny model, the node's orchestrator for each of four nodes, N, M, K
-   and L, and a signer for the payer P.
-2. **Round 1.** N, M, K and L register; N pays to its wallet W and takes a
-   20 % reward cut. Four holders are given test LPT and bond it: O 100 and
-   D 300 to N, E 600 to M, F 250 to K. P deposits 5 USDC and sets 1 USDC
-   aside for each node. Four scripted validators, V1 to V4, register. The
-   keeper starts round 2 and mints round 1's validator and treasury
-   amounts. Until round 4 there are no validators, so the whole validator
-   amount of rounds 1 to 3 goes to the treasury.
-3. **Round 2.** Five paid relays of 1 USDC each, three for N and one each
-   for M and K, which the nodes redeem in round 2. O bonds a further 100
-   to N. V1 bonds 1,000 to itself and a holder, H, 4,000 to V1, which takes
-   a 10 % reward cut; V2, V3 and V4 bond 3,000, 2,000 and 6,000 to
-   themselves (cut 0), and L 1,000 (cut 100 %). All of it counts from round
-   3, so round 2's stake is N 400, M 600, K 250 and its figures are
-   `ledger-cycle`'s.
-4. **The keeper stopped.** It is stopped while round 2 ends: the round
-   lasts two round lengths, and its validator and treasury amounts cannot
-   be minted yet (`CLAIM_TOO_EARLY`). Then another account, printed as
-   `Anyone` (a throwaway key that is neither a node nor a holder), starts
-   round 3, as anyone may: round 2's amounts are due and nobody has minted
-   them. Run again, the keeper finds them unminted and mints them in full, so a
-   stopped keeper delays them and loses nothing; a second mint is refused
-   (`ALREADY_CLAIMED`). From then on the keeper starts every round.
-5. **Round 3.** The validators (`programs/validators`, run from
-   `demo/validators.script`) V1, V2 and V3 opt in and are members from
-   round 4.
-6. **Round 4.** V1 and V2 vote M 500,000 and K 0, and V1 alone votes L 0.
-   Nobody votes on N. V4 opts in: there are only three seats
-   (ValidatorSetSize 3, for the paper's 33), and with 6,000 LPT it takes
-   the seat of V3, the smallest member, from round 5. Its vote in round 4
-   is refused (`NOT_VALIDATOR`): a node votes only in a round it is a
-   member of. A vote is on a node, not on a round: it stands in later
-   rounds until the validator changes it or leaves. P deposits 4 USDC more,
-   and N, M, K and L each serve one paid relay, so four nodes earn a reward
-   in round 4. The keeper is stopped meanwhile, so that round 4 lasts until
-   the nodes redeem the tickets, 41 blocks after the relays.
-7. **Round 5.** Round 4's validator amount is divided among V1, V2 and V3
-   by their stake, 5,000, 3,000 and 2,000; what the division leaves goes
-   to the treasury. V1's 10 % cut goes to its payout address and the rest,
-   its pot, to Claims, from which V1 withdraws its part and H its part,
-   four fifths, since H bonds 4,000 of V1's 5,000 LPT; H's second
-   withdrawal is refused (`ALREADY_CLAIMED`). V2 and V3 leave their pay in
-   Claims for themselves to withdraw. Every
-   later round pays its members, V1, V2 and V4, the same way, but only
-   round 4's split is printed: V1's LPT at the end is its cut of every
-   round it was a member of (rounds 4 to 11), plus its round 4 part.
-8. **Round 8.** N's claim for round 2 is refused as too early
-   (`CLAIM_TOO_EARLY`), and M's claim for N as not M's (`NOT_AUTHORIZED`).
-9. **Round 9.** A rival's and a delegator's claims for N are refused
-   (`NOT_AUTHORIZED`). Each claim is paid at the median of the members'
-   votes read at the claim, a member that has not voted counting as
-   1,000,000. N claims at 1,000,000: W receives the cut,
-   60.110377935333104693 LPT, and Claims the pot, 240.441511741332418772,
-   from which O and D withdraw their parts, 60.110377935333104693 and
-   180.331133805999314079. N's second claim and D's second withdrawal are
-   refused (`ALREADY_CLAIMED`). M claims at 500,000: 93.922465523957976083
-   LPT goes to Claims as E's part, and as much again is never minted. K
-   claims at 0, is paid 0 and its entitlement closes. F starts to move 100
-   LPT from K to M, which would arrive in round 30.
-10. **Rounds 10 to 12.** F unbonds 40 of the move before it arrives, then
-    rebonds the 40: to M it is refused (`AMOUNT_TOO_LARGE`), to K it is
-    taken. K's stake reads 250, 210 and 250 LPT in rounds 10, 11 and 12. In
-    round 11 N, M, L and K claim their round 4 rewards, each at the median
-    read then: N 1,000,000, M 500,000, L 1,000,000 (one vote of 0 cannot
-    cut a node) and K 0.
-11. Prints every balance read from the chain beside the calculator's figure
-    for the same steps: the USDC of every wallet, the test LPT of every
-    address the run names, Claims and StakeLedger among them, each round's
-    validator and treasury amounts, the LPT minted for each round
-    (454.424865109532845983 for round 2) and in all, every stake shown and
-    every refusal. It checks them against `ledger-cycle`'s worked figures,
-    and prints the 544.750300038956261284 LPT never minted for round 2.
-    Beyond those, W also holds N's round 4 cut, and Claims the round 4
-    claims' pots and the validator pots not yet withdrawn; the run checks
-    exactly that.
-12. **What the validators show** (the stage's section on validators):
-    beside the calculator's figure, the four claims of round 4's rewards,
-    each with the votes cast on the node, the median read at the claim and
-    what it was paid:
-    N with no votes, M with two of 500,000, L with V1's one 0, K with two
-    0s; the members of round 4 (V1, V2, V3) and of round 5 (V1, V2, V4);
-    and round 4's validator mint: each member's pay, V1's cut and pot, the
-    part of it V1 and H each withdrew, and the dust left in Claims.
-13. Writes the whole run as three files of cases, each built from what was
-    sent and what the chain's views show, and runs `./calculator/check` on
-    each: `ledger-case.json`, the run as a `ledger` case;
-    `validators-case.json`, every opt-in and vote the validators sent, the
-    refused one included, with each validator's stake in every round, and
-    what each claim read; and `validator-pay-cases.json`, one
-    `validator-pay` case for each round whose shares were minted.
-
-The node, the keeper, `lp2-fund`, `lp2-stake` (which sends N's payout and
-the bonds, claims, withdrawals, transfers, unbonds and rebonds with each
-person's throwaway key) and the scripted validators are the only things that send
-transactions; the demo itself only registers nodes, gives out test LPT and
-mines empty blocks where it would otherwise wait for the chain.
+Every balance, stake, mint and refusal read from the chain is printed
+beside the calculator's figure for the same steps and checked against
+`ledger-cycle`'s worked figures. The run is then written as three files of
+cases (`ledger-case.json`, `validators-case.json` and
+`validator-pay-cases.json`), and `./calculator/check` runs on each. The
+node, the keeper, `lp2-fund`, `lp2-stake` and the scripted validators send
+every transaction; the demo itself only registers nodes, gives out test
+LPT and mines empty blocks where it would otherwise wait for the chain.
 
 What it does not show: a validator's score is the script's choice, not a
 judgment of work, and the set changes only when someone calls Scores (here

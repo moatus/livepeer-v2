@@ -1,9 +1,10 @@
-"""What both stage demos share: the processes they start, the chain they
-talk to, the keys they make, the steps they record, the node's jobs, and
-the reconciliation of every figure against the independent calculator.
+"""What the demos share: the processes they start, the chain they talk to,
+the keys they make, the steps they record, the node's jobs, and the
+reconciliation of every figure against the independent calculator.
 
-A stage's demo (`stage2.py`, `stage3.py`) calls `use(manifest)` first, then
-`from common import *`; `demo/run` chooses the stage.
+A demo (`stage2.py`, `stage3.py`, `buyback.py`) calls `use(manifest)`
+first, then `from common import *`; `stage4.py` builds on `stage3.py` and
+`buyback.py`. `demo/run` chooses the demo.
 """
 from __future__ import annotations
 
@@ -1042,7 +1043,7 @@ def write_case(case_id: str, ordered: list[dict], views: dict, members: dict | N
     """The run as a ledger case, checked by ./calculator/check."""
     the_case = ledgercase.case(case_id, ordered, views["need"], views, members)
     out = RUN / "ledger-case.json"
-    out.write_text(json.dumps(ledgercase.document(VECTORS, the_case), indent=1) + "\n")
+    out.write_text(json.dumps(ledgercase.document(VECTORS, [the_case]), indent=1) + "\n")
     done = subprocess.run([str(ROOT / "calculator" / "check"), str(out)], capture_output=True, text=True)
     say(f"  wrote {where(out)}: {len(the_case['inputs']['steps'])} steps, as sent and as the chain shows them")
     for line in done.stdout.strip().splitlines()[-2:]:

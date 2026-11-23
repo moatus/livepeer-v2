@@ -64,15 +64,6 @@ def validator_pay_case(case_id: str, round_: int, members: list[tuple[str, int]]
     return {"id": case_id, "kind": "validator-pay", "inputs": inputs, "expected": expected}
 
 
-def document(vectors: dict, cases: list[dict]) -> dict:
-    """The shared examples with these cases added, which
-    ./calculator/check reads: the check refuses a file that lacks the
-    rulebook's named examples."""
-    ids = {c["id"] for c in cases}
-    kept = [c for c in vectors["cases"] if c["id"] not in ids]
-    return {**{k: v for k, v in vectors.items() if k != "cases"}, "cases": kept + cases}
-
-
 def one_earning_round(claims: list[tuple[str, str, int]]) -> int | None:
     """S-06 section 1's table is four nodes each earning a reward in one
     round. `claims` gives each row, the node that claimed and the round its

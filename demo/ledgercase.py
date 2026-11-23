@@ -131,12 +131,13 @@ def case(case_id: str, ordered: list[dict], need: dict, views: dict, members: di
     return {"id": case_id, "kind": "ledger", "inputs": inputs, "expected": expected(ordered, need, views)}
 
 
-def document(vectors: dict, the_case: dict) -> dict:
-    """The shared examples with the run's case added, which
+def document(vectors: dict, cases: list[dict]) -> dict:
+    """The shared examples with these cases added, which
     ./calculator/check reads: the check refuses a file that lacks the
     rulebook's named examples."""
-    kept = [c for c in vectors["cases"] if c["id"] != the_case["id"]]
-    return {**{k: v for k, v in vectors.items() if k != "cases"}, "cases": kept + [the_case]}
+    ids = {c["id"] for c in cases}
+    kept = [c for c in vectors["cases"] if c["id"] not in ids]
+    return {**{k: v for k, v in vectors.items() if k != "cases"}, "cases": kept + cases}
 
 
 def strings(value):

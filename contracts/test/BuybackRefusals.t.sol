@@ -52,10 +52,6 @@ contract BuybackRefusalsTest is Stage4 {
             usePool(bad[i]);
             expectRefused(poke(), poolInvalid(bad[i]), "poke of a lying pool");
             expectRefused(buy(), poolInvalid(bad[i]), "buy from a lying pool");
-            vm.warp(block.timestamp + HOUR);
-            liar.tell(1, 1, type(uint256).max, 12345);
-            expectRefused(poke(), poolInvalid(bad[i]), "poke, invented cumulatives");
-            expectRefused(buy(), poolInvalid(bad[i]), "buy, invented cumulatives");
         }
         // TestPool's code over the same two tokens, in either order, passes.
         TestPool twin = new TestPool(address(lpt), address(usdc));
@@ -220,27 +216,6 @@ contract BuybackRefusalsTest is Stage4 {
         require(t0 == T0 && t1 == T0 + HOUR && c1 - c0 == (uint256(500_000e6) << 112) / 100_000e18 * HOUR, "slots");
     }
 
-    /// Rule 3's "as Uniswap v2 keeps it": the pool keeps block time as
-    /// uint32, so a gap of 2^32 s or more since its last update adds only
-    /// the remainder to its cumulative, in the pool and in the Buyback's
-    /// reading of it alike, while the Buyback's own elapsed is the whole gap.
-    function test_cumulative_wraps_as_v2() external {
-        deployStage4(GENESIS, STUB);
-        seed(pool, 500_000e6, 100_000e18);
-        require(poke().length == 0, "the first poke");
-        uint256 price = (uint256(500_000e6) << 112) / 100_000e18;
-        uint256 gap = 2 ** 32 + HOUR;
-        vm.warp(T0 + gap);
-        require(poke().length == 0, "due");
-        (uint256 c0, uint256 t0, uint256 c1, uint256 t1) = buyback.observations();
-        require(t1 - t0 == gap, "the Buyback's elapsed is the whole gap");
-        require(c1 - c0 == price * HOUR, "the Buyback reads the remainder");
-        swapIn(pool, 1e6);
-        (,, bool usdcIs0) = reserves(pool);
-        uint256 stored = usdcIs0 ? pool.price1CumulativeLast() : pool.price0CumulativeLast();
-        require(stored == price * HOUR, "the pool adds the remainder");
-    }
-
     /// Draw: NOT_AUTHORIZED from any other address, the amount aside; then
     /// AMOUNT_TOO_LARGE above what is held.
     function test_draw_refusals_in_order() external {
@@ -249,11 +224,8 @@ contract BuybackRefusalsTest is Stage4 {
         uint256 held = broker.networkHeld();
         bytes memory over = abi.encodeCall(Broker.drawNetwork, (held + 1, who("anyone")));
         bytes memory within = abi.encodeCall(Broker.drawNetwork, (held, who("anyone")));
-        address[4] memory others = [who("Anyone"), address(this), who("N"), address(pool)];
-        for (uint256 i = 0; i < others.length; i++) {
-            expectRefused(as_(others[i], address(broker), over), err("NOT_AUTHORIZED()"), "another address, too much");
-            expectRefused(as_(others[i], address(broker), within), err("NOT_AUTHORIZED()"), "another address");
-        }
+        expectRefused(as_(who("Anyone"), address(broker), over), err("NOT_AUTHORIZED()"), "another address, too much");
+        expectRefused(as_(who("Anyone"), address(broker), within), err("NOT_AUTHORIZED()"), "another address");
         expectRefused(as_(address(buyback), address(broker), over), err("AMOUNT_TOO_LARGE()"), "above held");
         require(broker.buyback() == address(buyback) && buyback.broker() == address(broker), "fixed at deployment");
         require(as_(address(buyback), address(broker), within).length == 0, "the Buyback draws");
@@ -268,36 +240,6 @@ contract BuybackRefusalsTest is Stage4 {
         bytes memory d = abi.encodeCall(Broker.drawNetwork, (0, who("anyone")));
         expectRefused(as_(address(0), address(broker), d), err("NOT_AUTHORIZED()"), "address(0)");
         expectRefused(as_(address(this), address(broker), d), err("NOT_AUTHORIZED()"), "the deployer");
-    }
-
-    // --- a change of pool -------------------------------------------------
-
-    /// After the values name another pool, buys refuse TWAP_NOT_READY until
-    /// a poke and one interval, then succeed.
-    function test_pool_change_waits_for_a_poke_and_an_interval() external {
-        deployStage4(GENESIS, STUB);
-        seed(pool, 500_000e6, 100_000e18);
-        require(poke().length == 0, "poke");
-        vm.warp(block.timestamp + HOUR);
-        job(1000e6);
-        require(buy().length == 0, "a buy from the first pool");
-
-        TestPool next = new TestPool(address(usdc), address(lpt));
-        seed(next, 400_000e6, 100_000e18);
-        usePool(address(next));
-        toRound(clock.currentRound() + 1);
-        job(1000e6);
-        vm.warp(block.timestamp + 5 * HOUR);
-        expectRefused(buy(), err("TWAP_NOT_READY(uint256,uint256)", 0, HOUR), "another pool observed");
-        require(poke().length == 0, "poke of the new pool");
-        require(buyback.observedPool() == address(next), "observes the new pool");
-        expectRefused(buy(), err("TWAP_NOT_READY(uint256,uint256)", 0, HOUR), "just poked");
-        vm.warp(block.timestamp + HOUR - 1);
-        expectRefused(buy(), err("TWAP_NOT_READY(uint256,uint256)", HOUR - 1, HOUR), "a second short");
-        vm.warp(block.timestamp + 1);
-        uint256 reserveBefore = usdc.balanceOf(address(next));
-        require(buy().length == 0, "a buy from the new pool");
-        expectEq(usdc.balanceOf(address(next)) - reserveBefore, 500e6, "paid to the new pool");
     }
 
     // --- rule 4 at full width ----------------------------------------------

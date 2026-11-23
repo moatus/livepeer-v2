@@ -109,17 +109,6 @@ abstract contract Stage3 is Stage2 {
         return who("Treasury");
     }
 
-    /// `caller` calls `target` with `data`. Returns the revert data, empty
-    /// when the call took effect. A revert with no data is a failure of the
-    /// test, never read as success.
-    function as_(address caller, address target, bytes memory data) internal returns (bytes memory) {
-        vm.prank(caller);
-        (bool ok, bytes memory ret) = target.call(data);
-        if (ok) return "";
-        require(ret.length > 0, "reverted with no data");
-        return ret;
-    }
-
     /// `holder` bonds `amount` to `node`, approving exactly that first; a
     /// refused bond leaves no approval behind.
     function bondAs(address holder, address node, uint256 amount) internal returns (bytes memory refused) {

@@ -57,7 +57,7 @@ contract ClaimsTest is LedgerRunnerV2 {
         runV2("ledger-mid-round");
     }
 
-    // R-25 (S-10 phase 3): Parameters' changes, read for the round each
+    // R-25: Parameters' changes, read for the round each
     // part names. The section 1 table: round 5 claimed after round 11.
     function test_ledger_authority() external {
         runV2("ledger-authority");
@@ -72,7 +72,7 @@ contract ClaimsTest is LedgerRunnerV2 {
         runV2("ledger-score-source");
     }
 
-    /// R-26 (S-10 phase 4): N's key rotates N to K1 to K2, then K2 to K3
+    /// R-26: N's key rotates N to K1 to K2, then K2 to K3
     /// through a replaced and a cleared proposal. The old keys and N's own
     /// address are refused on every call for N, K2's claim pays W, and every
     /// ticket pays N's payout across the rotations.

@@ -769,7 +769,7 @@ def section_s06(ordered: list[dict], vcase: dict, pay_cases: list[dict], withdra
 def write_cases(file: str, cases: list[dict], what: str) -> None:
     """Cases the run wrote, checked by ./calculator/check."""
     out = common.RUN / file
-    out.write_text(json.dumps(validatorcases.document(VECTORS, cases), indent=1) + "\n")
+    out.write_text(json.dumps(ledgercase.document(VECTORS, cases), indent=1) + "\n")
     done = subprocess.run([str(common.ROOT / "calculator" / "check"), str(out)], capture_output=True, text=True)
     say(f"  wrote {out.relative_to(common.ROOT)}: {len(cases)} {cases[0]['kind']} case{'s' if len(cases) > 1 else ''}, {what}")
     for line in done.stdout.strip().splitlines()[-1:]:

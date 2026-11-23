@@ -219,15 +219,6 @@ abstract contract Stage4 is Stage2 {
         return callBuyback(abi.encodeCall(IBuyback.poke, ()));
     }
 
-    /// The caller as the deployer: what Stage3 calls as_.
-    function as_(address caller, address target, bytes memory data) internal returns (bytes memory) {
-        vm.prank(caller);
-        (bool ok, bytes memory ret) = target.call(data);
-        if (ok) return "";
-        require(ret.length > 0, "reverted with no data");
-        return ret;
-    }
-
     /// The data of each Bought event the Buyback emitted since recordLogs.
     function boughtLogs() internal returns (bytes[] memory out) {
         Vm.Log[] memory logs = vm.getRecordedLogs();
