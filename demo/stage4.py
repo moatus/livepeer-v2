@@ -13,10 +13,10 @@ import common as c
 from common import ADDR, C, KEY, NAMES
 
 
-def pool_from_node():
+def pooled_from(who):
     pool = c.rpc("txpool_content", [])
     return [tx for bucket in ("pending", "queued")
-            for sender, txs in pool[bucket].items() if sender.lower() == ADDR["N"].lower()
+            for sender, txs in pool[bucket].items() if sender.lower() == ADDR[who].lower()
             for tx in txs.values()]
 
 
@@ -38,8 +38,8 @@ def recover(start_node, face):
     c.rpc("evm_setAutomine", [False])
     paid_job()
     c.mine(41)
-    s3.wait("N's redemption in the transaction pool", pool_from_node)
-    tx, = pool_from_node()
+    s3.wait("N's redemption in the transaction pool", lambda: pooled_from("N"))
+    tx, = pooled_from("N")
     pending = tx["hash"]
     if tx["to"].lower() != C["Broker"].lower() or c.rpc("eth_getTransactionReceipt", [pending]) is not None:
         raise c.Failed("N's pooled transaction is not an unmined redemption")
@@ -291,7 +291,7 @@ def main():
         c.rpc("evm_setIntervalMining", [0])
         paid_job()
         c.mine(41)
-        s3.wait(f"round {round_}'s redemption in the pool", pool_from_node)
+        s3.wait(f"round {round_}'s redemption in the pool", lambda: pooled_from("N"))
         c.rpc("evm_mine", [])
         c.rpc("evm_setIntervalMining", [1])
         settled = c.settlements()
@@ -362,6 +362,9 @@ def main():
 
     # Keep the buyback from drawing down the network share in the recovery view.
     c.stop("keeper")
+    # A buy sent just before the stop is still in the pool. Let it be mined
+    # before the recovery view reads its starting balances.
+    s3.wait("the keeper's last transaction mined", lambda: not pooled_from("Keeper"))
     check_buys(seeded)
     recover(start_node, face)
     s3.start_keeper()
