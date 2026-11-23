@@ -220,9 +220,10 @@ nothing of the deployer's or G's. It needs neither the deployer's nor G's
 variables, and their keystores may be absent. It refuses a state directory
 no stage 4 run has handed over. It uses the RPC URL the run used, kept in
 the state directory, unless `LP2_RPC_URL` gives another for the same
-chain. It starts three services:
+chain. It needs no Docker and no model. It starts these services:
 
-- N's node, the unmodified orchestrator, with its model;
+- N's node, the unmodified orchestrator, serving `lp2-responder`, the
+  light responder, in place of the model;
 - `lp2-keeper`, given Parameters' address. It starts each round, mints
   each ended round's shares, and buys and pokes at the executor in force.
   So it follows an executor that G moves by announcement, with no
@@ -230,16 +231,35 @@ chain. It starts three services:
 - `lp2-validators` for V, from a script `serve` writes. In it, V votes the
   full score, 1,000,000, for N in the round after the services start. That
   vote leaves every score as it was. A scripted validator acts only where
-  its script says.
+  its script says;
+- `lp2-sender`, holding P's key, with P's signer on loopback. It pays each
+  node that joins one paid request a round, and funds P's deposit and
+  earmarks from mock USDC it mints. Its list is `sender-nodes.txt` in the
+  state directory. It answers joins on `LP2_SENDER_LISTEN`, by default
+  `127.0.0.1` and port 24 above `LP2_DEMO_PORT_BASE`. Set it to a public
+  address for nodes outside the machine to join. Node URLs on private
+  addresses are allowed on a local chain only.
 
-`serve` prints each round as it starts, and logs each program in `logs/`.
+Then N joins the sender as any node does, with a join signed by N's key,
+and is paid a request at once and then one a round. N's URL is
+`LP2_NODE_URL`, the URL at which N's orchestrator is reached; on a local
+chain it is by default its loopback address. On a public chain, N's
+orchestrator listens on loopback, so N joins only when `LP2_NODE_URL`
+gives a public URL that leads to it, such as a proxy on the machine the
+services run on (D-52). Without one, `serve` says that N has not joined,
+and the sender still pays every other node that joins.
+
+`serve` prints each round as it starts, and each relay the sender logs,
+and logs each program in `logs/`.
 It runs until it gets SIGTERM or Ctrl-C, then stops its programs and exits
 0. If a program exits, `serve` exits 1 and names that program and its log,
 so a supervisor such as systemd can start it again. It holds the state
 directory's lock as the run does, so the run and the services never run at
-once. To read the figures again, stop the services. Then run
+once. To read the run's figures again, stop the services. Then run
 `demo/public-run stage-4` with the run's variables set, and it sends
-nothing.
+nothing. Once the sender has paid a node, a re-read is refused: the
+sender's funding is not a step of the run. The run reconciled its figures
+at the handover, and `public-run.log` keeps them.
 
 ### Against Arbitrum Sepolia
 

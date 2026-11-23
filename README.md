@@ -287,9 +287,9 @@ cycle in real time, then reconciles every figure against the calculator.
 network's share of a paid job buys test LPT and burns it, and a parameter
 change announced by an authority key you give it counts seven rounds
 later. It then hands the deployment over to `demo/public-run serve`, which
-keeps the node, the keeper and a validator running without the deployer's
-key. `demo/PUBLIC.md` says what to set, what it costs and how long it
-takes.
+keeps the node, the keeper, a validator and `lp2-sender` running without
+the deployer's key, so a node that joins is paid. `demo/PUBLIC.md` says
+what to set, what it costs and how long it takes.
 
 `programs/cmd/lp2-explorer` is a page a node's operator opens on their own
 machine to see, read from the chain, that their node and the testnet are
