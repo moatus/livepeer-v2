@@ -216,6 +216,65 @@ contract BuybackRefusalsTest is Stage4 {
         require(t0 == T0 && t1 == T0 + HOUR && c1 - c0 == (uint256(500_000e6) << 112) / 100_000e18 * HOUR, "slots");
     }
 
+    // --- rule 3: the switch from O0 to O1 -----------------------------------
+
+    /// R-16 rule 3 at the second the buy switches observations. An hour at
+    /// 5 USDC per LPT, a trader selling 10,000 LPT, a poke: O0 starts the
+    /// first hour and O1 the second. A second before O1 is an interval old
+    /// the buy prices from O0, over both hours; at that second it prices
+    /// from O1, over the second hour alone. Both buys are from the same
+    /// state, with 100,000 USDC held, more than either bound allows.
+    function test_the_twap_switches_from_o0_to_o1_when_o1_is_an_interval_old() external {
+        deployStage4(GENESIS, STUB);
+        seed(pool, 500_000e6, 100_000e18);
+        require(poke().length == 0, "poke at T0");
+        job(200_000e6);
+        uint256 held = broker.networkHeld();
+        (uint256 ru, uint256 rl, bool usdcIs0) = reserves(pool);
+        uint256 a = (ru << 112) / rl;
+        vm.warp(T0 + HOUR);
+        {
+            uint256 sold = 10_000e18;
+            uint256 out = sold * 997 * ru / (rl * 1000 + sold * 997);
+            require(lpt.transfer(address(pool), sold), "sell LPT");
+            pool.swap(usdcIs0 ? out : 0, usdcIs0 ? 0 : out, who("Trader"), "");
+        }
+        require(poke().length == 0, "poke at T0 + HOUR");
+        (ru, rl,) = reserves(pool);
+        uint256 b = (ru << 112) / rl;
+
+        uint256 before = vm.snapshotState();
+        vm.warp(T0 + 2 * HOUR - 1);
+        uint256[6] memory o0 = boughtAt();
+        expectEq(o0[4], (a * HOUR + b * (HOUR - 1)) / (2 * HOUR - 1), "a second early: the TWAP of both hours");
+        expectEq(o0[5], maxInAt(o0[4], ru, rl), "a second early: maxIn");
+        require(vm.revertToState(before), "revert");
+        vm.warp(T0 + 2 * HOUR);
+        uint256[6] memory o1 = boughtAt();
+        expectEq(o1[4], b, "on time: the TWAP of the second hour");
+        expectEq(o1[5], maxInAt(b, ru, rl), "on time: maxIn");
+        // Neither bound reaches what is held: each buy spends its bound.
+        require(o0[5] < held && o1[5] < held, "the bound is the cap");
+        require(o0[1] > o1[1], "the earlier buy spends more");
+    }
+
+    /// One buy now; the Bought figures in the event's order.
+    function boughtAt() internal returns (uint256[6] memory got) {
+        vm.recordLogs();
+        bytes memory ret = buy();
+        require(ret.length == 0, string.concat("the buy: refused ", vm.toString(ret)));
+        bytes[] memory logs = boughtLogs();
+        require(logs.length == 1, "one Bought event");
+        got = abi.decode(logs[0], (uint256[6]));
+    }
+
+    /// Rule 4's maxIn in 256 bits, for a TWAP small enough not to need more.
+    function maxInAt(uint256 twap, uint256 ru, uint256 rl) internal view returns (uint256) {
+        uint256 lim = twap * (1e6 + param("buyback_max_slippage_ppm")) / 1e6 * 997 * rl;
+        uint256 base = (1000 * ru) << 112;
+        return lim > base ? (lim - base) / (997 << 112) : 0;
+    }
+
     /// Draw: NOT_AUTHORIZED from any other address, the amount aside; then
     /// AMOUNT_TOO_LARGE above what is held.
     function test_draw_refusals_in_order() external {
