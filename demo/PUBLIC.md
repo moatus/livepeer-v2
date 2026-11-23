@@ -5,11 +5,13 @@ and runs the team's node through one paid job and one full reward cycle in
 real time. Then it reads every figure from the chain and prints it beside
 the independent calculator's figure. It is the path for the first public
 deployment (Arbitrum Sepolia, D-14). It uses the demo's code: the same node,
-programs, steps and reconciliation.
+programs, steps and reconciliation. `demo/public-run stage-4` does the same
+for the stage 4 system and hands it over to services that keep it running;
+see "Stage 4" below.
 
 The run does the following, in order:
 
-1. It deploys the nine contracts. Round 1 starts at deployment.
+1. It deploys the ten contracts. Round 1 starts at deployment.
 2. The deployer pays gas money to four accounts that the run makes: the
    node N, the payer P, the validator V and the keeper.
 3. N registers with no stake. N and V each bond 1,000 test LPT to
@@ -137,3 +139,207 @@ sent has a receipt.
 - The run's `manifest.json` names the commit, rulebook and node the
   contracts were deployed from, saved at the deployment, even when a later
   checkout resumes it.
+
+## Stage 4
+
+`demo/public-run stage-4` deploys the stage 4 system once, from
+`deployments/public-arbitrum-sepolia-stage-4.json`, and shows stage 4's two
+public exit items in real time: test LPT bought with the network's share
+of a fee and burned, and an announced parameter change that counts seven
+rounds later. It then hands the deployment over to services that run
+without the deployer's key. It uses the stage 3 run's code: the same
+environment, chain allow-list, keys, steps, resume rule and fee table.
+
+The run does the following, in order:
+
+1. It deploys the twelve contracts of stage 4: stage 3's, the test pool,
+   Parameters naming the Buyback as the buyback executor, and the Buyback.
+   Parameters' one authority is G, the key the owner gives the run. Round
+   1 starts at deployment.
+2. The deployer pays gas money to five accounts the run makes: N, P, V,
+   the keeper and the faucet. It seeds the pool with 500,000 mock USDC and
+   100,000 test LPT, and grants the faucet 1,000,000 test LPT. Nothing
+   hands the faucet's LPT out yet.
+3. N and V register and bond, and P funds, as in the stage 3 run. G
+   announces the unbonding period of 42 rounds (21 at deployment), which
+   counts seven rounds later.
+4. The keeper starts, given Parameters' address. Each tick it starts the
+   round when the clock allows, mints the ended round's shares, and buys
+   or pokes at the executor in force when the call would succeed. Its
+   first poke starts the pool's average price.
+5. In round 2, N serves one paid relay and redeems its ticket. Half of the
+   fee, 0.5 test USDC, is the network's share.
+6. In the round before the change counts, the run reads it as not yet in
+   force. In the round it counts from, the run reads it as in force. Once
+   the average price is 3,600 s old, the keeper's buy spends the network
+   share on test LPT and burns all of it. The run waits for all three, in
+   whatever order they come.
+7. Every figure is reconciled against the calculator:
+   - the payment, the stake and each round's shares, as the stage 3 run
+     reconciles them. A ledger step cannot hold a buy, so the share held
+     and the LPT minted are shown with what the buys spent and burned
+     added back, as their `Bought` events give it;
+   - the buys, as a buyback case: the seed, every poke, job and buy, at
+     the rounds and times the chain gave them. These figures include the
+     USDC spent, the LPT bought and burned, the share held after, the
+     pool's reserves and the LPT supply after the burn;
+   - the change, as a parameters case: the round it counts from, and its
+     value in the two rounds read.
+
+   The run writes the cases into `ledger-case.json` and
+   `stage-4-cases.json`, and `./calculator/check` reproduces both files.
+8. The handover. The run writes `services.json` into the state directory,
+   and the same into its manifest. It holds the chain id, the deployment's
+   first block, every contract, the executor in force, G's address and the
+   role key files, relative to the state directory. It holds no key or
+   keystore path of the deployer's or G's. Every program the run started
+   stops with it. Until the services start, a round just lasts longer.
+
+### What to set
+
+As for the stage 3 run, and also:
+
+| Variable | What |
+|---|---|
+| `LP2_AUTHORITY_KEYSTORE` | G's keystore file, outside the repository. G is Parameters' one authority, fixed at deployment. Make it as the deployer's is, for the testnet alone, never a key that has held real funds |
+| `LP2_AUTHORITY_PASSWORD_FILE` | A file that holds its password, outside the repository |
+
+The run refuses to start without both, before it makes or sends
+anything. G sends one transaction, the announcement, so it needs gas money
+of its own. `LP2_ROLE_GAS_WEI` now applies to five accounts.
+
+### The services
+
+```sh
+export LP2_STATE_DIR=~/lp2-testnet/stage-4    # the state directory the run handed over
+demo/public-run serve
+```
+
+`serve` reads `services.json`, the role keys and their password file, and
+nothing of the deployer's or G's. It needs neither the deployer's nor G's
+variables, and their keystores may be absent. It refuses a state directory
+no stage 4 run has handed over. It uses the RPC URL the run used, kept in
+the state directory, unless `LP2_RPC_URL` gives another for the same
+chain. It starts three services:
+
+- N's node, the unmodified orchestrator, with its model;
+- `lp2-keeper`, given Parameters' address. It starts each round, mints
+  each ended round's shares, and buys and pokes at the executor in force.
+  So it follows an executor that G moves by announcement, with no
+  restart;
+- `lp2-validators` for V, from a script `serve` writes. In it, V votes the
+  full score, 1,000,000, for N in the round after the services start. That
+  vote leaves every score as it was. A scripted validator acts only where
+  its script says.
+
+`serve` prints each round as it starts, and logs each program in `logs/`.
+It runs until it gets SIGTERM or Ctrl-C, then stops its programs and exits
+0. If a program exits, `serve` exits 1 and names that program and its log,
+so a supervisor such as systemd can start it again. It holds the state
+directory's lock as the run does, so the run and the services never run at
+once. To read the figures again, stop the services. Then run
+`demo/public-run stage-4` with the run's variables set, and it sends
+nothing.
+
+### Against Arbitrum Sepolia
+
+Before the run, the owner makes two keys, the deployer and G, each for the
+testnet alone, and funds both from a faucet (D-45). Then:
+
+```sh
+export LP2_RPC_URL=...                       # an Arbitrum Sepolia endpoint
+export LP2_DEPLOYER_KEYSTORE=~/lp2-testnet/deployer.json
+export LP2_DEPLOYER_PASSWORD_FILE=~/lp2-testnet/deployer.pw
+export LP2_AUTHORITY_KEYSTORE=~/lp2-testnet/authority.json
+export LP2_AUTHORITY_PASSWORD_FILE=~/lp2-testnet/authority.pw
+export LP2_STATE_DIR=~/lp2-testnet/stage-4
+demo/public-run stage-4
+```
+
+The run ends with `DEMO PASSED` and exit 0 when every figure is equal. Then
+start the services from the same state directory with `demo/public-run
+serve`. They need only the state directory. The deployer's and G's
+keystores can be moved off the machine first. Copy the run's
+`manifest.json` into `deployments/` as the record of the deployment.
+
+### What it costs
+
+These figures are estimates. The gas is from the receipts of a run on a
+local chain mining one block a second. The price is the stage 3 run's on
+Arbitrum Sepolia: its 45 transactions paid about 0.001 Sepolia ETH, the L1
+data fee included, and the same steps use about 19.6 million gas locally.
+
+| Account | Transactions | What it sends | Gas, local run |
+|---|---|---|---|
+| Deployer | 24 | 12 contract creations; 5 gas payments; 3 to seed the pool (a mock USDC mint, a test LPT transfer, the pool's mint); 3 test LPT grants, to N, V and the faucet; 1 mock USDC mint to P | 19.8 million |
+| G | 1 | the announcement | 0.12 million |
+| N | 4 | register; approve and bond; the ticket redemption (sent by the node) | 0.65 million |
+| P | 2 | approve and fund | 0.19 million |
+| V | 4 | register; approve and bond; opt in | 0.5 million |
+| Keeper | 2 a round, and the first poke and the buy | `initializeRound` (56,000 gas) and `mintRoundShares` (182,000) each round; a poke (164,000) and the buy (224,000) | about 2.4 million for Arbitrum Sepolia's 8 or 9 rounds; 16.3 million for the local run's 67 |
+| Faucet | 0 | nothing yet | 0 |
+
+The whole run is about 24 million gas, about 0.0012 to 0.002 Sepolia ETH
+in fees. Most of it is the twelve contract creations. Fund
+the deployer with 0.03 Sepolia ETH: 0.015 of it goes to the five role
+accounts as gas money. Fund G with 0.001.
+
+The keeper keeps spending after the run. It sends two transactions a
+round, one to start the round and one to mint the ended round's shares,
+about 240,000 gas, and a poke or a buy when one is due. On Arbitrum
+Sepolia, at 144 rounds a day, that is about 34 million gas a day, roughly
+0.002 Sepolia ETH at the stage 3 run's price, and 0.0035 at 0.1 gwei. The
+default gas money of 0.003 lasts it one to two days. Send its address,
+which `services.json` names, more as it goes. `serve` says how many
+transactions the keeper can still pay for once fewer than 100 are left.
+The run stops with the same message if the keeper runs out during it. On a
+local chain at 1 gwei, ten times Arbitrum Sepolia's price, give the run
+`LP2_ROLE_GAS_WEI=50000000000000000` (0.05 each), or the keeper runs out in
+about 14 rounds.
+
+### How long it takes
+
+A round is 50 blocks of the node's clock (R-18): about 10 minutes on
+Arbitrum Sepolia and 50 seconds on a local chain that mines one block a
+second. Two waits make up most of the run, and they overlap:
+
+- the change, announced in round 1, counts from round 8. The run reads it
+  in round 7 and again in round 8, about 60 and 70 minutes after the
+  deployment on Arbitrum Sepolia, and 6 and 7 minutes after it locally;
+- the price window: the keeper's first poke, just after the deployment,
+  starts the pool's average. The first buy comes once that average is
+  3,600 s old, with the job's share held since round 2 or 3. That is about
+  an hour after the deployment on either chain, because the window is
+  counted in seconds, not rounds.
+
+Against Arbitrum Sepolia the run takes about 80 to 90 minutes, as the
+stage 3 run does. The deployment takes a few minutes of that, and the
+reconciliation a few more. On a local chain mining one block a second it
+took 61 minutes, a 2-minute stop included. Most of that is the hour of the
+price window; the change counted 7 minutes after the deployment. Nothing
+in the run moves time. The window is Parameters' value at deployment,
+3,600 s, fixed by the contract.
+D-47 allows a window as short as 1,800 s, but that needs an announcement
+and seven rounds' wait, which on Arbitrum Sepolia is longer than the half
+hour it would save.
+
+### A second run, or an interrupted one
+
+The stage 3 run's rules hold for every stage 4 step. An interrupted run,
+started again with the same command, resumes. A finished one sends
+nothing and reconciles every figure again. A step stopped while it was
+being sent is refused. The paid job is never sent twice. Two waits are not
+steps, because the run sends nothing in them: the wait for the change's
+two rounds and the wait for the buy. A run stopped during either is
+started again. The keeper, node and validator then restart with the same
+keys and data and pick up where the chain is. If the run comes back after
+the round before the change has ended, it reads that round's value late.
+A round that has started keeps its values, and the run says when a read
+was late. Once V has opted in, a restarted validator is given nothing to
+send. Its script's opt-in line would otherwise be sent again, late, since
+the contract takes a second opt-in.
+
+A state directory records which system it holds. `demo/public-run` refuses
+a stage 4 state directory, and `demo/public-run stage-4` refuses a stage 3
+one, mission 11's included. A state directory also records G's address, and
+a run given another authority key is refused.
