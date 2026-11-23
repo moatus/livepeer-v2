@@ -30,6 +30,14 @@ func TestParseGivesEachActionItsCall(t *testing.T) {
 		{[]string{"set-payout", node, other}, "registry", "setPayout", 2},
 		{[]string{"set-operator", node, other}, "registry", "setOperator", 2},
 		{[]string{"accept-operator", node}, "registry", "acceptOperator", 1},
+		{[]string{"register"}, "registry", "register", 0},
+		{[]string{"send-lpt", other, "100"}, "lpt", "transfer", 2},
+		{[]string{"approve", "100"}, "lpt", "approve", 1},
+		{[]string{"claim-due", node}, "", "", 1},
+		{[]string{"withdraw-due", node}, "", "", 1},
+		{[]string{"state", node, other}, "", "", 2},
+		{[]string{"join", "http://127.0.0.1:8940", "https://node.example:8935"}, "", "", 0},
+		{[]string{"new-key"}, "", "", 0},
 	} {
 		a, err := parse(c.words)
 		if err != nil {
@@ -73,6 +81,14 @@ func TestParseRefuses(t *testing.T) {
 		{"set-payout", node},           // no payout
 		{"set-operator", node, "K2"},   // not an address
 		{"accept-operator"},            // no node
+		{"register", node},             // registers only the key's own address
+		{"send-lpt", other},            // no amount
+		{"approve", node, "1"},         // StakeLedger is the only spender
+		{"claim-due"},                  // no node
+		{"withdraw-due", "N"},          // not an address
+		{"state", node},                // no holder
+		{"join", "127.0.0.1:8940", "https://node.example:8935"}, // not a URL
+		{"new-key", node}, // takes nothing
 	} {
 		if _, err := parse(words); err == nil {
 			t.Errorf("parse(%v) accepted", words)

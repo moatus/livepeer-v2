@@ -30,6 +30,15 @@ import (
 const contractsABI = `[
  {"type":"function","name":"getContract","stateMutability":"view","inputs":[{"name":"id","type":"bytes32"}],"outputs":[{"name":"","type":"address"}]},
  {"type":"function","name":"approve","stateMutability":"nonpayable","inputs":[{"name":"spender","type":"address"},{"name":"amount","type":"uint256"}],"outputs":[{"name":"","type":"bool"}]},
+ {"type":"function","name":"transfer","stateMutability":"nonpayable","inputs":[{"name":"to","type":"address"},{"name":"amount","type":"uint256"}],"outputs":[{"name":"","type":"bool"}]},
+ {"type":"function","name":"allowance","stateMutability":"view","inputs":[{"name":"owner","type":"address"},{"name":"spender","type":"address"}],"outputs":[{"name":"","type":"uint256"}]},
+ {"type":"function","name":"register","stateMutability":"nonpayable","inputs":[],"outputs":[]},
+ {"type":"function","name":"stakeAt","stateMutability":"view","inputs":[{"name":"node","type":"address"},{"name":"round","type":"uint256"}],"outputs":[{"name":"","type":"uint256"}]},
+ {"type":"function","name":"bondAt","stateMutability":"view","inputs":[{"name":"holder","type":"address"},{"name":"node","type":"address"},{"name":"round","type":"uint256"}],"outputs":[{"name":"","type":"uint256"}]},
+ {"type":"function","name":"stayingOf","stateMutability":"view","inputs":[{"name":"holder","type":"address"},{"name":"node","type":"address"}],"outputs":[{"name":"","type":"uint256"}]},
+ {"type":"function","name":"feesOf","stateMutability":"view","inputs":[{"name":"round","type":"uint256"},{"name":"node","type":"address"}],"outputs":[{"name":"","type":"uint256"}]},
+ {"type":"function","name":"entitlementOf","stateMutability":"view","inputs":[{"name":"node","type":"address"},{"name":"round","type":"uint256"}],"outputs":[{"name":"claimed","type":"bool"},{"name":"paid","type":"uint256"},{"name":"pot","type":"uint256"}]},
+ {"type":"function","name":"partOf","stateMutability":"view","inputs":[{"name":"holder","type":"address"},{"name":"node","type":"address"},{"name":"round","type":"uint256"}],"outputs":[{"name":"amount","type":"uint256"},{"name":"withdrawn","type":"bool"}]},
  {"type":"function","name":"mint","stateMutability":"nonpayable","inputs":[{"name":"to","type":"address"},{"name":"amount","type":"uint256"}],"outputs":[]},
  {"type":"function","name":"isRegistered","stateMutability":"view","inputs":[{"name":"a","type":"address"}],"outputs":[{"name":"","type":"bool"}]},
  {"type":"function","name":"balanceOf","stateMutability":"view","inputs":[{"name":"account","type":"address"}],"outputs":[{"name":"","type":"uint256"}]},
@@ -166,6 +175,7 @@ type Session struct {
 	Client *ethclient.Client
 	From   common.Address
 	auth   *bind.TransactOpts
+	key    *ecdsa.PrivateKey
 }
 
 // Open dials the chain and prepares to sign as key.
@@ -182,7 +192,21 @@ func Open(ctx context.Context, rpcURL string, key *ecdsa.PrivateKey) (*Session, 
 	if err != nil {
 		return nil, err
 	}
-	return &Session{Client: client, From: auth.From, auth: auth}, nil
+	return &Session{Client: client, From: auth.From, auth: auth, key: key}, nil
+}
+
+// Key is the session's key, to sign a message that is not a transaction,
+// or nil for a session opened by Dial.
+func (s *Session) Key() *ecdsa.PrivateKey { return s.key }
+
+// Dial connects to the chain to read only: a Session with no key, whose
+// calls are made from the zero address and which cannot send.
+func Dial(ctx context.Context, rpcURL string) (*Session, error) {
+	client, err := ethclient.DialContext(ctx, rpcURL)
+	if err != nil {
+		return nil, err
+	}
+	return &Session{Client: client}, nil
 }
 
 func (s *Session) contract(at common.Address) *bind.BoundContract {
@@ -208,6 +232,13 @@ func (s *Session) Resolve(ctx context.Context, controller common.Address, name s
 func (s *Session) Call(ctx context.Context, at common.Address, method string, args ...any) ([]any, error) {
 	var out []any
 	err := s.contract(at).Call(&bind.CallOpts{Context: ctx, From: s.From}, &out, method, args...)
+	return out, err
+}
+
+// CallAt reads a view at the block numbered at (nil: the newest).
+func (s *Session) CallAt(ctx context.Context, at *big.Int, to common.Address, method string, args ...any) ([]any, error) {
+	var out []any
+	err := s.contract(to).Call(&bind.CallOpts{Context: ctx, From: s.From, BlockNumber: at}, &out, method, args...)
 	return out, err
 }
 
@@ -263,6 +294,9 @@ func (s *Session) Bool(ctx context.Context, at common.Address, method string, ar
 // Send signs and sends a transaction, waits until it is mined and fails
 // unless it succeeded. A refusal is reported by its stable code.
 func (s *Session) Send(ctx context.Context, at common.Address, method string, args ...any) (*types.Receipt, error) {
+	if s.auth == nil {
+		return nil, fmt.Errorf("%s: this session has no key and cannot send", method)
+	}
 	opts := *s.auth
 	opts.Context = ctx
 	tx, err := s.contract(at).Transact(&opts, method, args...)
