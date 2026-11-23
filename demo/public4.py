@@ -15,32 +15,42 @@ with the share and burns it; and the change is read back in the round before
 it counts and in the round it counts from. Every figure is read from the
 chain and printed beside the calculator's: the payment, stake and each
 round's shares as a ledger case, as the stage 3 run does; the buys as a
-buyback case; the change as a parameters case. The run then hands over: it
-writes services.json in the state directory, and the same in its manifest,
-with what the standing services need and no key of the deployer's or G's.
+buyback case; the change as a parameters case. Only when every figure is
+equal does the run hand over: it writes deployment.json, the file operators
+give their node container, and services.json, in the state directory, and
+the same in its manifest, with what the standing services need and no key of
+the deployer's or G's. A run that fails removes both, so serve refuses it.
 
 serve starts the standing services from services.json and the role keys in
-the state directory alone: N's node with its model, the keeper and the
-scripted validator V. It never reads the deployer's or G's keystore. It runs
-until it is stopped, and exits when one of its programs does, naming it.
+the state directory alone: N's node with the light responder, the keeper, the
+scripted validator V, lp2-sender and lp2-faucet. It never reads the
+deployer's or G's keystore. It runs until it is stopped, and exits when one
+of its programs does, naming it.
 
 The path sends no anvil_* or evm_* call. Environment, as demo/public.py's,
 and for stage-4 also:
   LP2_AUTHORITY_KEYSTORE       G's keystore file, outside the repository
   LP2_AUTHORITY_PASSWORD_FILE  its password file, outside the repository
+  LP2_SENDER_URL               the sender's public URL, which deployment.json
+                               names; on a local chain, by default, its
+                               loopback address. Required on a public chain
 serve reads LP2_STATE_DIR, LP2_DEMO_PORT_BASE and, if set, LP2_RPC_URL (by
-default the URL the run used, kept in the state directory).
+default the URL the run used, kept in the state directory), LP2_SENDER_URL
+(a new one is written into deployment.json), LP2_SENDER_LISTEN and
+LP2_NODE_URL.
 
 Exit 0 every figure equal (serve: stopped); 1 a figure differed, a behaviour
 was missing or a service exited; 2 the run could not run or was refused.
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import re
 import subprocess
 import time
+import urllib.parse
 from pathlib import Path
 
 import common
@@ -53,6 +63,14 @@ from common import NotRun, Failed, say, check, call, words, money, lpt, C, ADDR,
 TEMPLATE = "public-arbitrum-sepolia-stage-4.json"
 ROLES = ("N", "P", "V", "Keeper", "Faucet")
 SERVICES = "services.json"
+OPERATORS = "deployment.json"   # the deployment file operators give their node container
+# What the operator container reads from it (programs/container/README.md):
+# each a string or a number, and nothing else.
+OPERATOR_CONTRACTS = ("Controller", "Parameters", "StakeLedger", "Claims", "TestLPT", "MockUSDC")
+OPERATOR_NODE = ("job_price_usd", "price_unit", "wei_per_usd", "ticket_face_value", "ticket_win_prob")
+# A round that has not started for this long means the keeper cannot start
+# it: three rounds on Arbitrum Sepolia, thirty on a local chain.
+STALL_SECONDS = 1800
 # The keeper in the run and the services: Parameters' address, so it buys and
 # pokes at the executor in force, polled every 5 s (a round is 50 blocks).
 SYNC = "Sync(uint112,uint112)"
@@ -132,6 +150,7 @@ def main() -> int:
     g = authority()
     public.ROLES = ROLES
     chain_id = public.open_state(stage=4)
+    sender_url(chain_id)   # the handover's deployment.json names it: checked before anything is sent
     state = public.STATE
     if state.get("authority", g).lower() != g.lower():
         raise NotRun(f"this state directory's authority is {state['authority']}, not {g}. Nothing was sent")
@@ -150,10 +169,14 @@ def main() -> int:
 
     if all(n in state["done"] for n in ("buy", "change before", "change from")):
         deploy()
-        if len(common.settlements()) > 1:
-            raise NotRun("the standing services have paid nodes since the handover: lp2-sender's funding is not a step "
-                         "of this run, so its figures cannot be read again from the chain. They were reconciled at the "
-                         "handover; see public-run.log in the state directory. Nothing was sent")
+        # The services' own sends are not steps of this run: lp2-sender's
+        # funding and payments, and lp2-faucet's grants (it sends nothing
+        # during the run).
+        if len(common.settlements()) > 1 or int(common.rpc("eth_getTransactionCount", [ADDR["Faucet"], "latest"]), 16):
+            raise NotRun("the standing services have paid or granted nodes since the handover: lp2-sender's funding "
+                         "and lp2-faucet's grants are not steps of this run, so its figures cannot be read again from "
+                         "the chain. They were reconciled at the handover; see public-run.log in the state directory. "
+                         "Nothing was sent")
         say("\nThis state's last step is done: nothing is sent; every figure is reconciled again from the chain.")
         return reconcile(chain_id, started)
 
@@ -196,7 +219,7 @@ def main() -> int:
             {"action": "grant_lpt", "to": who, "amount_wei": wei}, "deployer", C["TestLPT"],
             "transfer(address,uint256)", ADDR[who], wei) and None)
     say(f"  the faucet {ADDR['Faucet']} holds {lpt(call(C['TestLPT'], 'balanceOf(address)', ADDR['Faucet']))} test LPT; "
-        "nothing hands it out yet")
+        "lp2-faucet hands it out under demo/public-run serve")
     for who in ("N", "V"):
         public.step(f"register {who}", lambda who=who: public.tx_step({"action": "register", "node": who}, who,
                                                                       C["Registry"], "register()") and None)
@@ -256,8 +279,11 @@ def wait_both(change: dict) -> None:
     say(f"\n6. Rounds to {cf}: the change counts from round {cf}; the keeper buys once the pool's average price is "
         f"{twap:,} s old and the network share holds USDC")
     last, filled_at = None, None
+    seen_round, round_at = None, time.time()
     while True:
         now = stage3.current_round()
+        if now != seen_round:
+            seen_round, round_at = now, time.time()
         if now >= cf - 1 and "change before" not in public.STATE["done"]:
             read_change("change before", cf - 1, now, cf)
             last = now
@@ -285,9 +311,15 @@ def wait_both(change: dict) -> None:
                                      "bought for 15 minutes; see logs/keeper.log in the state directory")
         elif now != last:
             say(f"  {time.strftime('%H:%M:%S')} round {now}")
-        if now != last and keeper_gas() < 1:
+        # Each poll, not each round: a keeper out of gas starts no round.
+        left = keeper_gas()
+        if left < 1:
             raise Failed(f"the keeper's gas money has run out, so no round can start: send its address {ADDR['Keeper']} "
                          "more of the chain's native token, then start the run again (it resumes)")
+        if time.time() - round_at > STALL_SECONDS:
+            raise Failed(f"no round has started for {STALL_SECONDS // 60} minutes (round {now}): the keeper is not "
+                         f"starting rounds; it can pay for about {left} more transactions. See logs/keeper.log in the "
+                         "state directory, then start the run again (it resumes)")
         last = now
         if all(n in public.STATE["done"] for n in ("buy", "change before", "change from")):
             return
@@ -366,7 +398,7 @@ def reconcile(chain_id: int, started: float) -> int:
     bcase = buyback_case(buys, minted, views["block"])
     pcase = parameters_case()
     write_cases([bcase, pcase])
-    handover(chain_id)
+    handover(chain_id)   # only when every figure is equal; otherwise it withdraws any earlier handover
     public.spending()
     return common.finish(started, "the network share bought and burned test LPT, and G's change counted seven rounds "
                                   "after its announcement; every figure read from the chain equals the calculator's. "
@@ -490,18 +522,140 @@ def services_doc(chain_id: int) -> dict:
             "keys": {who: f"keys/{who}/{who}" for who in ROLES}, "password_file": "pw", "rpc_url_file": "rpc-url",
             "services": ["N's node, the unmodified orchestrator, serving lp2-responder",
                          "lp2-keeper, given Parameters' address", "lp2-validators for V",
-                         "lp2-sender, paying as P each node that joins, with P's signer on loopback"]}
+                         "lp2-sender, paying as P each node that joins, with P's signer on loopback",
+                         "lp2-faucet, granting each registered node test LPT once, from the deployment's first block"]}
+
+
+def url_problem(url: str, public_chain: bool) -> str | None:
+    """Why `url` cannot be the sender's published URL, or None. It is
+    published, so it names the sender's host and nothing else; on a public
+    chain that host is not a loopback or private one."""
+    try:
+        u = urllib.parse.urlsplit(url)
+        host = u.hostname
+        u.port
+    except ValueError:
+        return "is not a URL"
+    if u.scheme not in ("http", "https") or not host:
+        return "is not an http:// or https:// URL"
+    if u.username or u.password or u.query or u.fragment:
+        return "carries a user, password, query or fragment, and it is published"
+    if public_chain:
+        try:
+            private = not ipaddress.ip_address(host).is_global
+        except ValueError:
+            private = host == "localhost" or host.endswith((".localhost", ".local", ".internal"))
+        if private:
+            return "names a loopback or private host, which operators cannot reach"
+    return None
+
+
+def sender_listen() -> str:
+    return os.environ.get("LP2_SENDER_LISTEN", f"127.0.0.1:{SENDER}")
+
+
+def sender_url(chain_id: int) -> str:
+    """The sender's URL as operators reach it, the setting the services run
+    with: LP2_SENDER_URL, or on a local chain by default its loopback
+    address."""
+    url = os.environ.get("LP2_SENDER_URL", "")
+    if not url:
+        if chain_id not in public.LOCAL_CHAINS:
+            raise NotRun("LP2_SENDER_URL is not set: on a public chain, the deployment file operators are given names "
+                         "the sender's public URL (demo/PUBLIC.md). Nothing was sent")
+        url = "http://127.0.0.1:" + sender_listen().rsplit(":", 1)[1]
+    problem = url_problem(url, chain_id not in public.LOCAL_CHAINS)
+    if problem:
+        raise NotRun(f"LP2_SENDER_URL {problem}. Nothing was sent")
+    return url
+
+
+def operator_doc(chain_id: int, url: str) -> dict:
+    """The deployment file operators give their node container, in its
+    fields (programs/container/README.md): public addresses and settings
+    only, and the sender's public URL."""
+    price = MANIFEST["price"]
+    return {"testnet": f"public-run-{chain_id}", "chain_id": chain_id, "first_block": common.FROM_BLOCK,
+            "contracts": {k: C[k] for k in OPERATOR_CONTRACTS},
+            "node": {"job_price_usd": price["job_price_usd"], "price_unit": price["unit"],
+                     "wei_per_usd": price["wei_per_usd"], "ticket_face_value": str(common.ticket_face()),
+                     "ticket_win_prob": price["ticket_win_prob"]},
+            "sender_url": url}
+
+
+def operator_problems(doc: dict, public_chain: bool) -> list[str]:
+    """What is wrong with an operators' deployment file: a field the
+    container reads that is missing or not a string or number, a field it
+    does not read, an address that is not one, or a sender URL that cannot
+    be published."""
+    problems = []
+
+    def fields(where: str, got: dict, want: tuple[str, ...], objects: tuple[str, ...] = ()) -> None:
+        for k in want:
+            v = got.get(k)
+            if not isinstance(v, (str, int)) or isinstance(v, bool) or v == "":
+                problems.append(f"{where}{k} is missing or not a string or number")
+        problems.extend(f"{where}{k} is not a field the container reads" for k in got if k not in want + objects)
+    fields("", doc, ("testnet", "chain_id", "first_block", "sender_url"), ("contracts", "node"))
+    for k, want in (("contracts", OPERATOR_CONTRACTS), ("node", OPERATOR_NODE)):
+        if isinstance(doc.get(k), dict):
+            fields(f"{k}.", doc[k], want)
+        else:
+            problems.append(f"{k} is missing or not an object")
+    for k, v in (doc.get("contracts") or {}).items():
+        if isinstance(v, str) and not re.fullmatch(r"0x[0-9a-fA-F]{40}", v):
+            problems.append(f"contracts.{k} is not an address")
+    for k in ("chain_id", "first_block"):
+        if k in doc and (not isinstance(doc[k], int) or isinstance(doc[k], bool) or doc[k] < 0):
+            problems.append(f"{k} is not a whole number")
+    if isinstance(doc.get("sender_url"), str) and doc["sender_url"]:
+        problem = url_problem(doc["sender_url"], public_chain)
+        if problem:
+            problems.append(f"sender_url {problem}")
+    return problems
+
+
+def write_public(path: Path, text: str, mode: int) -> None:
+    """Replace `path` whole, so a reader never sees half of it."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text)
+    tmp.chmod(mode)
+    tmp.replace(path)
+
+
+def withdraw_handover() -> None:
+    """A run with a check failed hands nothing over, and removes what an
+    earlier run handed over, so serve refuses the state directory."""
+    gone = [n for n in (SERVICES, OPERATORS) if (public.STATE_DIR / n).is_file()]
+    for n in (SERVICES, OPERATORS):
+        (public.STATE_DIR / n).unlink(missing_ok=True)
+    say(f"  no handover: {len(common.FAILURES)} check(s) failed, so demo/public-run serve will not start from this "
+        f"state directory{' (removed ' + ' and '.join(gone) + ')' if gone else ''}")
 
 
 def handover(chain_id: int) -> None:
-    """Hand the deployment to the standing services: services.json in the
-    state directory, and the same in the run's manifest. The programs the
-    run started stop with it; demo/public-run serve starts the services."""
+    """Hand the deployment to the standing services, only when every figure
+    is equal: deployment.json, the file operators give their node container,
+    and services.json, in the state directory, and the same in the run's
+    manifest. serve starts only from a services.json, so a run that failed
+    removes any it handed over before. The programs the run started stop
+    with it; demo/public-run serve starts the services."""
     say("\n8. The handover")
+    if common.FAILURES:
+        return withdraw_handover()
     svc = services_doc(chain_id)
-    out = public.STATE_DIR / SERVICES
-    out.write_text(json.dumps({**svc, "template": public.TEMPLATE_DOC}, indent=1) + "\n")
-    out.chmod(0o600)
+    text = json.dumps({**svc, "template": public.TEMPLATE_DOC}, indent=1) + "\n"
+    operators = operator_doc(chain_id, sender_url(chain_id))
+    op_text = json.dumps(operators, indent=1) + "\n"
+    owner = [k for k in (public.STATE["deployer_keystore"], public.STATE["deployer_password_file"], *AUTHORITY)
+             if k in text or k in op_text]
+    check("services.json and deployment.json name no key of the deployer's or G's", owner, [])
+    check("deployment.json holds the fields the operator container reads, and nothing else",
+          operator_problems(operators, chain_id not in public.LOCAL_CHAINS), [])
+    private = [s for s in (common.RPC, str(public.STATE_DIR), "keys/") if s and s in op_text]
+    check("deployment.json names no RPC URL, path or key file", private, [])
+    if common.FAILURES:
+        return withdraw_handover()
     done = public.STATE["done"]
     pc = public.TEMPLATE_DOC["parameter_change"]
     more = {"authority": svc["authority"],
@@ -513,9 +667,11 @@ def handover(chain_id: int) -> None:
             "services": {k: v for k, v in svc.items() if k not in ("stage", "chain_id", "from_block", "contracts",
                                                                    "authority", "accounts")}}
     public.write_manifest(chain_id, more)
-    check("services.json names no key of the deployer's or G's",
-          [k for k in (public.STATE["deployer_keystore"], public.STATE["deployer_password_file"], *AUTHORITY)
-           if k in out.read_text()], [])
+    write_public(public.STATE_DIR / OPERATORS, op_text, 0o644)
+    write_public(public.STATE_DIR / SERVICES, text, 0o600)   # last: serve starts from it
+    say(f"  wrote deployment.json for operators: chain {chain_id}, first block {operators['first_block']}, "
+        f"{len(operators['contracts'])} contracts, the node's price and tickets, and the sender at "
+        f"{operators['sender_url']}. Publish it (demo/PUBLIC.md)")
     say(f"  wrote services.json: chain {chain_id}, first block {svc['from_block']}, {len(svc['contracts'])} contracts, "
         f"executor in force {svc['executor']}, and the key files of {', '.join(svc['keys'])}")
     say("  the run's programs stop with it; until the services start, a round just lasts longer")
@@ -548,6 +704,39 @@ def start_sender(listen: str, local: bool) -> None:
     say(f"  lp2-sender answers joins on {listen}, paying as P{' (private node URLs allowed: a local chain)' if local else ''}")
 
 
+def start_faucet(state_dir: Path, from_block: int) -> None:
+    """lp2-faucet, holding the faucet account's key: it grants each node
+    registered from the deployment's first block test LPT once. Its journal
+    is in faucet/ in the state directory, kept across restarts, so a node is
+    never granted twice."""
+    journal = state_dir / "faucet"
+    journal.mkdir(mode=0o700, exist_ok=True)
+    common.start("faucet", [str(state_dir / "bin" / "lp2-faucet"), "--rpc-url", common.RPC,
+                            "--keystore-file", str(stage3.KEYS["Faucet"]),
+                            "--keystore-password-file", str(state_dir / "pw"),
+                            "--controller-address", C["Controller"], "--lpt-address", C["TestLPT"],
+                            "--state-dir", str(journal), "--from-block", str(from_block)])
+    public.note_holders()
+    say(f"  lp2-faucet grants each node registered from block {from_block} test LPT once; the faucet "
+        f"{ADDR['Faucet']} holds {lpt(call(C['TestLPT'], 'balanceOf(address)', ADDR['Faucet']))}")
+
+
+def publish_sender(state_dir: Path, chain_id: int) -> None:
+    """deployment.json names the sender's URL the services run with: a new
+    LP2_SENDER_URL is written into it, to be published again."""
+    path = state_dir / OPERATORS
+    doc = json.loads(path.read_text())
+    url = sender_url(chain_id) if os.environ.get("LP2_SENDER_URL") else doc.get("sender_url", "")
+    if url != doc.get("sender_url"):
+        doc["sender_url"] = url
+        write_public(path, json.dumps(doc, indent=1) + "\n", 0o644)
+        say(f"  deployment.json now names the sender at {url}: publish it again (demo/PUBLIC.md)")
+    problems = operator_problems(doc, chain_id not in public.LOCAL_CHAINS)
+    if problems:
+        raise NotRun(f"{OPERATORS} in the state directory is not one operators can be given: {'; '.join(problems)}")
+    say(f"  deployment.json, the file operators are given, names the sender at {url}")
+
+
 def join_n(listen: str, chain_id: int) -> None:
     """The team's node joins the sender as any node does: a join signed with
     N's key. Its URL is LP2_NODE_URL, the URL at which N's orchestrator is
@@ -578,9 +767,9 @@ def join_n(listen: str, chain_id: int) -> None:
 def serve() -> int:
     """The standing services, from services.json and the role keys alone."""
     state_dir = public.outside_repo("LP2_STATE_DIR", False)
-    if not (state_dir / SERVICES).is_file():
-        raise NotRun(f"{state_dir} holds no {SERVICES}: no stage 4 run has handed over to services there "
-                     "(demo/public-run stage-4)")
+    if not (state_dir / SERVICES).is_file() or not (state_dir / OPERATORS).is_file():
+        raise NotRun(f"{state_dir} holds no {SERVICES} and {OPERATORS}: no stage 4 run has passed and handed over to "
+                     "services there (demo/public-run stage-4)")
     public.STATE_DIR = state_dir
     public.lock()
     common.RUN = state_dir
@@ -608,21 +797,23 @@ def serve() -> int:
     public.check_deployment()
     for who, addr in svc["accounts"].items():
         ADDR[who], NAMES[addr.lower()] = addr, who
-    for who in ("N", "P", "V", "Keeper"):
+    for who in ("N", "P", "V", "Keeper", "Faucet"):
         stage3.KEYS[who] = public.private(state_dir / svc["keys"][who])
         if not stage3.KEYS[who].is_file():
             raise NotRun(f"the state directory holds no key file for {who} ({svc['keys'][who]})")
     say("The standing services of the stage 4 deployment: N's node with the light responder, the keeper, the "
-        "scripted validator V, and lp2-sender with P's signer")
+        "scripted validator V, lp2-sender with P's signer, and lp2-faucet")
+    publish_sender(state_dir, chain_id)
     say(f"  chain id {chain_id}; Controller {C['Controller']}; executor in force {executor_in_force()}; "
         f"the keeper {ADDR['Keeper']} can pay for about {keeper_gas()} more transactions, two a round")
 
     PORT.update({"responder": RESPONDER, "sender": SENDER})
-    listen = os.environ.get("LP2_SENDER_LISTEN", f"127.0.0.1:{SENDER}")
+    listen = sender_listen()
     common.preflight(["orch", "orch_metrics", "signer_p", "signer_p_metrics", "responder"] +
                      (["sender"] if listen == f"127.0.0.1:{SENDER}" else []), docker=False)
     node_bin = common.fetch_node()
-    common.PROGRAMS.update({"lp2-sender": "./cmd/lp2-sender", "lp2-responder": "./cmd/lp2-responder"})
+    common.PROGRAMS.update({"lp2-sender": "./cmd/lp2-sender", "lp2-responder": "./cmd/lp2-responder",
+                            "lp2-faucet": "./cmd/lp2-faucet"})
     common.build_ours()
     # V votes the full score for N in the round after the services start,
     # which leaves every score as it was: a validator call each start.
@@ -632,11 +823,17 @@ def serve() -> int:
                       f"# services started (round {first}), which leaves every score as it was.\n{first + 1} V N 1000000\n")
     common.start("responder", [str(state_dir / "bin" / "lp2-responder"), "--listen", f"127.0.0.1:{RESPONDER}"])
     public.start_programs(node_bin, None, keeper=keeper_options(), script=script, runner=("light", "light", RESPONDER))
+    sender_log = state_dir / "logs" / "sender.log"
+    relays_from = sender_log.stat().st_size if sender_log.is_file() else 0   # this start's relays are read on from here
     start_sender(listen, chain_id in public.LOCAL_CHAINS)
+    start_faucet(state_dir, svc["from_block"])
     join_n(listen, chain_id)
     say(f"  {time.strftime('%H:%M:%S')} round {first}; the services run until stopped (Ctrl-C or SIGTERM). "
         "Logs are in logs/ in the state directory")
-    last, seen = first, 0
+    last, round_at, said_stall = first, time.time(), False
+    relays = open(sender_log, "rb")
+    relays.seek(relays_from)
+    partial = b""
     try:
         while True:
             for name, p in common.PROCS.items():
@@ -648,12 +845,17 @@ def serve() -> int:
                 low = (f"; the keeper can pay for about {left} more transactions: send its address {ADDR['Keeper']} "
                        "more of the chain's native token" if left < 100 else "")
                 say(f"  {time.strftime('%H:%M:%S')} round {now} started{low}")
-                last = now
-            relays = [ln for ln in (state_dir / "logs" / "sender.log").read_text(errors="replace").splitlines()
-                      if " relay: node " in ln]
-            for line in relays[seen:]:
-                say(f"  lp2-sender: {line.split(' ', 2)[2][:160]}")
-            seen = len(relays)
+                last, round_at, said_stall = now, time.time(), False
+            elif not said_stall and time.time() - round_at > STALL_SECONDS:
+                # A keeper out of gas starts no round, so this is said here.
+                said_stall = True
+                say(f"  {time.strftime('%H:%M:%S')} no round has started for {STALL_SECONDS // 60} minutes (round {now}); "
+                    f"the keeper can pay for about {keeper_gas()} more transactions: send its address {ADDR['Keeper']} "
+                    "more of the chain's native token, or see logs/keeper.log in the state directory")
+            *lines, partial = (partial + relays.read()).split(b"\n")
+            for line in (ln.decode(errors="replace") for ln in lines):
+                if " relay: node " in line:
+                    say(f"  lp2-sender: {line.split(' ', 2)[2][:160]}")
             time.sleep(5)
     except KeyboardInterrupt:
         say("  the services are stopped")

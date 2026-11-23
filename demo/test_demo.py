@@ -614,6 +614,183 @@ class PublicStage4(unittest.TestCase):
             self.assertNotIn(secret, text)
         self.assertEqual((svc["executor"], svc["accounts"]), ("0x" + "bb" * 20, accounts))
 
+    # The fields the operator container's entrypoint reads from the
+    # deployment file, each with `jq -er '<field> | strings, numbers'`
+    # (programs/container, mission 10).
+    CONTAINER_READS = (".testnet", ".chain_id", ".first_block", ".contracts.Controller", ".contracts.Parameters",
+                       ".contracts.StakeLedger", ".contracts.Claims", ".contracts.TestLPT", ".contracts.MockUSDC",
+                       ".node.job_price_usd", ".node.price_unit", ".node.wei_per_usd", ".node.ticket_face_value",
+                       ".node.ticket_win_prob", ".sender_url")
+
+    def deployed(self):
+        """A stage 4 deployment's contracts and the template's price, with no chain."""
+        contracts = {c["contract"]: "0x" + f"{i:02x}" * 20 for i, c in enumerate(self.t4["contracts"], 1)}
+        return mock.patch.dict(common.C, contracts), mock.patch.dict(common.MANIFEST, {"price": self.t4["price"]}), \
+            mock.patch.object(common, "FROM_BLOCK", 331292296), contracts
+
+    def test_the_operators_file_holds_what_the_container_reads_and_nothing_private(self):
+        c, m, b, contracts = self.deployed()
+        with c, m, b, mock.patch.object(common, "RPC", "https://rpc.example/v1/SECRET"):
+            doc = self.p4.operator_doc(421614, "https://sender.example")
+        self.assertEqual(self.p4.operator_problems(doc, True), [])
+        self.assertEqual(set(doc), {"testnet", "chain_id", "first_block", "contracts", "node", "sender_url"})
+        self.assertEqual(doc["contracts"], {k: contracts[k] for k in ("Controller", "Parameters", "StakeLedger",
+                                                                      "Claims", "TestLPT", "MockUSDC")})
+        self.assertEqual((doc["chain_id"], doc["first_block"], doc["sender_url"]),
+                         (421614, 331292296, "https://sender.example"))
+        self.assertEqual(doc["node"]["ticket_face_value"], "1000000")
+        text = json.dumps(doc)
+        for private in ("SECRET", "rpc.example", "keys/", "pw", contracts["Broker"], contracts["TestPool"]):
+            self.assertNotIn(private, text)
+        if not shutil.which("jq"):
+            self.skipTest("jq is not installed: the container's reader was not run")
+        path = self.dir / "deployment.json"
+        path.write_text(json.dumps(doc, indent=1) + "\n")
+        for field in self.CONTAINER_READS:
+            with self.subTest(field=field):
+                got = subprocess.run(["jq", "-er", f"{field} | strings, numbers", str(path)], capture_output=True, text=True)
+                self.assertEqual(got.returncode, 0, got.stderr)
+                self.assertTrue(got.stdout.strip())
+
+    def test_an_operators_file_the_container_cannot_use_is_named(self):
+        c, m, b, _ = self.deployed()
+        with c, m, b:
+            good = self.p4.operator_doc(421614, "https://sender.example:8443/lp2")
+        self.assertEqual(self.p4.operator_problems(good, True), [])
+        for name, change, public_chain in (
+                ("no sender", lambda d: d.pop("sender_url"), True),
+                ("a key file", lambda d: d.update(keys={"N": "keys/N/N"}), True),
+                ("no MockUSDC", lambda d: d["contracts"].pop("MockUSDC"), True),
+                ("another contract", lambda d: d["contracts"].update(Broker="0x" + "11" * 20), True),
+                ("not an address", lambda d: d["contracts"].update(Claims="0x1234"), True),
+                ("a price as an object", lambda d: d["node"].update(job_price_usd={"usd": 1}), True),
+                ("a chain id as text", lambda d: d.update(chain_id="421614"), True),
+                ("a private sender", lambda d: d.update(sender_url="http://10.1.2.3:8935"), True),
+                ("a loopback sender", lambda d: d.update(sender_url="http://localhost:8935"), True),
+                ("a sender with a query", lambda d: d.update(sender_url="https://sender.example/?key=1"), False),
+                ("a sender that is no URL", lambda d: d.update(sender_url="sender.example"), False)):
+            with self.subTest(name=name):
+                doc = copy.deepcopy(good)
+                change(doc)
+                self.assertNotEqual(self.p4.operator_problems(doc, public_chain), [])
+        local = dict(copy.deepcopy(good), sender_url="http://127.0.0.1:49224")
+        self.assertEqual(self.p4.operator_problems(local, False), [])
+
+    def test_the_sender_url_is_the_setting_the_services_run_with(self):
+        with self.env(LP2_SENDER_URL="https://sender.example"):
+            self.assertEqual(self.p4.sender_url(421614), "https://sender.example")
+        with self.env(LP2_SENDER_LISTEN="0.0.0.0:49299"):
+            self.assertEqual(self.p4.sender_url(31337), "http://127.0.0.1:49299")
+        for given, want in (({}, "LP2_SENDER_URL is not set"),
+                            ({"LP2_SENDER_URL": "http://192.168.1.5:9000"}, "loopback or private host")):
+            with self.subTest(given=given), self.env(**given), self.assertRaises(common.NotRun) as e:
+                self.p4.sender_url(421614)
+            self.assertIn(want, str(e.exception))
+
+    def handed(self, failures):
+        import public
+        c, m, b, contracts = self.deployed()
+        done = {"announce": {"round": 1, "counts_from": 8, "tx": "0x" + "aa" * 32},
+                "buy": {"tx": "0x" + "bb" * 32, "usdc_in_micro_usdc": "1", "lpt_out_wei": "2", "burned_wei": "2"}}
+        state = {"deployer_keystore": "/owner/deployer.json", "deployer_password_file": "/owner/deployer.pw",
+                 "authority": "0x" + "a1" * 20, "done": done}
+        accounts = {w: "0x" + f"{i:02x}" * 20 for i, w in enumerate(self.p4.ROLES, 1)}
+        wrote = []
+        with c, m, b, self.env(), mock.patch.dict(public.STATE, state, clear=True), \
+                mock.patch.dict(public.TEMPLATE_DOC, self.t4, clear=True), mock.patch.object(public, "STATE_DIR", self.dir), \
+                mock.patch.dict(common.ADDR, accounts), mock.patch.object(common, "FAILURES", list(failures)), \
+                mock.patch.object(common, "RPC", "http://127.0.0.1:49200"), \
+                mock.patch.object(self.p4, "executor_in_force", lambda: contracts["Buyback"]), \
+                mock.patch.object(public, "write_manifest", lambda *a: wrote.append(a)):
+            self.p4.handover(31337)
+        return wrote
+
+    def test_a_run_that_passed_hands_over_both_files(self):
+        self.assertEqual(len(self.handed([])), 1)
+        svc = json.loads((self.dir / "services.json").read_text())
+        op = json.loads((self.dir / "deployment.json").read_text())
+        self.assertEqual(self.p4.operator_problems(op, False), [])
+        self.assertEqual((op["chain_id"], op["first_block"], op["contracts"]["Controller"]),
+                         (svc["chain_id"], svc["from_block"], svc["contracts"]["Controller"]))
+        self.assertEqual(((self.dir / "services.json").stat().st_mode & 0o777,
+                          (self.dir / "deployment.json").stat().st_mode & 0o777), (0o600, 0o644))
+        self.assertIn("Faucet", svc["keys"])
+
+    def test_a_run_that_failed_hands_nothing_over_and_serve_refuses_it(self):
+        # A finished run handed over; read again, one figure differs by a
+        # wei: what it handed over is removed, and serve will not start.
+        self.handed([])
+        self.assertTrue((self.dir / "services.json").is_file())
+        self.assertEqual(self.handed(["LPT supply after the burn: chain 10, calculator 11"]), [])
+        self.assertFalse((self.dir / "services.json").exists())
+        self.assertFalse((self.dir / "deployment.json").exists())
+        with self.env(LP2_STATE_DIR=str(self.dir)), self.assertRaises(common.NotRun) as e:
+            self.p4.serve()
+        self.assertIn("holds no services.json", str(e.exception))
+
+    def test_serve_starts_the_faucet_from_the_first_block_with_a_kept_journal(self):
+        import public
+        import stage3
+        started = []
+        with mock.patch.object(common, "start", lambda name, argv: started.append((name, argv))), \
+                mock.patch.object(public, "note_holders", lambda: None), \
+                mock.patch.object(self.p4, "call", lambda *a: 10**24), \
+                mock.patch.dict(stage3.KEYS, {"Faucet": self.dir / "keys" / "Faucet" / "Faucet"}), \
+                mock.patch.dict(common.C, {"Controller": "0x" + "cc" * 20, "TestLPT": "0x" + "dd" * 20}), \
+                mock.patch.dict(common.ADDR, {"Faucet": "0x" + "05" * 20}):
+            self.p4.start_faucet(self.dir, 1234)
+        (name, argv), = started
+        flags = dict(zip(argv[1::2], argv[2::2]))
+        self.assertEqual((name, Path(argv[0]).name), ("faucet", "lp2-faucet"))
+        self.assertEqual((flags["--from-block"], flags["--state-dir"], flags["--keystore-file"],
+                          flags["--controller-address"], flags["--lpt-address"]),
+                         ("1234", str(self.dir / "faucet"), str(self.dir / "keys" / "Faucet" / "Faucet"),
+                          "0x" + "cc" * 20, "0x" + "dd" * 20))
+        self.assertTrue((self.dir / "faucet").is_dir())
+
+    def waiting(self, gas, rounds_frozen=True):
+        """wait_both on a chain whose round does not move and whose keeper
+        has `gas` (a function of the poll) transactions left, with a clock
+        that moves 5 s a poll. Returns the exception and the polls made."""
+        import public
+        import stage3
+        import types
+        clock, polls = [1_000_000.0], [0]
+
+        def sleep(_):
+            clock[0] += 5
+            polls[0] += 1
+            if polls[0] > 2000:
+                raise AssertionError("the run waited on: nothing bounded the wait")
+        fake = types.SimpleNamespace(time=lambda: clock[0], sleep=sleep, strftime=time.strftime)
+        keeper = mock.Mock()
+        keeper.poll.return_value = None
+        with mock.patch.object(self.p4, "time", fake), mock.patch.object(stage3, "current_round", lambda: 5), \
+                mock.patch.object(self.p4, "keeper_gas", lambda: gas(polls[0])), \
+                mock.patch.object(self.p4, "call", lambda *a: 0), mock.patch.object(self.p4, "words", lambda *a: (0, 0, 0, 0)), \
+                mock.patch.object(common, "rpc", lambda *a: {"timestamp": "0x10"}), \
+                mock.patch.dict(common.PROCS, {"keeper": keeper}), mock.patch.dict(public.STATE, {"done": {}}, clear=True), \
+                mock.patch.dict(common.PARAMS, {"buyback_twap_seconds": "3600"}), \
+                mock.patch.dict(common.ADDR, {"Keeper": "0x" + "04" * 20}), \
+                mock.patch.dict(common.C, {"Buyback": "0x" + "b0" * 20, "Broker": "0x" + "b1" * 20}), \
+                mock.patch.dict(public.TEMPLATE_DOC, self.t4, clear=True):
+            with self.assertRaises(common.Failed) as e:
+                self.p4.wait_both({"counts_from": 100})
+        return str(e.exception), polls[0]
+
+    def test_a_keeper_that_runs_out_of_gas_in_a_round_fails_the_run(self):
+        # The round does not move, and the keeper's balance drops after the
+        # first poll: the run stops at the next poll, naming the keeper.
+        said, polls = self.waiting(lambda poll: 10 if poll == 0 else 0)
+        self.assertIn("the keeper's gas money has run out", said)
+        self.assertIn("0x" + "04" * 20, said)
+        self.assertEqual(polls, 1)
+
+    def test_a_round_that_does_not_start_fails_the_run_in_bounded_time(self):
+        said, polls = self.waiting(lambda poll: 1000)
+        self.assertIn("no round has started for 30 minutes", said)
+        self.assertEqual(polls, self.p4.STALL_SECONDS // 5 + 1)
+
 
 class PagedLogs(unittest.TestCase):
     """Hosted endpoints cap eth_getLogs' range, so the logs are read
