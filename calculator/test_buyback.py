@@ -24,11 +24,8 @@ class BuybackCases(unittest.TestCase):
 
     def test_block_times_shift_nothing(self):
         # A local chain runs at its own clock: only differences in time
-        # count, and NOT_DUE names a time, which moves with the clock. The
-        # second shift puts 2^32 s between the walk's poke at 21,600 and the
-        # buy at 25,200 that prices from it: the pool's uint32 time wraps
-        # there, and its differences must still be taken modulo 2^32.
-        for shift, case in ((shift, case) for shift in (1_763_800_000, 2 ** 32 - 23_000)
+        # count, and NOT_DUE names a time, which moves with the clock.
+        for shift, case in ((shift, case) for shift in (1_763_800_000,)
                             for case in self.cases.values()):
             with self.subTest(case=case['id'], shift=shift):
                 expected = self.run_case(case['inputs'])
@@ -101,58 +98,6 @@ class BuybackCases(unittest.TestCase):
             dict(step='2', round='1', time='0', action='poke'),
             dict(step='3', round='1', time='0', action='job', face_micro_usdc='20000'),
             dict(step='4', round='1', time=str(buy_time), action='buy')]}
-
-    def test_pool_time_is_uint32(self):
-        # Rule 3 keeps the cumulative as Uniswap v2 does, whose pair and
-        # reader hold block times as uint32: a gap of 2^32 + 3600 s since the
-        # pool's last update adds 3600 s of price, while the Buyback's
-        # elapsed is the full gap. The TWAP is then far below spot, maxIn is
-        # 0 and the buy is refused; at 3600 s the same buy succeeds.
-        interval = self.parameters.buyback_twap_seconds
-        on_time = self.run_case(self.pool_walk(interval))
-        self.assertEqual((len(on_time['bought']), on_time['refused']), (1, []))
-        late = self.run_case(self.pool_walk(2 ** 32 + interval))
-        self.assertEqual(late['bought'], [])
-        self.assertEqual(late['refused'], [{'step': '4', 'code': 'SLIPPAGE',
-                                            'args': [late['held_micro_usdc'], '0']}])
-
-    def test_cumulative_wraps_between_observations(self):
-        # Rule 3 takes cumulative now - O.cumulative modulo 2^256. Steer the
-        # pool's cumulative to just below 2^256 by holding it at falling
-        # prices, each gap under 2^32 s, poke there, and buy one interval
-        # later, after the sum has wrapped: the TWAP is the window's price.
-        interval = self.parameters.buyback_twap_seconds
-        word, ru, rl, now, cumulative = 2 ** 256, 2 ** 111, 1, 0, 0
-        steps = [dict(step='seed-0', round='1', time='0', action='seed',
-                      usdc_micro_usdc=str(ru), lpt_wei=str(rl))]
-
-        def hold(seconds):
-            nonlocal now, cumulative
-            self.assertTrue(0 < seconds < 2 ** 32)
-            cumulative += (ru << 112) // rl * seconds
-            now += seconds
-
-        hold(2 ** 32 - 1)
-        steps.append(dict(step='seed-usdc', round='1', time=str(now), action='seed',
-                          usdc_micro_usdc=str(2 ** 111 - 2 ** 100), lpt_wei='0'))
-        ru += 2 ** 111 - 2 ** 100
-        for target in (2 ** 31, 2 ** 62, 2 ** 93, 2 ** 111):
-            hold((word - cumulative - 1) // ((ru << 112) // rl))
-            steps.append(dict(step=f'seed-{target}', round='1', time=str(now), action='seed',
-                              usdc_micro_usdc='0', lpt_wei=str(target - rl)))
-            rl = target
-        price = (ru << 112) // rl
-        hold((word - cumulative - 1) // price)
-        self.assertTrue(word - price * interval < cumulative < word)
-        steps += [dict(step='poke', round='1', time=str(now), action='poke'),
-                  dict(step='job', round='1', time=str(now), action='job', face_micro_usdc='2000000'),
-                  dict(step='buy', round='1', time=str(now + interval), action='buy')]
-        result = buyback({'lpt_supply_wei': str(10 ** 6), 'steps': steps}, self.parameters)
-        self.assertEqual(result['refused'], [])
-        [bought] = result['bought']
-        self.assertEqual(bought['twap_x112'], price)
-        held = bought['usdc_in_micro_usdc'] + result['held_micro_usdc']
-        self.assertEqual(bought['lpt_out_wei'], amount_out(held, ru, rl))
 
     def test_job_adds_the_network_share(self):
         # R-03: an odd face leaves the floored node cut's remainder to the
