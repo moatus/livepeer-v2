@@ -673,7 +673,7 @@ class PublicStage4(unittest.TestCase):
     def test_an_operators_file_the_container_cannot_use_is_named(self):
         c, m, b, _ = self.deployed()
         with c, m, b:
-            good = self.p4.operator_doc(421614, "https://sender.example:8443/lp2")
+            good = self.p4.operator_doc(421614, "https://sender.example:8443")
         self.assertEqual(self.p4.operator_problems(good, True), [])
         for name, change, public_chain in (
                 ("no sender", lambda d: d.pop("sender_url"), True),
@@ -686,6 +686,8 @@ class PublicStage4(unittest.TestCase):
                 ("a private sender", lambda d: d.update(sender_url="http://10.1.2.3:8935"), True),
                 ("a loopback sender", lambda d: d.update(sender_url="http://localhost:8935"), True),
                 ("a sender with a query", lambda d: d.update(sender_url="https://sender.example/?key=1"), False),
+                ("a sender with a path", lambda d: d.update(sender_url="https://sender.example/lp2"), False),
+                ("a sender as a number", lambda d: d.update(sender_url=8940), False),
                 ("a sender that is no URL", lambda d: d.update(sender_url="sender.example"), False)):
             with self.subTest(name=name):
                 doc = copy.deepcopy(good)
@@ -693,6 +695,13 @@ class PublicStage4(unittest.TestCase):
                 self.assertNotEqual(self.p4.operator_problems(doc, public_chain), [])
         local = dict(copy.deepcopy(good), sender_url="http://127.0.0.1:49224")
         self.assertEqual(self.p4.operator_problems(local, False), [])
+        # The RPC URL is still looked for in the fields that are not the
+        # sender's, which may hold any text.
+        rpc = "https://rpc.example/v2/KEY"
+        with mock.patch.object(common, "RPC", rpc):
+            self.assertEqual(self.p4.operator_problems(good, True), [])
+            self.assertEqual(self.p4.operator_problems(dict(copy.deepcopy(good), testnet=rpc + "x"), True),
+                             ["it names an RPC URL, path or key file"])
 
     def test_the_sender_url_is_the_setting_the_services_run_with(self):
         with self.env(LP2_SENDER_URL="https://sender.example"):
@@ -770,16 +779,22 @@ class PublicStage4(unittest.TestCase):
             "https://inside.example", "https://partly.example", "https://mapped.example", "https://nowhere.example",
             # The RPC endpoint, however it is spelled and whatever the path.
             rpc, rpc + "/", "https://RPC.example./v2/KEY", "https://rpc.example", "https://rpc.example:443/lp2",
-            "HTTPS://Rpc.Example.:443", "https://rpc.example.:443/v2/KEY",
+            "HTTPS://Rpc.Example.:443", "https://rpc.example.:443/v2/KEY", "https://rpc.example/", "https://RPC.example.:443/",
             "ftp://sender.example", "https://user@sender.example", "https://sender.example/?", "https://sender.example/#",
-            "https://sender .example", "https://s\u00e9nder.example")
+            "https://sender .example", "https://s\u00e9nder.example",
+            # The sender is published at an origin: no path but "/", and a
+            # host that is a name or an address.
+            "https://sender.example/lp2", "https://Sender.Example.:8443/lp2", "https://sender.example//",
+            "https://sender.example/join", "https://sender.example/;KEY", "http://8.8.8.8:9000/x",
+            "http://rpc.example:8443/lp2", "http://rpc.example/v2/KEY", "https://sender.example/" + rpc + "x",
+            "https://sender.example;KEY", "https://sender.example\\x", "https://sender.example%2Fx")
         for url in refused:
             with self.subTest(url=url):
                 self.assertIsNotNone(self.p4.url_problem(url, True, rpc))
-        for url in ("https://sender.example", "https://Sender.Example.:8443/lp2", "https://two.example",
-                    "http://8.8.8.8:9000", "http://[2606:4700::1111]:9000",
+        for url in ("https://sender.example", "https://sender.example/", "https://Sender.Example.:8443",
+                    "https://two.example", "http://8.8.8.8:9000", "http://[2606:4700::1111]:9000/",
                     # The RPC's host at another port or scheme is another endpoint.
-                    "https://rpc.example:8940", "http://rpc.example:8443/lp2", "http://rpc.example/v2/KEY"):
+                    "https://rpc.example:8940", "http://rpc.example:8443", "http://rpc.example", "http://rpc.example/"):
             with self.subTest(url=url):
                 self.assertIsNone(self.p4.url_problem(url, True, rpc))
         # Review round 3's case: RPC and sender on one public address.
@@ -789,6 +804,15 @@ class PublicStage4(unittest.TestCase):
         self.assertIsNone(self.p4.url_problem("http://127.0.0.1:49224", False, local))
         self.assertIsNotNone(self.p4.url_problem(local, False, local))
         self.assertIsNotNone(self.p4.url_problem(rpc, False, rpc))
+        # On a local chain no name is resolved, yet the sender is still an
+        # origin: no path, and a host that is a name or an address.
+        for url in ("http://127.0.0.1:49224/lp2", "http://host.example;KEY:49224", "http://host.example\\x",
+                    "http://host.example%2Fx", "http://host.example,KEY"):
+            with self.subTest(url=url):
+                self.assertIsNotNone(self.p4.url_problem(url, False, local))
+        for url in ("http://host.example:49224", "http://host_1.example", "http://[::1]:49224/"):
+            with self.subTest(url=url):
+                self.assertIsNone(self.p4.url_problem(url, False, local))
 
     def test_the_run_and_serve_refuse_the_rpc_url_and_a_loopback_name_and_keep_the_file(self):
         # The two cases review round 2 reproduced: the RPC URL given as the
@@ -841,6 +865,38 @@ class PublicStage4(unittest.TestCase):
                 self.p4.publish_sender(self.dir, 421614)
                 doc = json.loads(path.read_text())
                 self.assertEqual((doc["sender_url"], self.p4.operator_problems(doc, True)), (url, []))
+
+    def test_the_run_and_serve_refuse_a_sender_that_is_not_an_origin_and_keep_the_file(self):
+        # Review C3's C4: a sender URL that held the whole RPC URL, its key
+        # and a suffix after it was written into deployment.json. The sender
+        # is published at an origin, so any path, query, user or fragment is
+        # refused by the run's start check and by serve, and the file stays
+        # as it was, byte for byte.
+        c, m, b, _ = self.deployed()
+        rpc = "https://rpc.example/v2/KEY"
+        path = self.dir / "deployment.json"
+        with c, m, b:
+            path.write_text(json.dumps(self.p4.operator_doc(421614, "https://sender.example"), indent=1) + "\n")
+        before = path.read_bytes()
+        for url in ("https://sender.example/" + rpc + "x", "https://sender.example/x" + rpc + "-suffix",
+                    "https://sender.example/" + rpc, "https://sender.example/lp2", "https://sender.example:8443/join",
+                    "https://sender.example//", "https://sender.example/?", "https://sender.example/?key=KEY",
+                    "https://sender.example/#KEY", "https://KEY@sender.example", "https://u:KEY@sender.example"):
+            with self.subTest(url=url), mock.patch.object(common, "RPC", rpc), self.env(LP2_SENDER_URL=url):
+                with self.assertRaises(common.NotRun) as run:
+                    self.p4.sender_url(421614)
+                with self.assertRaises(common.NotRun) as serve:
+                    self.p4.publish_sender(self.dir, 421614)
+                self.assertIn("LP2_SENDER_URL", str(run.exception))
+                self.assertIn("kept as it was", str(serve.exception))
+                self.assertEqual(path.read_bytes(), before)
+                self.assertEqual(sorted(p.name for p in self.dir.iterdir()), ["deployment.json"])
+        # An origin is taken by both, and "/" after it is no path.
+        for url in ("https://sender.example:8443", "https://sender.example:8443/"):
+            with self.subTest(url=url), mock.patch.object(common, "RPC", rpc), self.env(LP2_SENDER_URL=url):
+                self.assertEqual(self.p4.sender_url(421614), url)
+                self.p4.publish_sender(self.dir, 421614)
+                self.assertEqual(json.loads(path.read_text())["sender_url"], url)
 
     def handed(self, failures):
         import public
