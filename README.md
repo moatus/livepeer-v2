@@ -22,7 +22,7 @@ once. Stage 4 has yet to be deployed on a public test chain.
 
 | Part | State |
 |---|---|
-| Rulebook and shared examples | `october-main-text-v4`: stage 4's rules and 97 worked cases (the earlier versions are kept) |
+| Rulebook and shared examples | `october-main-text-v5`: stage 4's rules, with the buyback executor a parameter, and 98 worked cases (the earlier versions are kept) |
 | Independent calculator | Computes every shared example from the rulebook alone |
 | Contracts | Stage 2: Controller, Registry, RoundClock, Broker, MockUSDC. Stage 3: TestLPT, StakeLedger, Scores, Claims. Stage 4: Parameters, TestPool, Buyback |
 | Node integration | The unmodified node, configured by flags alone; no fork |
@@ -133,9 +133,9 @@ the calculator.
 ### The buyback
 
 `./dev demo buyback` runs the buyback's walk on a fresh local chain,
-with no node or model. It deploys stage 3's contracts with a Broker that
-pays its network share only to the Buyback, then the test pool, Parameters
-and the Buyback. It sends 7 test LPT to the Buyback beforehand. Each of the walk's
+with no node or model. It deploys stage 3's contracts, then the test
+pool, Parameters, which names the Buyback as the one executor that may
+draw the network share, and the Buyback. It sends 7 test LPT to the Buyback beforehand. Each of the walk's
 22 steps (paid jobs, the pool's seeding, trades, pokes and buys) is a
 transaction at the walk's own time, and each line is checked against
 the shared examples: every buy's USDC in, LPT bought and burned, average price and
@@ -143,10 +143,17 @@ bound, and every refusal by its code and arguments, step 20's `SLIPPAGE`
 included, printed as expected. It then checks that supply fell by exactly
 the LPT the Bought events burned, that the 7 LPT sent beforehand is still
 there, writes the run as a `buyback` case into a copy of the shared
-examples and runs `./calculator/check` on it. Last, it runs `lp2-keeper
---once --buyback-address` twice: after round 9's buy it logs
+examples and runs `./calculator/check` on it. It runs `lp2-keeper
+--once --parameters-address` twice: after round 9's buy it logs
 `ALREADY_BOUGHT` as expected and sends nothing; in round 10 its call would
-succeed, so it buys. Its stand-ins are named in
+succeed, so it buys. Last, it moves the buyback without redeploying: with
+`lp2-keeper` left running, the governance stand-in announces a second
+Buyback as the executor and a second test pool as the pool. In the round
+before the change counts, the second Buyback's buy is refused at the
+Broker and the first one's succeeds. From the round it counts, the
+running keeper pokes and buys at the second Buyback, whose buy has the
+walk's first buy's figures, and the first Buyback's buy is refused at the
+Broker with nothing moved. Its stand-ins are named in
 `deployments/stage-4-local.json`.
 
 ### Run results

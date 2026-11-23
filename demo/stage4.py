@@ -159,7 +159,7 @@ def main():
     c.rpc("anvil_setBlockTimestampInterval", [1])
     c.rpc("evm_setAutomine", [False])
     c.rpc("evm_setIntervalMining", [1])
-    s3.start_keeper("--buyback-address", C["Buyback"])
+    s3.start_keeper("--parameters-address", C["Parameters"])
 
     def earn(round_, before_job=None):
         s3.to_round(round_)

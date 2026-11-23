@@ -8,8 +8,9 @@
   ./dev demo stage-4      announced parameters, key rotation and recovery
   ./dev demo buyback      the buyback (S-07 section 1): the network share
                           buys test LPT from a test pool and burns it,
-                          then Parameters (S-10 R-25); no node, so no
-                          docker
+                          then Parameters (S-10 R-25), then the buyback
+                          moved to a second executor and pool; no node,
+                          so no docker
 
 Exit 0 every figure equal and every behaviour seen; 1 a figure differed or
 a behaviour was missing; 2 the demo could not run (a tool, a download or a

@@ -2,8 +2,8 @@
   "testnet": "stage-4-local",
   "about": "What the stage 4 testnet contains and every stand-in it uses. It is deployed fresh on a local chain at every run, so no address is fixed here: ./dev demo buyback and ./dev demo stage-4 each print the addresses of their run and write them to .cache/demo/run/addresses.json. Both read the chain, LPT and pool values below from this file, and check the buyback values below against those Parameters holds at deployment, so what runs is what this file says. Stage 3's testnet, stage-3-local.json, still runs with ./dev demo.",
   "spec": "S-07 and S-10",
-  "rulebook": "rulebook/october-main-text-v4.md",
-  "vectors": "vectors/october-main-text-v4.json",
+  "rulebook": "rulebook/october-main-text-v5.md",
+  "vectors": "vectors/october-main-text-v5.json",
   "contracts": [
     {
       "contract": "Controller",
@@ -24,7 +24,7 @@
       "contract": "Broker",
       "source": "contracts/src/money/Broker.sol",
       "node_name": "TicketBroker",
-      "checks": "buyback() is the Buyback deployed after it, fixed at its construction; only that address may draw the network share (drawNetwork)"
+      "checks": "only the executor Parameters' group 10 names for the round a draw runs in may draw the network share (drawNetwork); at deployment that is the Buyback"
     },
     {
       "contract": "MockUSDC",
@@ -54,8 +54,8 @@
     {
       "contract": "Parameters",
       "source": "contracts/src/authority/Parameters.sol",
-      "node_name": "none: the Broker reads its fee split from it, Claims, StakeLedger and Scores their values, and the Buyback its values (S-07's view, groups 8 and 9)",
-      "checks": "authority() is G, the governance stand-in; deployed after the TestPool, at the address the Broker, StakeLedger and Scores were given; its deployment buyback values are the TestPool and the buyback values below"
+      "node_name": "none: the Broker reads its fee split from it, Claims, StakeLedger and Scores their values, and the Buyback its values (S-07's view, groups 8 and 9), and the Broker the executor that may draw (group 10)",
+      "checks": "authority() is G, the governance stand-in; deployed after the TestPool, at the address the Broker, StakeLedger and Scores were given; its deployment buyback values are the TestPool and the buyback values below, and its deployment executor (group 10) is the Buyback, taken at construction as the address predicted for it"
     },
     {
       "contract": "Claims",
@@ -66,7 +66,7 @@
       "contract": "Buyback",
       "source": "contracts/src/money/Buyback.sol",
       "node_name": "none",
-      "checks": "broker() is the Broker, values() is Parameters, and poolCodeHash() is the runtime code hash of the TestPool deployed with it and equals Parameters' poolCodeHash()"
+      "checks": "broker() is the Broker, values() is Parameters, poolCodeHash() is the runtime code hash of the TestPool deployed with it, and acceptsPool(TestPool) is true"
     }
   ],
   "node": {
@@ -167,7 +167,12 @@
     {
       "stand_in": "The deployment's buyback values",
       "for": "The buyback values governance sets",
-      "value": "Parameters holds burn 100 %, TWAP interval 3,600 s, slippage bound 1 %, a buy every round and the TestPool above until G announces a change; the burn share is fixed (D-47 (v)), and a new pool must have the TestPool's runtime code hash and this deployment's two tokens (POOL_INVALID at the announce)"
+      "value": "Parameters holds burn 100 %, TWAP interval 3,600 s, slippage bound 1 %, a buy every round and the TestPool above until G announces a change; the burn share is fixed (D-47 (v)), and a new pool must be one the executor asked accepts (POOL_INVALID at the announce): for the Buyback, a pool with the TestPool's runtime code hash and this deployment's two tokens. The executor, group 10, is the Buyback until G announces another"
+    },
+    {
+      "stand_in": "A second Buyback and TestPool",
+      "for": "An executor and pool of another design, wherever liquidity is (S-07, note of 2026-11-23)",
+      "value": "./dev demo buyback deploys a second Buyback, pinned to the same TestPool code, and a second TestPool seeded as the first, and G moves the buyback to them by announcing group 10 and group 9; no other contract is redeployed. An executor of another design is shown only by a test-only contract in the contract tests"
     },
     {
       "stand_in": "Tickets signed and redeemed by the demo",
@@ -207,7 +212,7 @@
     {
       "stand_in": "Keeper",
       "for": "Whoever starts rounds, mints each round's validator and treasury amounts, buys and pokes",
-      "value": "A throwaway key: ./dev demo buyback starts rounds and makes the walk's pokes and buys with it at the walk's times, then runs lp2-keeper --once --buyback-address, which buys or pokes only when its call would succeed; ./dev demo stage-4 runs lp2-keeper --buyback-address through the run. Anyone may do any of these (R-10, R-16, R-18), so a stopped keeper delays them and loses nothing"
+      "value": "A throwaway key: ./dev demo buyback starts rounds and makes the walk's pokes and buys with it at the walk's times, then runs lp2-keeper --once --parameters-address, which buys or pokes at the executor in force for the round only when its call would succeed, and then leaves lp2-keeper running while the buyback moves to a second executor; ./dev demo stage-4 runs lp2-keeper --parameters-address through the run. Anyone may do any of these (R-10, R-16, R-18), so a stopped keeper delays them and loses nothing"
     }
   ]
 }

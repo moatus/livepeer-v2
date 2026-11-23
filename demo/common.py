@@ -566,11 +566,11 @@ def record(fields: dict, tx_receipt: dict | None = None, block: int | None = Non
 C: dict[str, str] = {}   # contract addresses
 
 
-def deploy_stage2(buyback: str = ZERO, more: int = 0) -> None:
-    """The stage 2 contracts. The Broker is given the one address that may
-    draw its network share (stage 4's Buyback); ZERO lets nobody draw. It
-    reads its fee split from Parameters, created after the five contracts
-    and `more` others; with none, deploy_stage2 creates it at once."""
+def deploy_stage2(more: int = 0) -> None:
+    """The stage 2 contracts. The Broker reads its fee split, and the one
+    executor that may draw its network share (group 10), from Parameters,
+    created after the five contracts and `more` others; with none,
+    deploy_stage2 creates it at once, with no executor: nobody may draw."""
     create = forge_create
     C["RoundClock"] = create("src/clock/RoundClock.sol:RoundClock")
     C["MockUSDC"] = create("src/money/MockUSDC.sol:MockUSDC")
@@ -579,8 +579,7 @@ def deploy_stage2(buyback: str = ZERO, more: int = 0) -> None:
     broker_at = next_address(1)
     params_at = next_address(3 + more)
     C["Registry"] = create("src/authority/Registry.sol:Registry", C["RoundClock"], broker_at)
-    C["Broker"] = create("src/money/Broker.sol:Broker", C["MockUSDC"], C["Registry"], C["RoundClock"], params_at,
-                         buyback)
+    C["Broker"] = create("src/money/Broker.sol:Broker", C["MockUSDC"], C["Registry"], C["RoundClock"], params_at)
     if C["Broker"].lower() != broker_at.lower():
         raise Failed(f"the Broker landed at {C['Broker']}, not {broker_at} as the Registry was told")
     C["Controller"] = create("src/authority/Controller.sol:Controller", C["Registry"], C["RoundClock"], C["Broker"])
@@ -604,23 +603,24 @@ def governance() -> str:
     return ADDR["G"]
 
 
-def deploy_parameters(score_source: str = ZERO, pool: str = ZERO, pool_code_hash: str = "0x" + "00" * 32,
-                      lpt: str = ZERO) -> None:
+def deploy_parameters(score_source: str = ZERO, pool: str = ZERO, executor: str = ZERO) -> None:
     """Parameters (R-25) at the address the Broker was given, with the
-    deployment's score source, pool and tokens."""
+    deployment's score source, pool and buyback executor (group 10): the
+    address the deployment predicts for its Buyback, or ZERO with none."""
     at = C["Parameters"]
     C["Parameters"] = forge_create("src/authority/Parameters.sol:Parameters", governance(), C["RoundClock"],
-                                   score_source, pool, pool_code_hash, C["MockUSDC"], lpt)
+                                   score_source, pool, executor)
     if C["Parameters"].lower() != at.lower():
         raise Failed(f"Parameters landed at {C['Parameters']}, not {at} as the Broker was told")
 
 
-def deploy_stage3(buyback: str = ZERO, pool: bool = False) -> None:
+def deploy_stage3(executor: str = ZERO, pool: bool = False) -> None:
     """Stage 2's contracts, then test LPT, StakeLedger, Scores, the pool
-    when asked, Parameters and Claims. The token is given the address Claims
-    will have, its one minter; the Broker, StakeLedger and Scores the
-    address Parameters will have."""
-    deploy_stage2(buyback, 4 if pool else 3)
+    when asked, Parameters, naming `executor` as the buyback executor, and
+    Claims. The token is given the address Claims will have, its one
+    minter; the Broker, StakeLedger and Scores the address Parameters will
+    have."""
+    deploy_stage2(4 if pool else 3)
     claims_at = next_address(4 + pool)
     C["TestLPT"] = forge_create("src/money/TestLPT.sol:TestLPT", claims_at, MANIFEST["lpt"]["genesis_supply_wei"])
     C["StakeLedger"] = forge_create("src/money/StakeLedger.sol:StakeLedger", C["TestLPT"], C["Registry"],
@@ -629,10 +629,9 @@ def deploy_stage3(buyback: str = ZERO, pool: bool = False) -> None:
                                C["Parameters"])
     if pool:
         C["TestPool"] = forge_create("src/money/TestPool.sol:TestPool", C["MockUSDC"], C["TestLPT"])
-        code_hash = sh(["cast", "keccak", rpc("eth_getCode", [C["TestPool"], "latest"])])
-        deploy_parameters(C["Scores"], C["TestPool"], code_hash, C["TestLPT"])
+        deploy_parameters(C["Scores"], C["TestPool"], executor)
     else:
-        deploy_parameters(C["Scores"], lpt=C["TestLPT"])
+        deploy_parameters(C["Scores"], executor=executor)
     C["Claims"] = forge_create("src/money/Claims.sol:Claims", C["TestLPT"], C["Registry"], C["RoundClock"], C["Broker"],
                                C["StakeLedger"], C["Parameters"], C["Scores"], ADDR["Treasury"])
     if C["Claims"].lower() != claims_at.lower():
