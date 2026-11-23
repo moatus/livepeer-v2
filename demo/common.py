@@ -968,10 +968,23 @@ def is_lpt(path: tuple) -> bool:
         (path[0] == "observed" and path[-1].endswith("stake_wei"))
 
 
-def reconcile(title: str, extra: list[dict] | None = None, members: dict | None = None) -> tuple[list[dict], dict, dict]:
+def reconcile(title: str, extra: list[dict] | None = None, members: dict | None = None,
+              moved: dict | None = None) -> tuple[list[dict], dict, dict]:
     """Print every figure read from the chain beside the calculator's figure
-    for the same steps; record a failure for any that differ."""
+    for the same steps; record a failure for any that differ.
+
+    `moved` is what a buyback moved where no ledger step can follow it
+    (demo/public.py's stage 4 run): the network share its buys spent
+    (`spent_micro_usdc`) and the LPT they burned (`burned_wei`), as their
+    Bought events give them, and the mock USDC minted to seed its pool
+    (`seeded_micro_usdc`). The first two are added back to the chain's
+    network share and LPT minted before they are compared, and the third is
+    counted with what the demo minted; a buyback case reconciles the buys
+    themselves."""
     ordered, views = assemble(extra)
+    if moved:
+        views["network"] += moved["spent_micro_usdc"]
+        views["lpt_minted"] += moved["burned_wei"]
     case_steps = ledgercase.steps(ordered)
     chain = ledgercase.expected(ordered, views["need"], views)
     calc = calculator(case_steps, members)
@@ -995,7 +1008,10 @@ def reconcile(title: str, extra: list[dict] | None = None, members: dict | None 
             FAILURES.append(f"{title}: {label_of(path)}: chain {got}, calculator {want}")
     if quiet:
         say(f"  {'wallets of ' + str(quiet) + ' junk nodes, each':<46}{'0':>{w}}{'0':>{w}}  equal")
-    custody(title, case_steps, calc, views["block"], w)
+    if moved:
+        say(f"  (the chain's network share held is shown with the {money(moved['spent_micro_usdc'])} micro-USDC the buys "
+            f"spent added back, and all LPT minted with the {lpt(moved['burned_wei'])} LPT they burned)")
+    custody(title, case_steps, calc, views["block"], w, moved)
     diffs = ledgercase.differences(chain, calc)
     if diffs:
         say(f"  {len(diffs)} figure(s) differ")
@@ -1004,17 +1020,22 @@ def reconcile(title: str, extra: list[dict] | None = None, members: dict | None 
     return ordered, views, calc
 
 
-def custody(title: str, case_steps: list[dict], calc: dict, block: int, w: int = 14) -> None:
+def custody(title: str, case_steps: list[dict], calc: dict, block: int, w: int = 14, moved: dict | None = None) -> None:
     """The Broker's own USDC, beside what the calculator says it holds: every
     deposit, earmark and network share. And all the USDC there is, beside
     what the demo minted to payers to fund them, so no USDC was made or kept
-    anywhere the figures above do not look."""
+    anywhere the figures above do not look. With `moved` (see reconcile),
+    the buys' spend is added back to the Broker's USDC, and the pool's seed
+    is counted as minted by the demo."""
     broker, supply = calls([(C["MockUSDC"], "balanceOf(address)", (C["Broker"],)),
                             (C["MockUSDC"], "totalSupply()", ())], block)
     held = (sum(int(v) for v in calc["deposits_micro_usdc"].values())
             + sum(int(v) for e in calc["earmarks_micro_usdc"].values() for v in e.values())
             + int(calc["network_micro_usdc"]))
     minted = sum(int(s["deposit_micro_usdc"]) + int(s["earmark_micro_usdc"]) for s in case_steps if s["action"] == "fund")
+    if moved:
+        broker += moved["spent_micro_usdc"]
+        minted += moved["seeded_micro_usdc"]
     for label, got, want, source in (("USDC the Broker holds", broker, held, "calculator"),
                                      ("all USDC in existence", supply, minted, "demo minted")):
         mark = "equal" if got == want else "DIFFERS"

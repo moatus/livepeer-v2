@@ -501,6 +501,120 @@ class PublicSteps(unittest.TestCase):
         self.assertIn("no code at this state's Broker", str(e.exception))
 
 
+class PublicStage4(unittest.TestCase):
+    """demo/public-run stage-4 and serve, with no chain: the template they
+    read, mission 11's manifest beside it, and the refusals that come before
+    anything is made or sent. Importing them reads stage 4's shared examples
+    into common's shared state, so each test puts that state back."""
+
+    def setUp(self):
+        for d in (common.MANIFEST, common.VECTORS, common.CASES, common.PARAMS):
+            p = mock.patch.dict(d)
+            p.start()
+            self.addCleanup(p.stop)
+        import public4
+        self.p4 = public4
+        self.t4 = json.loads((ROOT / "deployments" / public4.TEMPLATE).read_text())
+        self.local4 = json.loads((ROOT / "deployments" / "stage-4-local.json").read_text())
+        self.dir = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+
+    def test_the_stage_4_template_invents_no_address_and_runs_stage_4(self):
+        t = self.t4
+        self.assertEqual([c["address"] for c in t["contracts"]], [None] * len(self.local4["contracts"]))
+        self.assertEqual([{k: v for k, v in c.items() if k not in ("address", "checks")} for c in t["contracts"]],
+                         [{k: v for k, v in c.items() if k != "checks"} for c in self.local4["contracts"]])
+        self.assertFalse(t["deployment"]["deployed"])
+        self.assertEqual(t["chain"]["chain_id"], 421614)
+        for key in ("node", "model", "price", "signer_limits", "lpt", "pool", "buyback", "rulebook", "vectors"):
+            with self.subTest(key=key):
+                self.assertEqual(t[key], self.local4[key])
+        named = {s["stand_in"].lower() for s in t["stand_ins"]}
+        for name in ("role accounts made by the run", "mockusdc", "test lpt", "scripted validators", "tiny model",
+                     "every ticket wins", "50-block rounds", "keeper", "treasury address", "g, the governance stand-in",
+                     "testpool", "the deployment's buyback values", "faucet account", "one paid job"):
+            with self.subTest(stand_in=name):
+                self.assertTrue(any(n.startswith(name) for n in named))
+
+    def test_the_faucet_share_and_the_change_fit_the_deployment(self):
+        import public
+        t, params = self.t4, json.loads((ROOT / self.t4["vectors"]).read_text())["parameters"]
+        faucet, decimals = int(t["faucet"]["lpt_wei"]), t["lpt"]["decimals"]
+        self.assertEqual(faucet % 10**decimals, 0)
+        spare = int(t["lpt"]["genesis_supply_wei"]) - int(t["pool"]["seed_lpt_wei"]) - public.N_BOND - public.V_BOND
+        self.assertTrue(0 < faucet <= spare)
+        self.assertIn(f"{faucet // 10**decimals:,} test LPT", t["faucet"]["note"])
+        # Unbonding, group 7: D-47's range is 1 to 840 rounds, and a change
+        # must differ from the deployment's value to show anything.
+        change = t["parameter_change"]
+        self.assertEqual((change["group"], change["name"]), (7, "unbonding"))
+        self.assertTrue(1 <= int(change["values"][0]) <= 840)
+        self.assertNotEqual(change["values"][0], params["unbonding_period_rounds"])
+
+    def test_mission_11s_manifest_reads_as_the_stage_3_template_filled_in(self):
+        # A dry read of the dated manifest of the first public deployment,
+        # which the stage 4 template stands beside and does not replace: what
+        # the stage 3 path reads from a template is the same in it, and its
+        # contracts are the stage 3 template's, each with its address, but
+        # Parameters, which that deployment predates.
+        dated = json.loads((ROOT / "deployments" / "public-arbitrum-sepolia-2026-11-21.json").read_text())
+        stage3 = json.loads((ROOT / "deployments" / "public-arbitrum-sepolia.json").read_text())
+        for key in ("node", "model", "price", "signer_limits", "lpt", "rulebook", "vectors", "chain"):
+            with self.subTest(key=key):
+                self.assertEqual(dated[key], stage3[key])
+        self.assertEqual([c["contract"] for c in dated["contracts"]],
+                         [c["contract"] for c in stage3["contracts"] if c["contract"] != "Parameters"])
+        self.assertTrue(all(c["address"].startswith("0x") and len(c["address"]) == 42 for c in dated["contracts"]))
+        self.assertEqual((dated["deployment"]["deployed"], dated["deployment"]["chain_id"]), (True, 421614))
+        self.assertTrue(dated["about"].endswith(f"from {stage3['testnet']}.json. The addresses, accounts and "
+                                                "source commit are this run's."))
+
+    def env(self, **set_):
+        keys = ("LP2_RPC_URL", "LP2_DEPLOYER_KEYSTORE", "LP2_DEPLOYER_PASSWORD_FILE", "LP2_AUTHORITY_KEYSTORE",
+                "LP2_AUTHORITY_PASSWORD_FILE", "LP2_STATE_DIR")
+        env = {k: v for k, v in os.environ.items() if k not in keys}
+        return mock.patch.dict(os.environ, {**env, **set_}, clear=True)
+
+    def test_the_stage_4_run_refuses_to_start_without_the_authority_keystore(self):
+        key, pw = self.dir / "deployer.json", self.dir / "deployer.pw"
+        key.write_text("{}")
+        pw.write_text("x")
+        state = self.dir / "state"
+        given = dict(LP2_RPC_URL="http://127.0.0.1:1", LP2_DEPLOYER_KEYSTORE=str(key),
+                     LP2_DEPLOYER_PASSWORD_FILE=str(pw), LP2_STATE_DIR=str(state))
+        for extra, want in (({}, "LP2_AUTHORITY_KEYSTORE is not set"),
+                            ({"LP2_AUTHORITY_KEYSTORE": str(self.dir / "none.json")}, "LP2_AUTHORITY_KEYSTORE does not name a file"),
+                            ({"LP2_AUTHORITY_KEYSTORE": str(key)}, "LP2_AUTHORITY_PASSWORD_FILE is not set")):
+            with self.subTest(want=want), self.env(**given, **extra):
+                with self.assertRaises(common.NotRun) as e:
+                    self.p4.main()
+                self.assertIn(want, str(e.exception))
+                self.assertFalse(state.exists(), "nothing is made before the authority's keystore is checked")
+
+    def test_serve_refuses_a_state_directory_no_run_handed_over(self):
+        with self.env(LP2_STATE_DIR=str(self.dir)):
+            with self.assertRaises(common.NotRun) as e:
+                self.p4.serve()
+        self.assertIn("holds no services.json", str(e.exception))
+
+    def test_the_handover_names_the_role_keys_and_no_key_of_the_owners(self):
+        import public
+        owner = {"deployer_keystore": "/owner/deployer.json", "deployer_password_file": "/owner/deployer.pw",
+                 "authority": "0x" + "a1" * 20}
+        accounts = {w: "0x" + f"{i:02x}" * 20 for i, w in enumerate(self.p4.ROLES, 1)}
+        with mock.patch.dict(public.STATE, owner, clear=True), mock.patch.dict(common.ADDR, accounts), \
+                mock.patch.dict(common.C, {"Controller": "0x" + "cc" * 20}), \
+                mock.patch.object(self.p4, "executor_in_force", lambda: "0x" + "bb" * 20), \
+                mock.patch.object(self.p4, "AUTHORITY", ["--keystore-file", "/owner/authority.json"]):
+            svc = self.p4.services_doc(31337)
+        self.assertEqual(svc["keys"], {w: f"keys/{w}/{w}" for w in self.p4.ROLES})
+        self.assertNotIn("deployer", svc["keys"])
+        text = json.dumps(svc)
+        for secret in ("/owner/deployer.json", "/owner/deployer.pw", "/owner/authority.json"):
+            self.assertNotIn(secret, text)
+        self.assertEqual((svc["executor"], svc["accounts"]), ("0x" + "bb" * 20, accounts))
+
+
 class PagedLogs(unittest.TestCase):
     """Hosted endpoints cap eth_getLogs' range, so the logs are read
     LOG_PAGE blocks at a time, giving the same logs."""

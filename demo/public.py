@@ -213,9 +213,9 @@ def new_role_key(who: str) -> str:
     return made["address"]
 
 
-def open_state() -> int:
-    """Check the chain and the keys, then load or start the run's state.
-    Returns the chain id."""
+def open_state(stage: int = 3) -> int:
+    """Check the chain and the keys, then load or start the run's state of
+    `stage`'s system. Returns the chain id."""
     global STATE_DIR
     url = os.environ.get("LP2_RPC_URL", "")
     if not url:
@@ -261,12 +261,15 @@ def open_state() -> int:
             raise NotRun(f"this state directory belongs to chain {STATE['chain_id']}, not {chain_id}")
         if STATE["deployer"].lower() != deployer.lower():
             raise NotRun(f"this state directory was deployed by {STATE['deployer']}, not {deployer}")
+        if STATE.get("stage", 3) != stage:  # a state from before stages were recorded is stage 3's
+            raise NotRun(f"this state directory holds the stage {STATE.get('stage', 3)} system; run "
+                         f"demo/public-run{' stage-4' if STATE.get('stage', 3) == 4 else ''} to resume it. Nothing was sent")
         if "deploy" in STATE["done"]:
             check_deployment()
         say(f"  resuming the run in this state directory: {len(STATE['done'])} steps done")
     else:
         STATE.update({"chain_id": chain_id, "deployer": deployer, "accounts": {}, "contracts": {}, "done": {},
-                      "sending": None, "records": [], "vrecords": [], "sent": []})
+                      "sending": None, "records": [], "vrecords": [], "sent": [], "stage": stage})
         pw.write_text("pw-" + os.urandom(16).hex())
         pw.chmod(0o600)
     STATE["deployer_keystore"], STATE["deployer_password_file"] = str(keystore), str(password)
@@ -298,7 +301,9 @@ def open_state() -> int:
 
 # --- the run -----------------------------------------------------------------------
 
-def deploy() -> dict:
+def deploy(create=stage3.deploy_stage3) -> dict:
+    """Deploy once, with `create`, the system's own deployment function
+    (stage 3's, or stage 4's in demo/public4.py)."""
     if "deploy" not in STATE["done"] and STATE.get("sending") == "deploy":
         raise NotRun("a previous run was stopped during the deployment; its contracts are abandoned. "
                      "Start a new state directory to deploy afresh")
@@ -307,7 +312,7 @@ def deploy() -> dict:
         start = common.block_number()
         commit = common.sh(["git", "rev-parse", "HEAD"], cwd=common.ROOT)
         dirty = bool(common.sh(["git", "status", "--porcelain", "--untracked-files=no"], cwd=common.ROOT))
-        stage3.deploy_stage3()
+        create()
         common.SENT.extend(common.CREATED)
         # What was deployed, kept with it: a rerun or resume from a later
         # checkout uses this template (rulebook, node, model) and labels the
@@ -339,22 +344,26 @@ def wait_round(target: int, why: str, give_up=None) -> None:
     say(f"  {time.strftime('%H:%M:%S')} round {stage3.current_round()}")
 
 
-def start_programs(node_bin: Path, model: Path) -> None:
-    """Start the model, the node, P's signer, the keeper and V's validator."""
+def start_programs(node_bin: Path, model: Path, keeper: tuple[str, ...] = (), script: Path = SCRIPT,
+                   payer: bool = True) -> None:
+    """Start the model, the node, P's signer (with `payer`), the keeper with
+    its `keeper` options and V's validator from `script`."""
     common.start_model(model)
     common.start_orchestrator("orchestrator-N", "N", node_bin, stage3.KEYS["N"], STATE_DIR / "pw",
                               PORT["orch"], PORT["orch_metrics"])
-    common.start_signer("P", node_bin, stage3.KEYS["P"], STATE_DIR / "pw", PORT["signer_p"], PORT["signer_p_metrics"],
-                        [PORT["orch"]])
-    stage3.start_keeper()
+    if payer:
+        common.start_signer("P", node_bin, stage3.KEYS["P"], STATE_DIR / "pw", PORT["signer_p"], PORT["signer_p_metrics"],
+                            [PORT["orch"]])
+    stage3.start_keeper(*keeper)
     names = STATE_DIR / "names.json"
     names.write_text(json.dumps({n: ADDR[n] for n in ("N", "V")}))
     common.start("validators", [str(STATE_DIR / "bin" / "lp2-validators"), "--rpc-url", common.RPC,
                                 "--keystore-password-file", str(STATE_DIR / "pw"), "--controller-address", C["Controller"],
-                                "--scores-address", C["Scores"], "--script", str(SCRIPT), "--names", str(names),
+                                "--scores-address", C["Scores"], "--script", str(script), "--names", str(names),
                                 "--poll", "5s", f"--keystore=V={stage3.KEYS['V']}"])
     note_holders()
-    say(f"  the model server, N's orchestrator, P's signer, the keeper and V's validator program are running")
+    signer = "P's signer, " if payer else ""
+    say(f"  the model server, N's orchestrator, {signer}the keeper and V's validator program are running")
 
 
 def fund_p(face: int) -> None:
@@ -373,6 +382,45 @@ def fund_p(face: int) -> None:
                        "earmark_micro_usdc": earmark}, common.receipt(tx, 300))
     step("fund", fund)
     say(f"  P deposits {money(deposit)} micro-USDC and earmarks {money(earmark)} for N")
+
+
+def paid_job() -> dict:
+    """Round 2: P pays N for one job, sent once, and N redeems its ticket.
+    Returns the settled ticket."""
+    say("\n4. Round 2: the paid job")
+    wait_round(2, "N's bond counts from it")
+    # The job is sent off the chain, to N: this marks only that it was sent
+    # (so it is never sent twice), not that anything settled. Its settlement
+    # is a step of its own below.
+    sent = STATE.get("job")
+    if not sent:
+        STATE["job"] = {"round": stage3.current_round()}
+        save()
+        answer = common.job("P", PORT["orch"], PORT["signer_p"])
+        STATE["job"]["answer"] = answer
+        save()
+        say(f"  relay to N in round {STATE['job']['round']}: paid, the model answered {answer[:50]!r}")
+    else:
+        say(f"  the job was sent in round {sent['round']} by an earlier run; it is not sent again")
+    job_round = STATE["job"]["round"]
+
+    say("\n5. N redeems its ticket, once 40 blocks of its clock have passed")
+
+    def expired():
+        if stage3.current_round() > job_round + 2:
+            raise Failed(f"no ticket was redeemed by round {job_round + 3}: the ticket of round {job_round} has expired "
+                         f"(R-22). Not sending another job; see logs/orchestrator-N.log")
+    while not (settled := common.settlements()):
+        expired()
+        time.sleep(5)
+    if len(settled) != 1:
+        raise Failed(f"the Broker settled {len(settled)} tickets, want 1")
+    s = step("ticket settled", lambda: settled[0], sends=False)
+    earned = s["round"]
+    say(f"  {time.strftime('%H:%M:%S')} N redeemed a ticket of {money(s['face'])} in round {earned}: "
+        f"N +{money(s['node_amount'])} micro-USDC, network +{money(s['network_amount'])}")
+    check("the redeemed ticket pays N and was redeemed by N", (common.name(s["recipient"]), common.name(s["from"])), ("N", "N"))
+    return s
 
 
 def main() -> int:
@@ -426,40 +474,8 @@ def main() -> int:
     step("observe", lambda: common.observe("P", "N") and None, sends=False)
 
     start_programs(node_bin, model)
-
-    say("\n4. Round 2: the paid job")
-    wait_round(2, "N's bond counts from it")
-    # The job is sent off the chain, to N: this marks only that it was sent
-    # (so it is never sent twice), not that anything settled. Its settlement
-    # is a step of its own below.
-    sent = STATE.get("job")
-    if not sent:
-        STATE["job"] = {"round": stage3.current_round()}
-        save()
-        answer = common.job("P", PORT["orch"], PORT["signer_p"])
-        STATE["job"]["answer"] = answer
-        save()
-        say(f"  relay to N in round {STATE['job']['round']}: paid, the model answered {answer[:50]!r}")
-    else:
-        say(f"  the job was sent in round {sent['round']} by an earlier run; it is not sent again")
-    job_round = STATE["job"]["round"]
-
-    say("\n5. N redeems its ticket, once 40 blocks of its clock have passed")
-
-    def expired():
-        if stage3.current_round() > job_round + 2:
-            raise Failed(f"no ticket was redeemed by round {job_round + 3}: the ticket of round {job_round} has expired "
-                         f"(R-22). Not sending another job; see logs/orchestrator-N.log")
-    while not (settled := common.settlements()):
-        expired()
-        time.sleep(5)
-    if len(settled) != 1:
-        raise Failed(f"the Broker settled {len(settled)} tickets, want 1")
-    s = step("ticket settled", lambda: settled[0], sends=False)
+    s = paid_job()
     earned = s["round"]
-    say(f"  {time.strftime('%H:%M:%S')} N redeemed a ticket of {money(s['face'])} in round {earned}: "
-        f"N +{money(s['node_amount'])} micro-USDC, network +{money(s['network_amount'])}")
-    check("the redeemed ticket pays N and was redeemed by N", (common.name(s["recipient"]), common.name(s["from"])), ("N", "N"))
 
     say(f"\n6. Rounds {earned + 1} to {earned + 7}: the keeper starts each round and mints the ended one's shares")
     wait_round(earned + 7, f"N may claim round {earned} seven rounds later")
@@ -509,23 +525,26 @@ def reconcile(chain_id: int, started: float) -> int:
                                   "equals the calculator's.")
 
 
-def write_manifest(chain_id: int) -> None:
+def write_manifest(chain_id: int, more: dict | None = None) -> None:
     """The run's manifest, in the shape of deployments/: the template as it
     was at the deployment, with the chain, the addresses, the deployment's
-    source commit and the accounts filled in."""
+    source commit and the accounts filled in, and `more` added to its
+    deployment."""
     d = STATE["done"]["deploy"]
     m = json.loads(json.dumps(d["template"]))
+    template = f"{m['testnet']}.json"  # the template's file is named for its testnet
     m["testnet"] = f"public-run-{chain_id}"
-    m["about"] = (f"Written by demo/public-run for its run on chain {chain_id}, from {TEMPLATE}. "
+    m["about"] = (f"Written by demo/public-run for its run on chain {chain_id}, from {template}. "
                   "The addresses, accounts and source commit are this run's.")
     for c in m["contracts"]:
         c["address"] = C[c["contract"]]
     m["deployment"] = {"deployed": True, "chain_id": chain_id, "deployed_at_block": common.FROM_BLOCK,
                        "deployer": STATE["deployer"], "source_commit": d["source_commit"],
                        "accounts": {k: ADDR[k] for k in ROLES}, "treasury": ADDR["Treasury"],
-                       # Parameters' one authority, read from the chain: an
-                       # address the run made up, whose key nobody holds.
-                       "parameters_authority": f"0x{call(C['Parameters'], 'authority()'):040x}"}
+                       # Parameters' one authority, read from the chain: in
+                       # stage 3 an address the run made up, whose key nobody
+                       # holds; in stage 4 the owner's authority key.
+                       "parameters_authority": f"0x{call(C['Parameters'], 'authority()'):040x}", **(more or {})}
     if chain_id in LOCAL_CHAINS:
         m["chain"] = {"kind": "a local development chain, started apart from the run and mining on its own",
                       "chain_id": chain_id, "round_length_blocks": m["chain"]["round_length_blocks"]}
@@ -555,7 +574,13 @@ def spending() -> None:
     given = {a.lower(): sum(int(t["value"], 16) for t, _ in mine if (t.get("to") or "").lower() == a.lower()) for a in roles}
     now = common.rpc_batch([("eth_getTransactionCount", [a, "latest"]) for a in roles] +
                            [("eth_getBalance", [a, "latest"]) for a in roles])
-    rows = [("deployer", len(mine), sum(int(r["gasUsed"], 16) * int(r["effectiveGasPrice"], 16) for _, r in mine))]
+    rows = []
+    # The owner's keys, the deployer's and, in stage 4, the authority's: their
+    # fees from the receipts of what the run sent with them.
+    for who in ("deployer", "authority"):
+        if who in STATE:
+            sent = [r for t, r in pairs if t["from"].lower() == STATE[who].lower()]
+            rows.append((who, len(sent), sum(int(r["gasUsed"], 16) * int(r["effectiveGasPrice"], 16) for r in sent)))
     rows += [(w, int(now[i]["result"], 16), given[a.lower()] - int(now[len(roles) + i]["result"], 16))
              for i, (w, a) in enumerate(zip(ROLES, roles))]
     say(f"\n  what the run paid in fees\n  {'account':<10}{'transactions':>14}{'fees (wei)':>26}")
@@ -566,4 +591,14 @@ def spending() -> None:
 
 
 if __name__ == "__main__":
-    common.run_main(main)
+    import argparse
+    parser = argparse.ArgumentParser(prog="demo/public-run", description="The public run (demo/PUBLIC.md).")
+    parser.add_argument("command", nargs="?", choices=("stage-4", "serve"),
+                        help="stage-4: deploy and run the stage 4 system; serve: start the services a finished "
+                             "stage 4 run handed over to. With none, the stage 3 run")
+    command = parser.parse_args().command
+    if command:
+        import public4  # the stage 4 run and its services, which read stage 4's shared examples
+        common.run_main(public4.main if command == "stage-4" else public4.serve)
+    else:
+        common.run_main(main)

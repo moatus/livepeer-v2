@@ -1,6 +1,9 @@
 #!/bin/sh
 # The stage 3 system on a chain this run does not control: deploy, the
 # team's node paid for one job, one reward cycle in real time, every figure
-# reconciled against the calculator. How to run it: demo/PUBLIC.md.
+# reconciled against the calculator. With stage-4, the stage 4 system: the
+# buyback buys and burns test LPT and an announced change counts, then the
+# deployment is handed over; with serve, the services it is handed over to.
+# How to run it: demo/PUBLIC.md.
 set -eu
 exec python3 -B "$(dirname "$0")/public.py" "$@"
