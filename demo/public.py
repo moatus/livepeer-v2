@@ -585,8 +585,12 @@ def spending() -> None:
              for i, (w, a) in enumerate(zip(ROLES, roles))]
     say(f"\n  what the run paid in fees\n  {'account':<10}{'transactions':>14}{'fees (wei)':>26}")
     for who, count, fee in rows:
-        say(f"  {who:<10}{count:>14}{fee:>26,}")
-    fees = sum(r[2] for r in rows)
+        # An account sent more gas money than the run gave it, such as a
+        # standing keeper topped up, holds more than it was given: its fees
+        # are not known from its balance, and are left out of the total.
+        say(f"  {who:<10}{count:>14}{fee:>26,}" if fee >= 0 else
+            f"  {who:<10}{count:>14}{'not known':>26}  (it was sent more gas money than the run gave it)")
+    fees = sum(r[2] for r in rows if r[2] >= 0)
     say(f"  {'all':<10}{sum(r[1] for r in rows):>14}{fees:>26,}  ({fees / 10**18:.6f} of the chain's native token)")
 
 
