@@ -4,6 +4,7 @@ go 1.27.3
 
 require (
 	github.com/ethereum/go-ethereum v1.17.8
+	github.com/gorilla/websocket v1.5.4-0.20240701034025-d67f41855da4
 	github.com/livepeer/node v1.0.7-0.20261103081012-e2b331958a57
 )
 
@@ -24,7 +25,6 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/gorilla/websocket v1.5.4-0.20240701034025-d67f41855da4 // indirect
 	github.com/holiman/uint256 v1.3.2 // indirect
 	github.com/shirou/gopsutil v3.21.4-0.20210419000835-c7a38de76ee5+incompatible // indirect
 	github.com/supranational/blst v0.3.16 // indirect

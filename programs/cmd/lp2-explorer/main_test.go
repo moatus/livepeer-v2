@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"math/big"
 	"net"
 	"net/http"
@@ -642,7 +643,8 @@ func TestViewsAreDeclared(t *testing.T) {
 
 // With the RPC provider down, or rejecting the key and echoing it, neither
 // the page, nor its JSON, nor the failure at start shows the key the URL
-// carries, and each says what could not be read.
+// carries, nor a password escaped as the URL writes it; each says what
+// could not be read, and why by the failure's fixed category.
 func TestAnRPCFailureHidesTheProvidersKey(t *testing.T) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -651,9 +653,11 @@ func TestAnRPCFailureHidesTheProvidersKey(t *testing.T) {
 	down := l.Addr().String()
 	l.Close() // nothing listens there now: the connection is refused
 	echo := echoingProvider(t, "synthetic-key-in-the-path", "synthetic-user", "synthetic-password", "synthetic-key-in-the-query")
-	for _, url := range []string{
-		"http://" + down + "/v3/synthetic-key-in-the-path?apikey=synthetic-key-in-the-query",
-		"http://synthetic-user:synthetic-password@" + echo + "/v3/synthetic-key-in-the-path?apikey=synthetic-key-in-the-query",
+	escaped := echoingProvider(t, "synthetic%40password")
+	for url, category := range map[string]string{
+		"http://" + down + "/v3/synthetic-key-in-the-path?apikey=synthetic-key-in-the-query":                                   "the RPC provider http://" + down + " could not be reached",
+		"http://synthetic-user:synthetic-password@" + echo + "/v3/synthetic-key-in-the-path?apikey=synthetic-key-in-the-query": "the RPC provider http://" + echo + " refused the request (HTTP 401)",
+		"http://synthetic-user:synthetic%40password@" + escaped + "/rpc":                                                       "the RPC provider http://" + escaped + " refused the request (HTTP 401)",
 	} {
 		client, err := rpc.Dial(url)
 		if err != nil {
@@ -670,22 +674,26 @@ func TestAnRPCFailureHidesTheProvidersKey(t *testing.T) {
 			var b bytes.Buffer
 			b.ReadFrom(r.Body)
 			r.Body.Close()
-			if strings.Contains(b.String(), "synthetic") || !strings.Contains(b.String(), "the chain&#39;s newest block") &&
-				!strings.Contains(b.String(), "the chain's newest block") {
+			reason := "the chain's newest block: " + category
+			if strings.Contains(b.String(), "synthetic") ||
+				!strings.Contains(b.String(), reason) && !strings.Contains(b.String(), html.EscapeString(reason)) {
 				t.Errorf("%s, with the provider at %s failing:\n%s", path, url, b.String())
 			}
 		}
 		srv.Close()
 		client.Close()
 	}
-	for _, url := range []string{"ws://" + down + "/ws/synthetic-key-for-websocket",
-		"ws://synthetic-user:synthetic-password@" + echo + "/ws/synthetic-key-in-the-path?apikey=synthetic-key-in-the-query"} {
+	for url, category := range map[string]string{
+		"ws://" + down + "/ws/synthetic-key-for-websocket":                                                                   "the RPC provider ws://" + down + " could not be reached",
+		"ws://synthetic-user:synthetic-password@" + echo + "/ws/synthetic-key-in-the-path?apikey=synthetic-key-in-the-query": "the RPC provider ws://" + echo + " refused the request (HTTP 401)",
+		"ws://synthetic-user:synthetic%40password@" + escaped + "/ws":                                                        "the RPC provider ws://" + escaped + " refused the request (HTTP 401)",
+	} {
 		_, err := rpc.Dial(url)
 		if err == nil {
 			t.Fatalf("%s: dialled", url)
 		}
-		if got := failure(err, url); strings.Contains(got, "synthetic") {
-			t.Errorf("the failure at start shows the key: %s", got)
+		if got := failure(err, url); got != "connect to the chain: "+category {
+			t.Errorf("the failure at start is not the step and the category: %s", got)
 		}
 	}
 }

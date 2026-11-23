@@ -166,12 +166,17 @@ when the page loads; one that could not be read says "unavailable".
 
 The container's own log (`docker logs lp2-node`) says each step it takes,
 and each claim and withdrawal it sends. The node's, the responder's and
-the explorer's logs are in `/data/logs`. When the RPC provider cannot be
-reached or refuses a request, the container's log names the provider's
-host, and nothing in it, in `/data/logs` or in the explorer's page and
-JSON shows the rest of `LP2_RPC_URL`, where a provider puts its key: not
-the URL, and not a piece of it that a provider echoes back. A key
-in the host name itself, which few providers use, is not hidden.
+the explorer's logs are in `/data/logs`. When a request to the RPC
+provider fails, the container's log and the explorer's page and JSON say
+which step failed, name the provider by its scheme and host only, and say
+what went wrong in fixed words, never in the provider's: it could not be
+reached, did not answer in time, refused the request (with the HTTP
+status), answered with an error (with the JSON-RPC code), or its answer
+could not be read. So whatever a provider writes back, even the key or
+password it was sent, is not shown, and the rest of `LP2_RPC_URL`, where a
+provider puts its key, is hidden wherever it appears. The host is shown:
+it must be one you can share. A key in the host name itself, which few
+providers use, is not hidden.
 
 ## The deployment file
 

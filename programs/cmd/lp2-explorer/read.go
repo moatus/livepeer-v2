@@ -12,6 +12,8 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
+
+	"lp2core/programs/chain"
 )
 
 // The views and events the explorer reads, as contracts/interfaces declares
@@ -138,6 +140,8 @@ type Status struct {
 	Node        Node     `json:"node"`
 	Testnet     Testnet  `json:"testnet"`
 	Unavailable []string `json:"unavailable"`
+
+	rpcURL string // only to tell a provider's failure (chain.Describe)
 }
 
 // Node is the node shown.
@@ -231,9 +235,10 @@ func newExplorer(cfg config, b batcher) *explorer {
 	return &explorer{cfg: cfg, rpc: b, scan: newScanner(cfg.first, cfg.claims, cfg.node)}
 }
 
-// unavailable records why a figure was not read.
+// unavailable records why a figure was not read, a failure of the RPC
+// provider by its fixed category (chain.Describe).
 func (s *Status) unavailable(what string, err error) {
-	s.Unavailable = append(s.Unavailable, fmt.Sprintf("%s: %v", what, err))
+	s.Unavailable = append(s.Unavailable, what+": "+chain.Describe(err, s.rpcURL))
 }
 
 func intOut(v *view, s *Status) *Int {
@@ -277,7 +282,7 @@ func asAddress(n *big.Int) *common.Address {
 // made fresh, so a figure that failed is read again on the next request.
 func (e *explorer) read(ctx context.Context) *Status {
 	c := e.cfg
-	s := &Status{Node: Node{Address: c.node, LowGasWei: (*Int)(lowGasWei)}, Unavailable: []string{}}
+	s := &Status{Node: Node{Address: c.node, LowGasWei: (*Int)(lowGasWei)}, Unavailable: []string{}, rpcURL: c.rpcURL}
 
 	// The newest block, and the three addresses the Controller names.
 	var head hexutil.Uint64

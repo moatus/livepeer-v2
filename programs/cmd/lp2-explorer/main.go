@@ -14,9 +14,9 @@
 // and each figure that could not be read null, never 0, with the reason in
 // "unavailable". Each request reads the chain afresh, every view at one
 // block, the newest, so a figure that failed is read again on the next
-// load. A reason never shows what the RPC URL carries as a key: its user
-// information, path, query or fragment (chain.Redact); nor does a failure
-// at start.
+// load. A reason never quotes the RPC provider: its failure is told by a
+// fixed category naming its scheme and host only (chain.Describe), and
+// nothing the URL carries as a key is shown (chain.Redact); nor at start.
 //
 // The node: whether it is registered (R-01), its operator key (R-26) and
 // payout address; its own bond and its stake in the current round
@@ -124,10 +124,10 @@ func main() {
 	fail(srv.ListenAndServe())
 }
 
-// failure is how a failure to reach the chain is told: the error, with
-// what rpcURL carries as a key hidden.
+// failure is how a failure to reach the chain at start is told: the step,
+// and the provider's failure by its fixed category (chain.Describe).
 func failure(err error, rpcURL string) string {
-	return chain.Redact(err.Error(), rpcURL)
+	return "connect to the chain: " + chain.Describe(err, rpcURL)
 }
 
 // handler serves the page and its JSON. Reads run one at a time, since

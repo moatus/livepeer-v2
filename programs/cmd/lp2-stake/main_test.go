@@ -104,9 +104,10 @@ func TestParseRefuses(t *testing.T) {
 }
 
 // An RPC request that fails, to a provider that is down or to one that
-// rejects the key and echoes it in its answer, is reported with the action
-// and the provider's host, and with none of what its URL carries as a key:
-// the user information, the path or the query.
+// rejects the key and echoes it in its answer, is reported with the action,
+// the provider's host and the failure's fixed category, and with none of
+// what its URL carries as a key: the user information, the path or the
+// query, nor a password escaped as the URL writes it.
 func TestAnRPCFailureHidesTheProvidersKey(t *testing.T) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -118,10 +119,13 @@ func TestAnRPCFailureHidesTheProvidersKey(t *testing.T) {
 		{down, "http://" + down + "/v3/synthetic-key-in-the-path"},
 		{down, "https://someone:synthetic-password@" + down + "/rpc?apikey=synthetic-key-in-the-query"},
 		{down, "ws://" + down + "/ws/synthetic-key-for-websocket"},
+		{down, "http://synthetic-user:synthetic%40password@" + down + "/rpc"},
 		echoingProvider(t, "http://%s/v3/synthetic-key-in-the-path", "synthetic-key-in-the-path"),
 		echoingProvider(t, "http://synthetic-user:synthetic-password@%s/rpc?apikey=synthetic-key-in-the-query",
 			"synthetic-user", "synthetic-password", "synthetic-key-in-the-query"),
 		echoingProvider(t, "ws://%s/ws/synthetic-key-for-websocket", "synthetic-key-for-websocket"),
+		echoingProvider(t, "http://synthetic-user:synthetic%%40password@%s/rpc", "synthetic%40password"),
+		echoingProvider(t, "ws://synthetic-user:synthetic%%40password@%s/ws", "synthetic%40password"),
 	} {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		a, err := parse([]string{"state", node, other})
@@ -139,6 +143,13 @@ func TestAnRPCFailureHidesTheProvidersKey(t *testing.T) {
 		}
 		if !strings.HasPrefix(got, "lp2-stake state: ") || !strings.Contains(got, c.host) {
 			t.Errorf("the failure does not name the action and the host: %s", got)
+		}
+		category := " refused the request (HTTP 401)"
+		if c.host == down {
+			category = " could not be reached"
+		}
+		if scheme, _, _ := strings.Cut(c.rpc, ":"); !strings.Contains(got, "the RPC provider "+scheme+"://"+c.host+category) {
+			t.Errorf("the failure is not told by its category%s: %s", category, got)
 		}
 		t.Logf("%s: %s", c.rpc, got)
 	}

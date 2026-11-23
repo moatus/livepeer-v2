@@ -13,9 +13,9 @@ import (
 const minHidden = 4
 
 // Redact hides, in text, what rpcURL may carry as a credential: its user
-// information, path, query and fragment. It is the one rule every program
-// that prints a message about the chain applies to it. The URL itself, as
-// given and as Go writes it, becomes scheme://host/…; then each piece of
+// information, path, query and fragment. Describe applies it to every
+// failure it tells, as a second guard behind the fixed categories. The URL
+// itself, as given and as Go writes it, becomes scheme://host/…; then each piece of
 // those parts (the user name and the password, each path segment, each
 // query name and value, the fragment), raw or decoded, becomes "…"
 // wherever else it appears, so that a provider that answers a rejected

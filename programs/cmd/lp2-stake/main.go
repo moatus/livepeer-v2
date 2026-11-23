@@ -77,9 +77,11 @@
 // LPT and ETH, HOLDER's bond staying at NODE and its bond counting for
 // NODE this round. It needs no keystore.
 //
-// An error is printed as "lp2-stake <action>: <error>", with the
-// --rpc-url's user information, path and query, where a provider puts its
-// key, replaced by "…".
+// An error is printed as "lp2-stake <action>: <error>". A failure of the
+// RPC provider is told in fixed words with the provider's scheme and host,
+// never in the provider's own (chain.Describe), and the --rpc-url's user
+// information, path and query, where a provider puts its key, are
+// replaced by "…" wherever they appear.
 //
 // new-key makes a new key and writes it to --keystore-file, encrypted with
 // the password in --keystore-password-file, and prints its address. It
@@ -489,14 +491,15 @@ func fail(name string, err error, rpcURL string) {
 	os.Exit(1)
 }
 
-// message is the line fail prints: the action and the error, with what
-// rpcURL may carry as a credential hidden (chain.Redact), and the RPC
-// provider's scheme and host when the error does not name them.
+// message is the line fail prints: the action and the error, each failure
+// of the RPC provider told by its fixed category and never in the
+// provider's words (chain.Describe), and the provider's scheme and host
+// when the error does not name them.
 func message(name string, err error, rpcURL string) string {
 	if name != "" {
 		name = " " + name
 	}
-	text := chain.Redact(fmt.Sprintf("lp2-stake%s: %v", name, err), rpcURL)
+	text := chain.Redact(fmt.Sprintf("lp2-stake%s: %s", name, chain.Describe(err, rpcURL)), rpcURL)
 	if u, perr := url.Parse(rpcURL); perr == nil && u.Host != "" && !strings.Contains(text, u.Host) {
 		text += fmt.Sprintf(" (RPC provider %s://%s)", u.Scheme, u.Host)
 	}
