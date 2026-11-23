@@ -814,6 +814,90 @@ class PublicStage4(unittest.TestCase):
             with self.subTest(url=url):
                 self.assertIsNone(self.p4.url_problem(url, False, local))
 
+    # The spellings review rounds named, each with whether the sender check
+    # takes it on a local chain, where only the URL's form is checked (a
+    # public chain adds the address rules). A taken one must be read alike
+    # by Python and by Go's net/url, which lp2-stake joins with.
+    SPELLINGS = {
+        "https://sender.example": True, "https://sender.example/": True, "https://sender.example:8443": True,
+        "https://Sender.Example.:8443": True, "HTTPS://SENDER.EXAMPLE:8443/": True, "http://sender.example:": True,
+        "http://host_1.example": True, "http://8.8.8.8:9000": True, "http://[2606:4700::1111]:8443": True,
+        "http://[2606:4700::ABCD]:8443": True, "http://[::ffff:8.8.8.8]": True, "https://rpc.example:8940": True,
+        "http://localhost.:49224": True,
+        # C5: an IPv6 zone, raw (Go cannot parse it) or escaped (Go reads
+        # the zone as KEY, Python as 25key).
+        "http://[2606:4700::1111%KEY]:8443": False, "http://[2606:4700::1111%25KEY]:8443": False,
+        "http://[fe80::1%25en0]:8443": False,
+        # A port or an authority the two read differently, or one refuses.
+        "http://sender.example:08443": False, "http://sender.example:65536": False, "http://sender.example:+80": False,
+        "http://sender.example:8443:9": False, "http://2606:4700::1111": False, "http://[::1]x": False,
+        "http://[v1.x]": False, "http://sender.example%2Fx": False, "http://sender.example%41": False,
+        # Python reads rpc.example as the host, Go refuses the URL.
+        "https://sender.example\\@rpc.example": False, "https://sender.example\\x": False,
+        "https://sender.example;KEY": False, "https://sender.example,KEY": False, "https://KEY@sender.example": False,
+        "http:sender.example": False, "http:///sender.example": False,
+        # C4, round 2 and C3: the RPC URL inside the sender's, and the RPC
+        # endpoint itself.
+        "https://sender.example/https://rpc.example/v2/KEYx": False, "https://rpc.example/v2/KEY": False,
+        "https://RPC.example.:443/": False,
+    }
+
+    def test_the_sender_check_takes_the_spellings_it_should(self):
+        for url, taken in self.SPELLINGS.items():
+            with self.subTest(url=url):
+                self.assertEqual(self.p4.url_problem(url, False, "https://rpc.example/v2/KEY") is None, taken)
+
+    def test_a_sender_url_taken_is_read_alike_by_python_and_go(self):
+        # Review C4's C5: an IPv6 zone passed Python's reading and broke
+        # lp2-stake's. Go reads each spelling here as lp2-stake does
+        # (net/url, then the join request), and each one the check takes
+        # must give the same scheme, host and port in both.
+        import urllib.parse
+        if not shutil.which("go"):
+            self.skipTest("go is not on PATH: the spellings were not read by Go")
+        src = self.dir / "read.go"
+        src.write_text(textwrap.dedent("""\
+            package main
+
+            import (
+            \t"bufio"
+            \t"encoding/json"
+            \t"net/http"
+            \t"net/url"
+            \t"os"
+            \t"strings"
+            )
+
+            func main() {
+            \tin, out := bufio.NewScanner(os.Stdin), json.NewEncoder(os.Stdout)
+            \tfor in.Scan() {
+            \t\tread := map[string]string{"url": in.Text()}
+            \t\tif u, err := url.Parse(in.Text()); err != nil {
+            \t\t\tread["error"] = err.Error()
+            \t\t} else if _, err := http.NewRequest("POST", strings.TrimRight(in.Text(), "/")+"/join", nil); err != nil {
+            \t\t\tread["error"] = err.Error()
+            \t\t} else {
+            \t\t\tread["scheme"], read["host"], read["port"] = u.Scheme, u.Hostname(), u.Port()
+            \t\t}
+            \t\tout.Encode(read)
+            \t}
+            }
+            """))
+        done = subprocess.run(["go", "run", str(src)], input="".join(u + "\n" for u in self.SPELLINGS),
+                              capture_output=True, text=True, cwd=self.dir, env={**os.environ, "GOTOOLCHAIN": "local"})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        go = {r["url"]: r for r in map(json.loads, done.stdout.splitlines())}
+        self.assertEqual(set(go), set(self.SPELLINGS))
+        self.assertIn("error", go["http://[2606:4700::1111%KEY]:8443"])
+        for url in self.SPELLINGS:
+            if self.p4.url_problem(url, False, "https://rpc.example/v2/KEY") is not None:
+                continue
+            with self.subTest(url=url):
+                u = urllib.parse.urlsplit(url)
+                self.assertNotIn("error", go[url])
+                self.assertEqual((go[url]["scheme"], go[url]["host"].lower(), go[url]["port"]),
+                                 (u.scheme, u.hostname, "" if u.port is None else str(u.port)))
+
     def test_the_run_and_serve_refuse_the_rpc_url_and_a_loopback_name_and_keep_the_file(self):
         # The two cases review round 2 reproduced: the RPC URL given as the
         # sender's, and localhost with the root's trailing dot.
@@ -881,7 +965,10 @@ class PublicStage4(unittest.TestCase):
         for url in ("https://sender.example/" + rpc + "x", "https://sender.example/x" + rpc + "-suffix",
                     "https://sender.example/" + rpc, "https://sender.example/lp2", "https://sender.example:8443/join",
                     "https://sender.example//", "https://sender.example/?", "https://sender.example/?key=KEY",
-                    "https://sender.example/#KEY", "https://KEY@sender.example", "https://u:KEY@sender.example"):
+                    "https://sender.example/#KEY", "https://KEY@sender.example", "https://u:KEY@sender.example",
+                    # Review C4's C5: an IPv6 zone, which lp2-stake cannot read.
+                    "http://[2606:4700::1111%KEY]:8443", "http://[2606:4700::1111%25KEY]:8443",
+                    "https://sender.example:08443"):
             with self.subTest(url=url), mock.patch.object(common, "RPC", rpc), self.env(LP2_SENDER_URL=url):
                 with self.assertRaises(common.NotRun) as run:
                     self.p4.sender_url(421614)
@@ -891,8 +978,9 @@ class PublicStage4(unittest.TestCase):
                 self.assertIn("kept as it was", str(serve.exception))
                 self.assertEqual(path.read_bytes(), before)
                 self.assertEqual(sorted(p.name for p in self.dir.iterdir()), ["deployment.json"])
-        # An origin is taken by both, and "/" after it is no path.
-        for url in ("https://sender.example:8443", "https://sender.example:8443/"):
+        # An origin is taken by both, and "/" after it is no path. A public
+        # IPv6 address with no zone is an origin.
+        for url in ("https://sender.example:8443", "https://sender.example:8443/", "http://[2606:4700::1111]:8443"):
             with self.subTest(url=url), mock.patch.object(common, "RPC", rpc), self.env(LP2_SENDER_URL=url):
                 self.assertEqual(self.p4.sender_url(421614), url)
                 self.p4.publish_sender(self.dir, 421614)

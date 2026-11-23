@@ -582,8 +582,9 @@ def url_problem(url: str, public_chain: bool, rpc: str | None = None) -> str | N
     """Why `url` cannot be the sender's published URL, or None: the one
     check of it, at the run's start, at the handover and in serve. It is
     published, so it names the sender and nothing else: an origin, an http
-    or https scheme, a host and an optional port, with no user, no path but
-    "/", no query and no fragment. Nodes join at its /join. It is not the
+    or https scheme, a host (a name, or an address with no zone) and an
+    optional port, with no user, no path but "/", no query and no fragment,
+    written as both Python and Go read it. Nodes join at its /join. It is not the
     RPC endpoint (`rpc`, by default the one in use): not its scheme, host
     and port. The sender may share the RPC's host at another port or
     scheme. On a public chain it resolves only to addresses public by the
@@ -600,6 +601,14 @@ def url_problem(url: str, public_chain: bool, rpc: str | None = None) -> str | N
         return "is not an http:// or https:// URL"
     if u.username is not None or u.password is not None:
         return "carries a user or password, and it is published"
+    if "%" in u.hostname:
+        return "has a % in its host, such as an IPv6 zone, which names an interface of the machine reading it"
+    # Written exactly as read: the node's Go client reads the host and
+    # port as written, so a spelling Python reads otherwise (a port with a
+    # leading zero) is refused, not published (test_demo, SPELLINGS).
+    written = f"[{u.hostname}]" if ":" in u.hostname else u.hostname
+    if u.netloc.lower().removesuffix(":") != written + ("" if u.port is None else f":{u.port}"):
+        return "spells its host or port in a form URL readers may read differently"
     host = host_name(u.hostname)
     if not re.fullmatch(r"[a-z0-9_-]+(\.[a-z0-9_-]+)*", host):
         try:
