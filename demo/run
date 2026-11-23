@@ -16,6 +16,11 @@
                           lp2-responder, once a round, and lp2-faucet
                           grants each registered node test LPT once,
                           through three kills; no model, no docker
+  ./dev demo container    the operator container on stage 4's system with
+                          the sender and the faucet: it registers, is
+                          granted, bonds, joins, is paid, and claims and
+                          withdraws, through three kills; the run as a
+                          ledger case the calculator reproduces
 
 Exit 0 every figure equal and every behaviour seen; 1 a figure differed or
 a behaviour was missing; 2 the demo could not run (a tool, a download or a
@@ -30,7 +35,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 parser = argparse.ArgumentParser(prog="./dev demo", description=__doc__.splitlines()[0])
-parser.add_argument("stage", nargs="?", choices=("stage-2", "stage-3", "stage-4", "buyback", "light"), default="stage-3",
+parser.add_argument("stage", nargs="?", choices=("stage-2", "stage-3", "stage-4", "buyback", "light", "container"), default="stage-3",
                     help="which stage's demo to run (default stage-3)")
 stage = parser.parse_args().stage
 if stage == "stage-2":
@@ -41,6 +46,8 @@ elif stage == "buyback":
     import buyback as demo
 elif stage == "light":
     import light as demo
+elif stage == "container":
+    import container as demo
 else:
     import stage3 as demo
 import common  # noqa: E402

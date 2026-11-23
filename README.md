@@ -26,7 +26,7 @@ once. Stage 4 has yet to be deployed on a public test chain.
 | Independent calculator | Computes every shared example from the rulebook alone |
 | Contracts | Stage 2: Controller, Registry, RoundClock, Broker, MockUSDC. Stage 3: TestLPT, StakeLedger, Scores, Claims. Stage 4: Parameters, TestPool, Buyback |
 | Node integration | The unmodified node, configured by flags alone; no fork |
-| One-command demo | `./dev demo` (stage 3); `./dev demo stage-2` still runs stage 2's; `./dev demo stage-4` runs stage 4's; `./dev demo buyback` runs the buyback's walk; `./dev demo light` runs the services that pay each node that joins and grant each registered node test LPT |
+| One-command demo | `./dev demo` (stage 3); `./dev demo stage-2` still runs stage 2's; `./dev demo stage-4` runs stage 4's; `./dev demo buyback` runs the buyback's walk; `./dev demo light` runs the services that pay each node that joins and grant each registered node test LPT; `./dev demo container` runs the operator container against them |
 
 ## Run the demo
 
@@ -214,6 +214,39 @@ chain's pool, and with the grant mined and reverted. It then waits out of
 test LPT, out of gas and at its cap in turn, each into a new round in which
 the sender pays on. The token's Transfer logs then show every registered
 node granted exactly once.
+
+### The operator container: a node from one command
+
+[`programs/container/`](programs/container/README.md) builds one image
+that runs a node on the testnet: the unmodified node's orchestrator,
+`lp2-responder`, `lp2-stake`, `lp2-explorer` and an entrypoint over them.
+Started with one command, it makes a node key and an operator key, prints
+both addresses to be funded with test ETH, and from then on needs nobody:
+it registers the node, waits for the faucet's grant, makes the operator
+key the node's operator, bonds the grant to the node, starts the node once
+the bond counts, joins the sender, and each round claims and withdraws the
+LPT reward that is due. Each step asks the chain first and does only what
+is not done, so a restart at any moment repeats nothing. Its
+[README](programs/container/README.md) is the operator's instructions:
+how to run it, what to fund, which port must be reachable, how long each
+step takes and how to read its explorer.
+
+`./dev demo container` builds the image and runs it on stage 4's
+contracts on a local chain mining a block a second, with the keeper, the
+sender and the faucet running as `./dev demo light` runs them. After it
+sends the two keys 1 ETH each, the demo only kills and restarts the
+container: while it waits for the grant, between the operator key's
+approval and its bond, and between its first claim and the withdrawal; a
+second container on the same data folder refuses to start. It then reads
+from the chain that nothing was done twice and that the node key sent
+nothing after the node started but its own redemptions, writes the run as
+a ledger case that `./calculator/check` reproduces, and checks the
+container's explorer for the claimed round against it. The pool is not
+seeded, so no buy draws the network share or burns LPT and the case holds
+every LPT and USDC movement. A run takes about 12 minutes once the image
+is built. It uses six local ports, from `LP2_DEMO_PORT_BASE` (47700 unless
+set) to 24 above it; the chain and the sender also listen on Docker's
+bridge address, where the container reaches them.
 
 ### Run results
 

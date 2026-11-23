@@ -1,0 +1,278 @@
+#!/bin/sh
+# lp2-node: the operator container's entrypoint (README.md beside this
+# file). With nobody on the team acting, it makes the node's two keys,
+# waits for them to be funded with test ETH, registers the node, waits for
+# the faucet's grant of test LPT, makes the operator key the node's
+# operator, bonds the grant to the node, waits until the bond counts, then
+# starts the unmodified node serving lp2-responder, joins the testnet's
+# sender, and from then on claims and withdraws each round's reward when it
+# is due. lp2-explorer shows all of it.
+#
+# Every step asks the chain first and does only what is not done, so a
+# restart at any step finishes without repeating one. The node key N is
+# used for its registration, its proposal of the operator key and the move
+# of its grant, and after the node starts by the node alone; every claim
+# and withdrawal is the operator key H's.
+#
+# Environment: LP2_DEPLOYMENT (a path inside the container or an http(s)
+# URL), LP2_RPC_URL, LP2_PUBLIC_URL; optional LP2_POLL (seconds, 30) and
+# LP2_EXPLORER_LISTEN (0.0.0.0:8080). LP2_TEST_HOLD=approved or claimed
+# stops the run after that step, for a test to kill it there.
+set -eu
+
+DATA=${LP2_DATA:-/data}
+POLL=${LP2_POLL:-30}
+EXPLORER_LISTEN=${LP2_EXPLORER_LISTEN:-0.0.0.0:8080}
+RESPONDER=127.0.0.1:9000
+METRICS=127.0.0.1:8936
+
+log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
+# note logs a line unless it is the one note logged last: a wait says
+# what it waits for once, and again when that changes.
+NOTED=
+note() {
+    [ "$*" = "$NOTED" ] || log "$*"
+    NOTED=$*
+}
+die() {
+    log "stopped: $*"
+    exit 1
+}
+pause() {
+    sleep "${1:-$POLL}" &
+    wait $! || true
+}
+# hold stops here for good when LP2_TEST_HOLD names this step.
+hold() {
+    [ "${LP2_TEST_HOLD:-}" = "$1" ] || return 0
+    log "holding after $1 (LP2_TEST_HOLD)"
+    while :; do pause 3600; done
+}
+
+CHILDREN=
+stop() {
+    log "stopping"
+    [ -z "$CHILDREN" ] || kill $CHILDREN 2>/dev/null || true
+    wait || true
+    exit 0
+}
+trap stop TERM INT
+
+for v in LP2_DEPLOYMENT LP2_RPC_URL LP2_PUBLIC_URL; do
+    eval "[ -n \"\${$v:-}\" ]" || die "$v is not set (see the instructions)"
+done
+case $LP2_PUBLIC_URL in
+http://* | https://*) ;;
+*) die "LP2_PUBLIC_URL $LP2_PUBLIC_URL is not an http or https URL" ;;
+esac
+
+# The data directory: one container at a time. The lock is held as long as
+# this script or anything it started runs.
+[ -d "$DATA" ] && [ -w "$DATA" ] || die "$DATA is not a folder that user $(id -u) can write (see the instructions)"
+exec 9>>"$DATA/lock"
+flock -n 9 || die "another container is running on $DATA; refusing to start"
+umask 077
+KEYS=$DATA/keys
+mkdir -p "$KEYS" "$DATA/node" "$DATA/logs"
+
+# The deployment file. A data directory belongs to one deployment.
+case $LP2_DEPLOYMENT in
+http://* | https://*) curl -fsS --max-time 60 -o "$DATA/deployment.new" "$LP2_DEPLOYMENT" || die "could not fetch $LP2_DEPLOYMENT" ;;
+*) cp "$LP2_DEPLOYMENT" "$DATA/deployment.new" || die "could not read $LP2_DEPLOYMENT" ;;
+esac
+field() {
+    jq -er "$1 | strings, numbers" "$DATA/deployment.new" || {
+        echo "the deployment file has no $1" >&2
+        return 1
+    }
+}
+TESTNET=$(field .testnet)
+CHAIN_ID=$(field .chain_id)
+FIRST_BLOCK=$(field .first_block)
+CONTROLLER=$(field .contracts.Controller)
+PARAMETERS=$(field .contracts.Parameters)
+LEDGER=$(field .contracts.StakeLedger)
+CLAIMS=$(field .contracts.Claims)
+LPT=$(field .contracts.TestLPT)
+USDC=$(field .contracts.MockUSDC)
+PRICE=$(field .node.job_price_usd)
+UNIT=$(field .node.price_unit)
+WEI_PER_USD=$(field .node.wei_per_usd)
+FACE=$(field .node.ticket_face_value)
+WIN_PROB=$(field .node.ticket_win_prob)
+SENDER=$(field .sender_url)
+if [ -f "$DATA/deployment.json" ]; then
+    was=$(jq -r .contracts.Controller "$DATA/deployment.json")
+    [ "$was" = "$CONTROLLER" ] || die "$DATA belongs to the deployment whose Controller is $was, not $CONTROLLER: use a new data folder for a new deployment"
+fi
+mv "$DATA/deployment.new" "$DATA/deployment.json"
+
+# The orchestrator listens on all interfaces at the port the public URL names.
+hostport=${LP2_PUBLIC_URL#*://}
+hostport=${hostport%%/*}
+case $hostport in
+*\]) PORT= ;;
+*:*) PORT=${hostport##*:} ;;
+*) PORT= ;;
+esac
+if [ -z "$PORT" ]; then
+    case $LP2_PUBLIC_URL in https:*) PORT=443 ;; *) PORT=80 ;; esac
+fi
+
+# The two keys, made on first start; the password and keystores are never
+# printed.
+if [ ! -s "$KEYS/password" ]; then
+    [ ! -e "$KEYS/node.json" ] || die "$KEYS has keystores and no password file"
+    head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' >"$KEYS/password.new"
+    mv "$KEYS/password.new" "$KEYS/password"
+fi
+for k in node operator; do
+    [ -s "$KEYS/$k.json" ] || lp2-stake --keystore-file "$KEYS/$k.json" --keystore-password-file "$KEYS/password" new-key >/dev/null
+done
+N=0x$(jq -r .address "$KEYS/node.json")
+H=0x$(jq -r .address "$KEYS/operator.json")
+
+stake() {
+    who=$1
+    shift
+    lp2-stake --rpc-url "$LP2_RPC_URL" --keystore-file "$KEYS/$who.json" --keystore-password-file "$KEYS/password" \
+        --controller-address "$CONTROLLER" --parameters-address "$PARAMETERS" --stake-ledger-address "$LEDGER" \
+        --claims-address "$CLAIMS" --lpt-address "$LPT" --cursor-file "$DATA/claims-cursor" "$@"
+}
+# read_state sets chain_id, round, registered, operator, proposed, node_lpt,
+# holder_lpt, allowance, staying, bond_now, node_eth and holder_eth.
+read_state() {
+    st=$(stake node state "$N" "$H") || return 1
+    eval "$st"
+}
+# try runs a step again after a failure, which a restart also does.
+try() {
+    n=0
+    until "$@"; do
+        n=$((n + 1))
+        [ "$n" -lt 10 ] || die "gave up after 10 tries: $*"
+        log "failed; trying again in $POLL s: $*"
+        pause
+    done
+}
+started() {
+    "$@" &
+    CHILDREN="$CHILDREN $!"
+}
+
+log "lp2-node for testnet $TESTNET, chain $CHAIN_ID; data in $DATA"
+log "node key N $N; operator key H $H"
+try read_state
+[ "$chain_id" = "$CHAIN_ID" ] || die "LP2_RPC_URL is chain $chain_id, but the deployment is on chain $CHAIN_ID"
+
+started lp2-explorer --rpc-url "$LP2_RPC_URL" --controller-address "$CONTROLLER" --parameters-address "$PARAMETERS" \
+    --stake-ledger-address "$LEDGER" --claims-address "$CLAIMS" --usdc-address "$USDC" --first-block "$FIRST_BLOCK" \
+    --node "$N" --listen "$EXPLORER_LISTEN" >>"$DATA/logs/explorer.log" 2>&1
+log "explorer: the page of node $N on $EXPLORER_LISTEN inside the container"
+
+# 1. Test ETH for both keys.
+while [ "$node_eth" = 0 ] || [ "$holder_eth" = 0 ]; do
+    note "fund both keys with test ETH on chain $CHAIN_ID: N $N holds $node_eth wei, H $H holds $holder_eth wei"
+    pause
+    try read_state
+done
+log "funded: N holds $node_eth wei of ETH, H $holder_eth"
+
+# 2. N registers (R-01).
+[ "$registered" = true ] || try stake node register
+# 3. The faucet's grant of test LPT to N.
+try read_state
+while [ "$node_lpt" = 0 ] && [ "$holder_lpt" = 0 ] && [ "$staying" = 0 ]; do
+    note "registered; waiting for the faucet's grant of test LPT to N (round $round)"
+    pause
+    try read_state
+done
+# 4. N proposes H as its operator key and H accepts (R-26).
+if [ "$operator" != "$H" ]; then
+    [ "$proposed" = "$H" ] || try stake node set-operator "$N" "$H"
+    try stake operator accept-operator "$N"
+fi
+# 5. N moves the grant to H, and H bonds it to N (R-15).
+try read_state
+if [ "$staying" = 0 ]; then
+    [ "$node_lpt" = 0 ] || try stake node send-lpt "$H" "$node_lpt"
+    try read_state
+    [ "$holder_lpt" != 0 ] || die "H holds no test LPT to bond"
+    try stake operator approve "$holder_lpt"
+    hold approved
+    try stake operator bond "$N" "$holder_lpt"
+fi
+# 6. The bond counts from the round after it.
+try read_state
+while [ "$bond_now" = 0 ]; do
+    note "H's bond of $staying wei at N counts from the next round; waiting (round $round)"
+    pause
+    try read_state
+done
+log "H's bond of $bond_now wei counts for N in round $round"
+
+# 7. The node, serving lp2-responder.
+printf '%s' "$LP2_RPC_URL" >"$DATA/node/rpc-url"
+cat >"$DATA/node/runners.toml" <<EOF
+[[Runners]]
+ID = "light"
+RunnerURL = "http://$RESPONDER"
+App = "light"
+Mode = "single-shot"
+Status = "ready"
+Capacity = 4
+HealthURL = "http://$RESPONDER/health"
+HealthCode = 200
+[Runners.PriceInfo]
+Price = $PRICE
+Currency = "USD"
+Unit = "$UNIT"
+EOF
+started lp2-responder --listen "$RESPONDER" >>"$DATA/logs/responder.log" 2>&1
+log "starting the node: orchestrator on 0.0.0.0:$PORT for $LP2_PUBLIC_URL"
+started livepeer-orchestrator --config= --network lp2-testnet --data-dir "$DATA/node" \
+    --listen "0.0.0.0:$PORT" --service-url "$LP2_PUBLIC_URL" --metrics-listen "$METRICS" \
+    --runner-config "$DATA/node/runners.toml" --runner-grants 127.0.0.1 --health-grants "$RESPONDER" \
+    --keystore-file "$KEYS/node.json" --keystore-password-file "$KEYS/password" \
+    --rpc-url-file "$DATA/node/rpc-url" --chain-id "$CHAIN_ID" --controller-address "$CONTROLLER" \
+    --redeemer-db "$DATA/node/payments.sqlite" --wei-per-usd "$WEI_PER_USD" --ticket-face-value "$FACE" \
+    --ticket-win-prob "$WIN_PROB" >>"$DATA/logs/orchestrator.log" 2>&1
+n=0
+until curl -fsS --max-time 5 "http://127.0.0.1:$PORT/discovery" 2>/dev/null | jq -e 'any(.[]; any(.runners[]?; .app == "light"))' >/dev/null; do
+    n=$((n + 1))
+    [ "$n" -lt 60 ] || die "the node did not list its runner within 120 s; see $DATA/logs/orchestrator.log"
+    pause 2
+done
+log "the node is up: its discovery lists lp2-responder"
+
+# 8. Join, then claim and withdraw what is due, every LP2_POLL seconds.
+joined=
+said_claims=
+said_parts=
+while :; do
+    for p in $CHILDREN; do
+        kill -0 "$p" 2>/dev/null || die "a program exited (see $DATA/logs); the container stops so that it is restarted"
+    done
+    if [ -z "$joined" ]; then
+        if out=$(stake node join "$SENDER" "$LP2_PUBLIC_URL" 2>&1); then
+            joined=1
+            log "$out"
+        else
+            log "not joined yet, trying again in $POLL s: $out"
+        fi
+    fi
+    if out=$(stake operator claim-due "$N" 2>&1); then
+        [ "$out" = "$said_claims" ] || log "claims: $out"
+        said_claims=$out
+        case $out in *"sent: claim"*) hold claimed ;; esac
+    else
+        log "claims failed, trying again in $POLL s: $out"
+    fi
+    if out=$(stake operator withdraw-due "$N" 2>&1); then
+        [ "$out" = "$said_parts" ] || log "parts: $out"
+        said_parts=$out
+    else
+        log "withdrawal failed, trying again in $POLL s: $out"
+    fi
+    pause
+done

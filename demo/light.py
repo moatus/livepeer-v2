@@ -194,13 +194,14 @@ def url(n: str) -> str:
     return f"http://127.0.0.1:{PORT[ORCH[n][0]]}"
 
 
-def start_sender() -> None:
+def start_sender(host: str = "127.0.0.1", *more: str) -> None:
+    """lp2-sender, answering joins on host; `more` are further flags."""
     start("sender", [str(common.RUN / "bin" / "lp2-sender"), "--rpc-url", common.RPC, "--keystore-file", str(KEYS["P"]),
                      "--keystore-password-file", str(common.RUN / "pw"), "--controller-address", C["Controller"],
                      "--usdc-address", C["MockUSDC"], "--signer-url", f"http://127.0.0.1:{PORT['signer_p']}",
-                     "--nodes", str(LIST), "--listen", f"127.0.0.1:{SENDER}", "--allow-private-urls",
-                     "--max-nodes", "3", "--poll", "1s", "--node-timeout", f"{BOUND}s", "--retry", "3s"])
-    wait("the sender to answer joins", lambda: post(f"http://127.0.0.1:{SENDER}/join", {})[0] == 400, 30)
+                     "--nodes", str(LIST), "--listen", f"{host}:{SENDER}", "--allow-private-urls",
+                     "--max-nodes", "3", "--poll", "1s", "--node-timeout", f"{BOUND}s", "--retry", "3s", *more])
+    wait("the sender to answer joins", lambda: post(f"http://{host}:{SENDER}/join", {})[0] == 400, 30)
 
 
 def start_faucet(max_grants: int = 10) -> None:
