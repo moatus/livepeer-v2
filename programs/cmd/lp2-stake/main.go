@@ -490,43 +490,15 @@ func fail(name string, err error, rpcURL string) {
 }
 
 // message is the line fail prints: the action and the error, with what
-// rpcURL may carry as a credential hidden.
+// rpcURL may carry as a credential hidden (chain.Redact), and the RPC
+// provider's scheme and host when the error does not name them.
 func message(name string, err error, rpcURL string) string {
 	if name != "" {
 		name = " " + name
 	}
-	return redact(fmt.Sprintf("lp2-stake%s: %v", name, err), rpcURL)
-}
-
-// redact replaces, in text, the user information, path, query and fragment
-// of rpcURL, in each form an error may quote them, with "…". The scheme
-// and the host stay, to say which endpoint failed.
-func redact(text, rpcURL string) string {
-	if rpcURL == "" {
-		return text
-	}
-	u, err := url.Parse(rpcURL)
-	if err != nil || u.Host == "" {
-		return strings.ReplaceAll(text, rpcURL, "…")
-	}
-	var hidden []string
-	for _, piece := range []string{u.User.String(), u.EscapedPath(), u.Path, u.RawQuery, u.Query().Encode(),
-		u.Fragment, u.EscapedFragment()} {
-		if piece != "" && piece != "/" {
-			hidden = append(hidden, piece)
-		}
-	}
-	if pw, ok := u.User.Password(); ok && pw != "" {
-		hidden = append(hidden, pw)
-	}
-	if len(hidden) == 0 {
-		return text
-	}
-	for _, whole := range []string{rpcURL, u.String(), u.Redacted()} {
-		text = strings.ReplaceAll(text, whole, u.Scheme+"://"+u.Host+"/…")
-	}
-	for _, h := range hidden {
-		text = strings.ReplaceAll(text, h, "…")
+	text := chain.Redact(fmt.Sprintf("lp2-stake%s: %v", name, err), rpcURL)
+	if u, perr := url.Parse(rpcURL); perr == nil && u.Host != "" && !strings.Contains(text, u.Host) {
+		text += fmt.Sprintf(" (RPC provider %s://%s)", u.Scheme, u.Host)
 	}
 	return text
 }

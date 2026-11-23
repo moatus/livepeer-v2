@@ -214,6 +214,7 @@ func rewardState(n, now, d uint64, claimed bool) (state string, from, until uint
 type config struct {
 	controller, params, ledger, claims, usdc, node common.Address
 	first                                          uint64
+	rpcURL                                         string // only to hide its key from what is shown (chain.Redact)
 }
 
 // explorer reads a Status on each request. It keeps only the three

@@ -14,7 +14,9 @@
 // and each figure that could not be read null, never 0, with the reason in
 // "unavailable". Each request reads the chain afresh, every view at one
 // block, the newest, so a figure that failed is read again on the next
-// load.
+// load. A reason never shows what the RPC URL carries as a key: its user
+// information, path, query or fragment (chain.Redact); nor does a failure
+// at start.
 //
 // The node: whether it is registered (R-01), its operator key (R-26) and
 // payout address; its own bond and its stake in the current round
@@ -65,6 +67,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -76,6 +79,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rpc"
+
+	"lp2core/programs/chain"
 )
 
 // readTimeout bounds one read of the chain.
@@ -109,14 +114,20 @@ func main() {
 	}
 	client, err := rpc.Dial(*rpcURL)
 	if err != nil {
-		fail(err)
+		fail(errors.New(failure(err, *rpcURL)))
 	}
 	cfg := config{controller: common.HexToAddress(*controller), params: common.HexToAddress(*params),
 		ledger: common.HexToAddress(*ledger), claims: common.HexToAddress(*claims),
-		usdc: common.HexToAddress(*usdc), node: common.HexToAddress(*node), first: firstBlock}
+		usdc: common.HexToAddress(*usdc), node: common.HexToAddress(*node), first: firstBlock, rpcURL: *rpcURL}
 	log.Printf("serving %s's page on http://%s/", cfg.node.Hex(), *listen)
 	srv := &http.Server{Addr: *listen, Handler: handler(newExplorer(cfg, client)), ReadHeaderTimeout: 10 * time.Second}
 	fail(srv.ListenAndServe())
+}
+
+// failure is how a failure to reach the chain is told: the error, with
+// what rpcURL carries as a key hidden.
+func failure(err error, rpcURL string) string {
+	return chain.Redact(err.Error(), rpcURL)
 }
 
 // handler serves the page and its JSON. Reads run one at a time, since
@@ -128,7 +139,11 @@ func handler(e *explorer) http.Handler {
 		defer mu.Unlock()
 		ctx, cancel := context.WithTimeout(r.Context(), readTimeout)
 		defer cancel()
-		return e.read(ctx)
+		s := e.read(ctx)
+		for i, why := range s.Unavailable {
+			s.Unavailable[i] = chain.Redact(why, e.cfg.rpcURL)
+		}
+		return s
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {

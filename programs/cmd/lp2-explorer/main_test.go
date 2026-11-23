@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -636,4 +638,82 @@ func TestViewsAreDeclared(t *testing.T) {
 			t.Errorf("event %s is not declared in contracts/interfaces", e.Sig)
 		}
 	}
+}
+
+// With the RPC provider down, or rejecting the key and echoing it, neither
+// the page, nor its JSON, nor the failure at start shows the key the URL
+// carries, and each says what could not be read.
+func TestAnRPCFailureHidesTheProvidersKey(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	down := l.Addr().String()
+	l.Close() // nothing listens there now: the connection is refused
+	echo := echoingProvider(t, "synthetic-key-in-the-path", "synthetic-user", "synthetic-password", "synthetic-key-in-the-query")
+	for _, url := range []string{
+		"http://" + down + "/v3/synthetic-key-in-the-path?apikey=synthetic-key-in-the-query",
+		"http://synthetic-user:synthetic-password@" + echo + "/v3/synthetic-key-in-the-path?apikey=synthetic-key-in-the-query",
+	} {
+		client, err := rpc.Dial(url)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg := testConfig
+		cfg.rpcURL = url
+		srv := httptest.NewServer(handler(newExplorer(cfg, client)))
+		for _, path := range []string{"/status.json", "/"} {
+			r, err := http.Get(srv.URL + path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var b bytes.Buffer
+			b.ReadFrom(r.Body)
+			r.Body.Close()
+			if strings.Contains(b.String(), "synthetic") || !strings.Contains(b.String(), "the chain&#39;s newest block") &&
+				!strings.Contains(b.String(), "the chain's newest block") {
+				t.Errorf("%s, with the provider at %s failing:\n%s", path, url, b.String())
+			}
+		}
+		srv.Close()
+		client.Close()
+	}
+	for _, url := range []string{"ws://" + down + "/ws/synthetic-key-for-websocket",
+		"ws://synthetic-user:synthetic-password@" + echo + "/ws/synthetic-key-in-the-path?apikey=synthetic-key-in-the-query"} {
+		_, err := rpc.Dial(url)
+		if err == nil {
+			t.Fatalf("%s: dialled", url)
+		}
+		if got := failure(err, url); strings.Contains(got, "synthetic") {
+			t.Errorf("the failure at start shows the key: %s", got)
+		}
+	}
+}
+
+// echoingProvider starts a provider that answers every request with 401,
+// the keys it was given in its status line and its body, as a provider
+// that rejects a key and quotes it does, and returns its host.
+func echoingProvider(t *testing.T, keys ...string) string {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { l.Close() })
+	said := strings.Join(keys, " ")
+	body := `{"jsonrpc":"2.0","id":1,"error":{"code":-32001,"message":"invalid key ` + said + `"}}`
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()
+				http.ReadRequest(bufio.NewReader(conn))
+				fmt.Fprintf(conn, "HTTP/1.1 401 rejected %s\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s",
+					said, len(body), body)
+			}()
+		}
+	}()
+	return l.Addr().String()
 }

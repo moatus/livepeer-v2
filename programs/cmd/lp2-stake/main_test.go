@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"fmt"
 	"math/big"
 	"net"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -100,40 +103,73 @@ func TestParseRefuses(t *testing.T) {
 	}
 }
 
-// An RPC request that fails, as one to a provider that is down does, is
-// reported with the action and the provider's host, and with none of what
-// its URL carries as a key: the user information, the path or the query.
+// An RPC request that fails, to a provider that is down or to one that
+// rejects the key and echoes it in its answer, is reported with the action
+// and the provider's host, and with none of what its URL carries as a key:
+// the user information, the path or the query.
 func TestAnRPCFailureHidesTheProvidersKey(t *testing.T) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	host := l.Addr().String()
+	down := l.Addr().String()
 	l.Close() // nothing listens there now: the connection is refused
-	for _, rpc := range []string{
-		"http://" + host + "/v3/synthetic-key-in-the-path",
-		"https://someone:synthetic-password@" + host + "/rpc?apikey=synthetic-key-in-the-query",
-		"ws://" + host + "/ws/synthetic-key-for-websocket",
+	for _, c := range []struct{ host, rpc string }{
+		{down, "http://" + down + "/v3/synthetic-key-in-the-path"},
+		{down, "https://someone:synthetic-password@" + down + "/rpc?apikey=synthetic-key-in-the-query"},
+		{down, "ws://" + down + "/ws/synthetic-key-for-websocket"},
+		echoingProvider(t, "http://%s/v3/synthetic-key-in-the-path", "synthetic-key-in-the-path"),
+		echoingProvider(t, "http://synthetic-user:synthetic-password@%s/rpc?apikey=synthetic-key-in-the-query",
+			"synthetic-user", "synthetic-password", "synthetic-key-in-the-query"),
+		echoingProvider(t, "ws://%s/ws/synthetic-key-for-websocket", "synthetic-key-for-websocket"),
 	} {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		a, err := parse([]string{"state", node, other})
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = dispatch(ctx, a, config{rpcURL: rpc, controller: other})
+		_, err = dispatch(ctx, a, config{rpcURL: c.rpc, controller: other})
 		cancel()
 		if err == nil {
-			t.Fatalf("%s: no error from a host where nothing listens", rpc)
+			t.Fatalf("%s: no error from a provider that is down or rejects the key", c.rpc)
 		}
-		got := message(a.name, err, rpc)
+		got := message(a.name, err, c.rpc)
 		if strings.Contains(got, "synthetic") {
 			t.Errorf("the key is printed: %s", got)
 		}
-		if !strings.HasPrefix(got, "lp2-stake state: ") || !strings.Contains(got, host) {
+		if !strings.HasPrefix(got, "lp2-stake state: ") || !strings.Contains(got, c.host) {
 			t.Errorf("the failure does not name the action and the host: %s", got)
 		}
-		if !strings.Contains(err.Error(), "synthetic") {
-			t.Logf("%s: the error did not quote the URL: %v", rpc, err)
-		}
+		t.Logf("%s: %s", c.rpc, got)
 	}
+}
+
+// echoingProvider starts a provider that answers every request with 401,
+// the keys it was given in its status line and its body, as a provider
+// that rejects a key and quotes it does. It returns its host and urlFormat
+// with the host filled in.
+func echoingProvider(t *testing.T, urlFormat string, keys ...string) struct{ host, rpc string } {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { l.Close() })
+	said := strings.Join(keys, " ")
+	body := `{"jsonrpc":"2.0","id":1,"error":{"code":-32001,"message":"invalid key ` + said + `"}}`
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()
+				http.ReadRequest(bufio.NewReader(conn))
+				fmt.Fprintf(conn, "HTTP/1.1 401 rejected %s\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s",
+					said, len(body), body)
+			}()
+		}
+	}()
+	host := l.Addr().String()
+	return struct{ host, rpc string }{host, fmt.Sprintf(urlFormat, host)}
 }
