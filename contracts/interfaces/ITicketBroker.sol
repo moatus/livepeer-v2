@@ -93,16 +93,15 @@ interface ITicketBroker {
     // hash", for a creation round not started, which the node treats as final.
 }
 
-/// The Broker as stage 4 reads it (rulebook october-main-text-v4, R-16):
-/// ITicketBroker and the Buyback's draw of the network share. The Broker's
-/// constructor takes the Buyback's predicted address.
+/// The Broker as stage 4 reads it (rulebook october-main-text-v5, R-16):
+/// ITicketBroker and the draw of the network share by the executor that
+/// group 10 of the Parameters names for the round the draw runs in.
 interface ITicketBrokerV2 is ITicketBroker {
-    /// The Buyback, fixed at deployment.
-    function buyback() external view returns (address);
-
-    /// Only the Buyback: pays `amount` of the network share to `to` and
-    /// lowers networkHeld by it. Refused with NOT_AUTHORIZED from any other
-    /// address, then AMOUNT_TOO_LARGE above networkHeld.
+    /// Only the executor in force for the current round (R-25 group 10):
+    /// pays `amount` of the network share to `to`, the address it names,
+    /// and lowers networkHeld by it. Refused with NOT_AUTHORIZED from any
+    /// other caller, and from every caller while group 10 is address(0),
+    /// then AMOUNT_TOO_LARGE above networkHeld. No limit on a round's draws.
     function drawNetwork(uint256 amount, address to) external;
 
     event NetworkDrawn(address indexed to, uint256 amount);
