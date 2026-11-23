@@ -63,6 +63,17 @@ case $LP2_PUBLIC_URL in
 http://* | https://*) ;;
 *) die "LP2_PUBLIC_URL $LP2_PUBLIC_URL is not an http or https URL" ;;
 esac
+# number sets NUMBER to the port $2 names, in decimal with no leading
+# zero, so that two spellings of one port compare equal, or stops: $1 says
+# where the port was named.
+number() {
+    case $2 in
+    '' | *[!0-9]*) die "$1 names port \"$2\", which is not a port number from 1 to 65535" ;;
+    esac
+    NUMBER=${2#"${2%%[!0]*}"}
+    [ -n "$NUMBER" ] && [ ${#NUMBER} -le 5 ] && [ "$NUMBER" -le 65535 ] ||
+        die "$1 names port \"$2\", which is not a port number from 1 to 65535"
+}
 # The orchestrator listens on all interfaces at the port the public URL names.
 hostport=${LP2_PUBLIC_URL#*://}
 hostport=${hostport%%/*}
@@ -74,18 +85,27 @@ esac
 if [ -z "$PORT" ]; then
     case $LP2_PUBLIC_URL in https:*) PORT=443 ;; *) PORT=80 ;; esac
 fi
+number LP2_PUBLIC_URL "$PORT"
+PORT=$NUMBER
 
-EXPLORER_PORT=${EXPLORER_LISTEN##*:}
-[ "$EXPLORER_PORT" != "$PORT" ] || die "LP2_PUBLIC_URL and LP2_EXPLORER_LISTEN both name port $PORT: give the explorer another"
+case $EXPLORER_LISTEN in
+*:*) ;;
+*) die "LP2_EXPLORER_LISTEN $EXPLORER_LISTEN is not an address and port, such as 0.0.0.0:8080" ;;
+esac
+number LP2_EXPLORER_LISTEN "${EXPLORER_LISTEN##*:}"
+EXPLORER_PORT=$NUMBER
+EXPLORER_LISTEN=${EXPLORER_LISTEN%:*}:$EXPLORER_PORT
+[ "$EXPLORER_PORT" -ne "$PORT" ] || die "LP2_PUBLIC_URL and LP2_EXPLORER_LISTEN both name port $PORT: give the explorer another"
 # The responder and the node's metrics listen on loopback, at a port the
 # public one and the explorer's are not.
 loopback() {
     p=$1
-    while [ "$p" = "$PORT" ] || [ "$p" = "$EXPLORER_PORT" ]; do p=$((p + 1)); done
+    while [ "$p" -eq "$PORT" ] || [ "$p" -eq "$EXPLORER_PORT" ]; do p=$((p + 1)); done
     echo "127.0.0.1:$p"
 }
 RESPONDER=$(loopback 9000)
 METRICS=$(loopback 8936)
+log "ports: the node on 0.0.0.0:$PORT, the explorer on $EXPLORER_LISTEN, the responder on $RESPONDER, the node's metrics on $METRICS"
 
 # The data directory: one container at a time. The lock is held as long as
 # this script or anything it started runs.

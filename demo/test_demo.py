@@ -637,5 +637,58 @@ class ContainerPayments(unittest.TestCase):
         self.assertEqual(self.unpaid([3, 4, 7, 7, 8, 9, 10], 2, (5, 6), 11)[2], [7])
 
 
+class ContainerPorts(unittest.TestCase):
+    """programs/container/entrypoint compares ports as numbers: a port
+    written with leading zeros is the same port, and anything that is not a
+    port from 1 to 65535 is refused. Each run stops at the data folder,
+    which does not exist, after it has logged the ports it chose."""
+
+    def start(self, public: str, explorer: str | None = None) -> tuple[int, str]:
+        env = {"PATH": os.environ["PATH"], "LP2_DATA": "/nonexistent/lp2-ports-test", "LP2_DEPLOYMENT": "/nonexistent",
+               "LP2_RPC_URL": "http://127.0.0.1:1", "LP2_PUBLIC_URL": public}
+        if explorer is not None:
+            env["LP2_EXPLORER_LISTEN"] = explorer
+        done = subprocess.run(["sh", str(ROOT / "programs" / "container" / "entrypoint")], env=env,
+                              capture_output=True, text=True, timeout=30)
+        return done.returncode, done.stdout + done.stderr
+
+    def ports(self, public: str, explorer: str | None = None) -> str:
+        code, said = self.start(public, explorer)
+        line = next((x for x in said.splitlines() if " ports: " in x), None)
+        self.assertIsNotNone(line, said)
+        self.assertIn("/nonexistent/lp2-ports-test is not a folder", said)
+        return line.split(" ports: ", 1)[1]
+
+    def refused(self, public: str, explorer: str | None, why: str) -> None:
+        code, said = self.start(public, explorer)
+        self.assertEqual(code, 1, said)
+        self.assertIn(why, said)
+        self.assertNotIn(" ports: ", said)
+
+    def test_a_port_with_leading_zeros_is_that_port(self):
+        self.assertEqual(self.ports("http://127.0.0.1:09000"),
+                         "the node on 0.0.0.0:9000, the explorer on 0.0.0.0:8080, the responder on 127.0.0.1:9001, "
+                         "the node's metrics on 127.0.0.1:8936")
+        self.assertEqual(self.ports("http://127.0.0.1:9000", "0.0.0.0:08936"),
+                         "the node on 0.0.0.0:9000, the explorer on 0.0.0.0:8936, the responder on 127.0.0.1:9001, "
+                         "the node's metrics on 127.0.0.1:8937")
+        self.assertIn("the node on 0.0.0.0:443,", self.ports("https://node.example"))
+
+    def test_the_explorers_port_is_refused_however_it_is_written(self):
+        both = "both name port 49597"
+        self.refused("http://127.0.0.1:49597", "0.0.0.0:49597", both)
+        self.refused("http://127.0.0.1:49597", "0.0.0.0:049597", both)
+        self.refused("http://127.0.0.1:0049597", "127.0.0.1:49597", both)
+        self.refused("http://127.0.0.1:08080", None, "both name port 8080")
+
+    def test_what_is_not_a_port_is_refused(self):
+        for public in ("http://h:0", "http://h:000", "http://h:65536", "http://h:9000x", "http://h:+9000", "http://h:-1",
+                       "http://h:99999999999999999999"):
+            self.refused(public, None, "which is not a port number from 1 to 65535")
+        for explorer in ("0.0.0.0:abc", "0.0.0.0:", "0.0.0.0:0", "0.0.0.0:70000"):
+            self.refused("http://h:9000", explorer, "which is not a port number from 1 to 65535")
+        self.refused("http://h:9000", "8080", "is not an address and port")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

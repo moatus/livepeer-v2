@@ -16,10 +16,15 @@ and from then on only watches, kills and restarts it:
   3. a second container on the same data folder refuses to start;
   4. killed between a claim and its withdrawal (LP2_TEST_HOLD=claimed);
   5. restarted, it withdraws H's part;
-  6. a container whose RPC provider cannot be reached names the
-     provider's host in its log and not the key in its URL; and started
-     again with public port 9000, its node comes up beside the responder
-     (LP2_TEST_HOLD=started).
+  6. a container whose RPC provider cannot be reached, and one whose
+     provider rejects the key in its URL and echoes it, each name the
+     provider's host in their log and not the key; started again with
+     public port 09000 (9000, where the responder listened before, written
+     with a leading zero) and an RPC URL that carries a synthetic key, its
+     node comes up beside the responder (LP2_TEST_HOLD=started); then its
+     provider rejects the key and echoes it, and then refuses connections,
+     and the key appears in none of the container's Docker output, the
+     files under its logs folder, or the explorer's page and JSON.
 
 Then the chain is read: no second registration, grant, bond or claim; N's
 key sent nothing after the node started but its own redemptions; N was
@@ -58,6 +63,55 @@ FUNDED_WEI = 10**18          # what the demo sends N and H each
 STARTED: dict[str, int] = {}  # the block the chain was at when the container said it starts the node
 ROUNDS: dict[str, int] = {}   # the round when N joined, was killed, was up again and was stopped
 SYNTHETIC_KEY = "synthetic-provider-key"
+PROVIDER = BASE + 30         # the stand-in RPC provider whose URL carries SYNTHETIC_KEY
+KEYED = f"http://host.docker.internal:{PROVIDER}/v3/{SYNTHETIC_KEY}?apikey={SYNTHETIC_KEY}"
+
+
+class Provider:
+    """A stand-in RPC provider, on Docker's bridge, whose URL carries
+    SYNTHETIC_KEY. It forwards each request to the chain; after reject()
+    it answers each with 401 and the key in its status line and its body,
+    as a provider that rejects a key and quotes it does; after refuse() it
+    no longer listens, so each connection is refused."""
+
+    def __init__(self, host: str):
+        import http.server
+        import threading
+        provider = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+                if provider.rejecting:
+                    out = json.dumps({"jsonrpc": "2.0", "id": None,
+                                      "error": {"code": -32001, "message": f"invalid project id {SYNTHETIC_KEY}"}}).encode()
+                    self.send_response(401, f"Unauthorized: invalid project id {SYNTHETIC_KEY}")
+                else:
+                    req = urllib.request.Request(common.RPC, data=body, headers={"Content-Type": "application/json"})
+                    with urllib.request.urlopen(req, timeout=30) as r:
+                        out = r.read()
+                    self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(out)))
+                self.end_headers()
+                self.wfile.write(out)
+
+            def log_message(self, *args):
+                pass
+
+        self.rejecting = False
+        try:
+            self.server = http.server.ThreadingHTTPServer((host, PROVIDER), Handler)
+        except OSError as e:
+            raise NotRun(f"port {PROVIDER} (the stand-in RPC provider) on {host}: {e}; set LP2_DEMO_PORT_BASE to move the demo's ports")
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def reject(self) -> None:
+        self.rejecting = True
+
+    def refuse(self) -> None:
+        self.server.shutdown()
+        self.server.server_close()
 
 
 def gateway() -> str:
@@ -120,25 +174,27 @@ def write_deployment(first_block: int) -> None:
 RUNS: list[str] = []
 
 
-def container_argv(name: str, hold: str | None, ports: bool, public: str = PUBLIC,
+def container_argv(name: str, hold: str | None, ports: tuple[str, ...], public: str = PUBLIC,
                    rpc: str = f"http://host.docker.internal:{PORT['chain']}", data=DATA) -> list[str]:
     argv = ["docker", "run", "--name", name, "--user", f"{os.getuid()}:{os.getgid()}",
             "--add-host", "host.docker.internal:host-gateway",
             "-v", f"{data}:/data", "-v", f"{DEPLOYMENT}:/deployment.json:ro",
             "-e", "LP2_DEPLOYMENT=/deployment.json", "-e", f"LP2_RPC_URL={rpc}",
             "-e", f"LP2_PUBLIC_URL={public}", "-e", "LP2_POLL=2"]
-    if ports:
-        argv += ["-p", f"127.0.0.1:{PORT['orch']}:{PORT['orch']}", "-p", f"127.0.0.1:{PORT['explorer']}:8080"]
+    if "orch" in ports:
+        argv += ["-p", f"127.0.0.1:{PORT['orch']}:{PORT['orch']}"]
+    if "explorer" in ports:
+        argv += ["-p", f"127.0.0.1:{PORT['explorer']}:8080"]
     if hold:
         argv += ["-e", f"LP2_TEST_HOLD={hold}"]
     return argv + [IMAGE]
 
 
-def run_node(hold: str | None = None, **how) -> str:
+def run_node(hold: str | None = None, ports: tuple[str, ...] = ("orch", "explorer"), **how) -> str:
     name = f"lp2-demo-node-{BASE}-{len(RUNS) + 1}"
     subprocess.run(["docker", "rm", "-f", name], capture_output=True)
     common.CONTAINERS.append(name)
-    argv = container_argv(name, hold, ports="public" not in how, **how)
+    argv = container_argv(name, hold, ports, **how)
     argv.insert(2, "-d")
     sh(argv)
     RUNS.append(name)
@@ -271,8 +327,30 @@ def unpaid(paid: list[int], joined: int, down: tuple[int, int], stopped: int) ->
 
 
 def explorer_status() -> dict:
-    with urllib.request.urlopen(f"http://127.0.0.1:{PORT['explorer']}/status.json", timeout=30) as r:
-        return json.loads(r.read())
+    return json.loads(explorer_get("/status.json"))
+
+
+def explorer_get(path: str) -> str:
+    with urllib.request.urlopen(f"http://127.0.0.1:{PORT['explorer']}{path}", timeout=60) as r:
+        return r.read().decode()
+
+
+def unreachable_start(label: str, rpc: str) -> tuple[int, str]:
+    """A container on a data folder of its own whose RPC provider fails from
+    the first request: its exit code and its whole Docker output."""
+    data = common.RUN / f"container-{label}"
+    data.mkdir()
+    name = f"lp2-demo-node-{BASE}-{label}"
+    argv = container_argv(name, None, (), rpc=rpc, data=data)
+    argv.insert(2, "--rm")
+    common.CONTAINERS.append(name)
+    done = subprocess.run(argv, capture_output=True, text=True, timeout=120)
+    common.CONTAINERS.remove(name)
+    said = done.stdout + done.stderr
+    (common.RUN / "logs" / f"{name}.log").write_text(said)
+    failed = next((x for x in said.splitlines() if "lp2-stake state:" in x), "")
+    say(f"  {label}: exit {done.returncode}: {failed[:240]}")
+    return done.returncode, said
 
 
 def main() -> int:
@@ -350,7 +428,7 @@ def main() -> int:
     three = run_node(hold="claimed")
     wait_log(three, "funded:", 60)
     other = f"lp2-demo-node-{BASE}-second"
-    argv = container_argv(other, None, ports=False)
+    argv = container_argv(other, None, ports=())
     argv.insert(2, "--rm")
     try:
         second = subprocess.run(argv, capture_output=True, text=True, timeout=60)
@@ -397,28 +475,47 @@ def main() -> int:
     for p in ("sender", "faucet", "keeper", "signer-P"):
         stop(p)
 
-    say("\n9. With an RPC provider that cannot be reached; and started on public port 9000, where the responder listened before")
-    unreachable = common.RUN / "container-unreachable"
-    unreachable.mkdir()
-    name = f"lp2-demo-node-{BASE}-unreachable"
-    argv = container_argv(name, None, False, rpc=f"https://127.0.0.1:1/v3/{SYNTHETIC_KEY}?apikey={SYNTHETIC_KEY}",
-                          data=unreachable)
-    argv.insert(2, "--rm")
-    common.CONTAINERS.append(name)
-    done = subprocess.run(argv, capture_output=True, text=True, timeout=120)
-    common.CONTAINERS.remove(name)
-    said = done.stdout + done.stderr
-    (common.RUN / "logs" / f"{name}.log").write_text(said)
-    failed = next((x for x in said.splitlines() if "lp2-stake state:" in x), "")
-    say(f"  exit {done.returncode}: {failed[:200]}")
+    say("\n9. RPC providers that fail, with a key in their URL; and public port 09000, where the responder listened before")
+    provider = Provider(host)
+    code, said = unreachable_start("unreachable", f"https://127.0.0.1:1/v3/{SYNTHETIC_KEY}?apikey={SYNTHETIC_KEY}")
     check("an unreachable provider: the log names the step and the provider's host, and not the key in its URL",
-          (done.returncode, "gave up after 10 tries: read_state" in said, "127.0.0.1:1" in failed, SYNTHETIC_KEY in said),
-          (1, True, True, False))
-    five = run_node(hold="started", public="http://127.0.0.1:9000")
-    say(f"  {wait_log(five, 'starting the node', 60).split(' ', 1)[1]}")
+          (code, "gave up after 10 tries: read_state" in said, "lp2-stake state: Post \"https://127.0.0.1:1/" in said,
+           SYNTHETIC_KEY in said), (1, True, True, False))
+    provider.reject()
+    code, said = unreachable_start("rejected", KEYED)
+    check("a provider that rejects the key and echoes it: the log names the step and the provider's host, and not the key",
+          (code, "gave up after 10 tries: read_state" in said, f"host.docker.internal:{PROVIDER}" in said, "401" in said,
+           SYNTHETIC_KEY in said), (1, True, True, True, False))
+    provider.rejecting = False
+    five = run_node(hold="started", ports=("explorer",), public="http://127.0.0.1:09000", rpc=KEYED)
+    ports = wait_log(five, "ports:", 60).split(" ", 1)[1]
+    say(f"  {ports}")
+    check("public port 09000 is port 9000, and the responder moves off it",
+          ("the node on 0.0.0.0:9000," in ports, "the responder on 127.0.0.1:9001," in ports), (True, True))
     wait_log(five, "holding after started", 180)
-    check("on public port 9000, the node comes up and its discovery lists lp2-responder", running(five), True)
+    check("on public port 09000, the node comes up and its discovery lists lp2-responder", running(five), True)
+    shown = {"the explorer's JSON, the provider answering": explorer_get("/status.json")}
+    provider.reject()
+    time.sleep(15)
+    shown["the explorer's JSON, the provider rejecting the key"] = explorer_get("/status.json")
+    shown["the explorer's page, the provider rejecting the key"] = explorer_get("/")
+    provider.refuse()
+    time.sleep(15)
+    shown["the explorer's JSON, the provider refusing connections"] = explorer_get("/status.json")
+    shown["the explorer's page, the provider refusing connections"] = explorer_get("/")
     kill(five)
+    failing = [json.loads(shown[k])["unavailable"] for k in shown if "JSON" in k and "answering" not in k]
+    say(f"  the explorer, its provider failing: {failing[0][0][:160]}; {failing[1][0][:160]}")
+    check("the explorer shows each failure as unavailable, naming what it could not read",
+          [any("the chain's newest block" in x for x in f) for f in failing], [True, True])
+    for label in (five, f"lp2-demo-node-{BASE}-unreachable", f"lp2-demo-node-{BASE}-rejected"):
+        shown[f"the Docker output of {label}"] = (common.RUN / "logs" / f"{label}.log").read_text()
+    for folder in (DATA, common.RUN / "container-unreachable", common.RUN / "container-rejected"):
+        for f in sorted((folder / "logs").iterdir()):
+            shown[where(f)] = f.read_text(errors="replace")
+    say(f"  read for the key: {len(shown)} outputs, {sum(len(v) for v in shown.values())} characters")
+    check("the key in the RPC URL appears in no Docker output, no file under logs, and no explorer page or JSON",
+          [k for k, v in shown.items() if SYNTHETIC_KEY in v], [])
     s3.wait("N's last transactions to be mined", lambda: rpc("eth_getTransactionCount", [ADDR["N"], "pending"]) ==
             rpc("eth_getTransactionCount", [ADDR["N"], "latest"]), 60)
     time.sleep(3)

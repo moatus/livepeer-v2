@@ -115,9 +115,11 @@ The testnet's sender must open a connection to `LP2_PUBLIC_URL`: it checks
 the node there when it joins, and sends each paid request there. Inside
 the container the node listens on all interfaces at the port that URL
 names (8935 above, or 80 and 443 for a URL with no port), so publish that
-port (`-p 8935:8935`). Any port works except the explorer's
-(`LP2_EXPLORER_LISTEN`, 8080): the responder and the node's metrics listen
-on loopback inside the container and move off the port the URL names.
+port (`-p 8935:8935`). Any port from 1 to 65535 works except the
+explorer's (`LP2_EXPLORER_LISTEN`, 8080), however either is written
+(`08080` is 8080): the responder and the node's metrics listen on loopback
+inside the container and move off the port the URL names. The container's
+log says at start which ports it chose.
 
 The node answers plain HTTP. An `https://` URL needs something in front of
 it, such as a reverse proxy or a tunnel, that holds the certificate, ends
@@ -163,10 +165,13 @@ when the page loads; one that could not be read says "unavailable".
   validator set, and the buyback's latest buys and burns.
 
 The container's own log (`docker logs lp2-node`) says each step it takes,
-and each claim and withdrawal it sends. When the RPC provider cannot be
-reached, it names the provider's host and not the rest of `LP2_RPC_URL`,
-where a provider puts its key. The node's, the responder's and
-the explorer's logs are in `/data/logs`.
+and each claim and withdrawal it sends. The node's, the responder's and
+the explorer's logs are in `/data/logs`. When the RPC provider cannot be
+reached or refuses a request, the container's log names the provider's
+host, and nothing in it, in `/data/logs` or in the explorer's page and
+JSON shows the rest of `LP2_RPC_URL`, where a provider puts its key: not
+the URL, and not a piece of it that a provider echoes back. A key
+in the host name itself, which few providers use, is not hidden.
 
 ## The deployment file
 
