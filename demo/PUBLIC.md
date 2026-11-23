@@ -158,8 +158,8 @@ The run does the following, in order:
    1 starts at deployment.
 2. The deployer pays gas money to five accounts the run makes: N, P, V,
    the keeper and the faucet. It seeds the pool with 500,000 mock USDC and
-   100,000 test LPT, and grants the faucet 1,000,000 test LPT. Nothing
-   hands the faucet's LPT out yet.
+   100,000 test LPT, and grants the faucet 1,000,000 test LPT. Under
+   `serve`, `lp2-faucet` hands it out.
 3. N and V register and bond, and P funds, as in the stage 3 run. G
    announces the unbonding period of 42 rounds (21 at deployment), which
    counts seven rounds later.
@@ -188,12 +188,25 @@ The run does the following, in order:
 
    The run writes the cases into `ledger-case.json` and
    `stage-4-cases.json`, and `./calculator/check` reproduces both files.
-8. The handover. The run writes `services.json` into the state directory,
-   and the same into its manifest. It holds the chain id, the deployment's
-   first block, every contract, the executor in force, G's address and the
-   role key files, relative to the state directory. It holds no key or
-   keystore path of the deployer's or G's. Every program the run started
-   stops with it. Until the services start, a round just lasts longer.
+8. The handover, only when every figure is equal. The run writes two
+   files into the state directory, and the same into its manifest:
+   - `deployment.json`, the testnet's deployment file, which operators
+     give the node container (`programs/container/README.md`, "The
+     deployment file"). It holds the deployment's name, the chain id, the
+     first block, the Controller, Parameters, StakeLedger, Claims, test LPT
+     and mock USDC, the node's price and ticket settings, and the sender's
+     public URL, `LP2_SENDER_URL`. It names nothing private: no key, key
+     file, RPC URL or host but the sender's. The run checks it against
+     the fields the container reads;
+   - `services.json`, for `serve`. It holds the chain id, the deployment's
+     first block, every contract, the executor in force, G's address and
+     the role key files, relative to the state directory. It holds no key
+     or keystore path of the deployer's or G's.
+
+   A run with a figure that differs hands nothing over, and removes the
+   two files if an earlier run wrote them, so `serve` refuses the state
+   directory. Every program the run started stops with it. Until the
+   services start, a round just lasts longer.
 
 ### What to set
 
@@ -203,9 +216,11 @@ As for the stage 3 run, and also:
 |---|---|
 | `LP2_AUTHORITY_KEYSTORE` | G's keystore file, outside the repository. G is Parameters' one authority, fixed at deployment. Make it as the deployer's is, for the testnet alone, never a key that has held real funds |
 | `LP2_AUTHORITY_PASSWORD_FILE` | A file that holds its password, outside the repository |
+| `LP2_SENDER_URL` | The sender's public URL, `http://` or `https://`, where operators' nodes join: `deployment.json` names it. Required on a public chain, where it may not name a loopback or private host. On a local chain it is by default the sender's loopback address |
 
-The run refuses to start without both, before it makes or sends
-anything. G sends one transaction, the announcement, so it needs gas money
+The run refuses to start without the first two, before it makes or sends
+anything. On a public chain it refuses to start without `LP2_SENDER_URL`,
+before it sends anything. G sends one transaction, the announcement, so it needs gas money
 of its own. `LP2_ROLE_GAS_WEI` now applies to five accounts.
 
 ### The services
@@ -218,7 +233,7 @@ demo/public-run serve
 `serve` reads `services.json`, the role keys and their password file, and
 nothing of the deployer's or G's. It needs neither the deployer's nor G's
 variables, and their keystores may be absent. It refuses a state directory
-no stage 4 run has handed over. It uses the RPC URL the run used, kept in
+no passing stage 4 run has handed over. It uses the RPC URL the run used, kept in
 the state directory, unless `LP2_RPC_URL` gives another for the same
 chain. It needs no Docker and no model. It starts these services:
 
@@ -238,7 +253,17 @@ chain. It needs no Docker and no model. It starts these services:
   state directory. It answers joins on `LP2_SENDER_LISTEN`, by default
   `127.0.0.1` and port 24 above `LP2_DEMO_PORT_BASE`. Set it to a public
   address for nodes outside the machine to join. Node URLs on private
-  addresses are allowed on a local chain only.
+  addresses are allowed on a local chain only;
+- `lp2-faucet`, holding the faucet account's key, from the deployment's
+  first block, with its journal in `faucet/` in the state directory, kept
+  across restarts. It grants each node the Registry shows registered 1,000
+  test LPT, once, up to 100 nodes. That includes N and V, at its first
+  start. A node is never granted twice, by a faucet restarted or not
+  (`programs/cmd/lp2-faucet/main.go`). It sends one transaction per grant
+  from the faucet's gas money.
+
+If `LP2_SENDER_URL` is set and differs from the URL `deployment.json`
+names, `serve` writes the new one into it and says to publish it again.
 
 Then N joins the sender as any node does, with a join signed by N's key,
 and is paid a request at once and then one a round. N's URL is
@@ -258,8 +283,9 @@ directory's lock as the run does, so the run and the services never run at
 once. To read the run's figures again, stop the services. Then run
 `demo/public-run stage-4` with the run's variables set, and it sends
 nothing. Once the sender has paid a node, a re-read is refused: the
-sender's funding is not a step of the run. The run reconciled its figures
-at the handover, and `public-run.log` keeps them.
+sender's funding is not a step of the run. So is a re-read once the
+faucet has granted a node. The run reconciled its figures at the
+handover, and `public-run.log` keeps them.
 
 ### Against Arbitrum Sepolia
 
@@ -273,6 +299,7 @@ export LP2_DEPLOYER_PASSWORD_FILE=~/lp2-testnet/deployer.pw
 export LP2_AUTHORITY_KEYSTORE=~/lp2-testnet/authority.json
 export LP2_AUTHORITY_PASSWORD_FILE=~/lp2-testnet/authority.pw
 export LP2_STATE_DIR=~/lp2-testnet/stage-4
+export LP2_SENDER_URL=https://...             # where operators' nodes will reach the sender
 demo/public-run stage-4
 ```
 
@@ -281,6 +308,19 @@ start the services from the same state directory with `demo/public-run
 serve`. They need only the state directory. The deployer's and G's
 keystores can be moved off the machine first. Copy the run's
 `manifest.json` into `deployments/` as the record of the deployment.
+
+### Publishing the deployment file
+
+Operators start their node container with `LP2_DEPLOYMENT` set to the
+URL of the testnet's deployment file. The owner publishes `deployment.json`
+from the state directory unchanged, through a pull request, in the same
+change that adds the dated manifest. It goes in `deployments/` beside the
+manifest, named for it with `.operator.json` in place of `.json`, for
+example `deployments/public-arbitrum-sepolia-stage-4-<date>.operator.json`.
+Operators are given the raw URL of that file on the repository's host,
+which serves it over HTTPS. A new deployment gets a new file. If the
+sender moves, `serve` writes its new URL into `deployment.json`, and the
+owner publishes the file again under the same name.
 
 ### What it costs
 
@@ -297,7 +337,7 @@ data fee included, and the same steps use about 19.6 million gas locally.
 | P | 2 | approve and fund | 0.19 million |
 | V | 4 | register; approve and bond; opt in | 0.5 million |
 | Keeper | 2 a round, and the first poke and the buy | `initializeRound` (56,000 gas) and `mintRoundShares` (182,000) each round; a poke (164,000) and the buy (224,000) | about 2.4 million for Arbitrum Sepolia's 8 or 9 rounds; 16.3 million for the local run's 67 |
-| Faucet | 0 | nothing yet | 0 |
+| Faucet | 0 | nothing during the run; under `serve`, one token transfer per grant | 0 |
 
 The whole run is about 24 million gas, about 0.0012 to 0.002 Sepolia ETH
 in fees. Most of it is the twelve contract creations. Fund

@@ -286,10 +286,13 @@ cycle in real time, then reconciles every figure against the calculator.
 `demo/public-run stage-4` does the same for the stage 4 system: the
 network's share of a paid job buys test LPT and burns it, and a parameter
 change announced by an authority key you give it counts seven rounds
-later. It then hands the deployment over to `demo/public-run serve`, which
-keeps the node, the keeper, a validator and `lp2-sender` running without
-the deployer's key, so a node that joins is paid. `demo/PUBLIC.md` says
-what to set, what it costs and how long it takes.
+later. When every figure is equal, it hands the deployment over to
+`demo/public-run serve`, which keeps the node, the keeper, a validator,
+`lp2-sender` and `lp2-faucet` running without the deployer's key, so a
+node that registers is granted test LPT and a node that joins is paid. It
+also writes `deployment.json`, the file an operator gives the node
+container. `demo/PUBLIC.md` says what to set, what it costs, how long it
+takes and where that file is published.
 
 `programs/cmd/lp2-explorer` is a page a node's operator opens on their own
 machine to see, read from the chain, that their node and the testnet are
