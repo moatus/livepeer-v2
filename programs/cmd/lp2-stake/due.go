@@ -6,7 +6,6 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -37,12 +36,13 @@ type roundFacts struct {
 }
 
 // plan is what is due in round now: the rounds to claim, the rounds whose
-// part to withdraw, why each other round is left, and the first round
-// that may still need a claim or a withdrawal once the plan is done.
+// part to withdraw, the unclaimed rounds not yet claimable and those
+// expired, and the first round that may still need a claim or a withdrawal
+// once the plan is done.
 type plan struct {
-	claim, withdraw []uint64
-	left            map[uint64]string
-	next            uint64
+	claim, withdraw  []uint64
+	waiting, expired []uint64
+	next             uint64
 }
 
 // choose decides, for each round, in round now: a round with no stake or
@@ -54,7 +54,7 @@ type plan struct {
 // no fees, expired, or claimed with its part withdrawn or zero. The rounds
 // in withdraw count as withdrawn for next.
 func choose(now uint64, rounds []roundFacts) plan {
-	p := plan{left: map[uint64]string{}, next: now}
+	p := plan{next: now}
 	open := func(n uint64) {
 		if n < p.next {
 			p.next = n
@@ -65,27 +65,18 @@ func choose(now uint64, rounds []roundFacts) plan {
 		case r.n == 0:
 			continue // round 0 is no round (R-18)
 		case r.stake.Sign() == 0 || r.fees.Sign() == 0:
-			if r.stake.Sign() == 0 {
-				p.left[r.n] = "no stake"
-			} else {
-				p.left[r.n] = "no fees"
-			}
 			if r.n >= now {
 				open(r.n) // fees of the current round may still come
 			}
 		case r.claimed:
 			if r.part.Sign() > 0 && !r.withdrawn {
 				p.withdraw = append(p.withdraw, r.n)
-			} else if r.withdrawn {
-				p.left[r.n] = "claimed and withdrawn"
-			} else {
-				p.left[r.n] = "claimed, part 0"
 			}
 		case now < r.n+r.delay:
-			p.left[r.n] = fmt.Sprintf("not yet claimable: from round %d", r.n+r.delay)
+			p.waiting = append(p.waiting, r.n)
 			open(r.n)
 		case now > r.n+r.delay+claimWindow:
-			p.left[r.n] = fmt.Sprintf("expired after round %d", r.n+r.delay+claimWindow)
+			p.expired = append(p.expired, r.n)
 		default:
 			p.claim = append(p.claim, r.n)
 			open(r.n)
@@ -95,8 +86,10 @@ func choose(now uint64, rounds []roundFacts) plan {
 }
 
 // firstRound is where a pass starts reading: the cursor file's round when
-// it holds one, otherwise the first round that can still be open in round
-// now, now - 861, or 1.
+// it holds one no later than now, however old, since a part claimed and
+// not withdrawn never expires (R-24) and the cursor stays at or before it;
+// otherwise the first round that can still be open in round now, now - 861,
+// or 1.
 func firstRound(cursorFile string, now uint64) uint64 {
 	from := uint64(1)
 	if now > maxDelay+claimWindow {
@@ -110,7 +103,7 @@ func firstRound(cursorFile string, now uint64) uint64 {
 		return from
 	}
 	n, err := strconv.ParseUint(strings.TrimSpace(string(raw)), 10, 64)
-	if err != nil || n < from || n > now {
+	if err != nil || n < 1 || n > now {
 		return from
 	}
 	return n
@@ -240,19 +233,8 @@ func due(ctx context.Context, s *chain.Session, a map[string]common.Address, nod
 
 // summary is one line of what the plan holds.
 func summary(p plan, claim bool) string {
-	var waiting, expired []uint64
-	for n, why := range p.left {
-		switch {
-		case strings.HasPrefix(why, "not yet"):
-			waiting = append(waiting, n)
-		case strings.HasPrefix(why, "expired"):
-			expired = append(expired, n)
-		}
-	}
-	slices.Sort(waiting)
-	slices.Sort(expired)
 	if claim {
-		return fmt.Sprintf("to claim %v, not yet claimable %v, expired unclaimed %v", list(p.claim), list(waiting), list(expired))
+		return fmt.Sprintf("to claim %v, not yet claimable %v, expired unclaimed %v", list(p.claim), list(p.waiting), list(p.expired))
 	}
 	return fmt.Sprintf("parts to withdraw %v; rounds before %d settled", list(p.withdraw), p.next)
 }

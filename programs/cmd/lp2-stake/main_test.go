@@ -1,8 +1,12 @@
 package main
 
 import (
+	"context"
 	"math/big"
+	"net"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 )
@@ -92,6 +96,44 @@ func TestParseRefuses(t *testing.T) {
 	} {
 		if _, err := parse(words); err == nil {
 			t.Errorf("parse(%v) accepted", words)
+		}
+	}
+}
+
+// An RPC request that fails, as one to a provider that is down does, is
+// reported with the action and the provider's host, and with none of what
+// its URL carries as a key: the user information, the path or the query.
+func TestAnRPCFailureHidesTheProvidersKey(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := l.Addr().String()
+	l.Close() // nothing listens there now: the connection is refused
+	for _, rpc := range []string{
+		"http://" + host + "/v3/synthetic-key-in-the-path",
+		"https://someone:synthetic-password@" + host + "/rpc?apikey=synthetic-key-in-the-query",
+		"ws://" + host + "/ws/synthetic-key-for-websocket",
+	} {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		a, err := parse([]string{"state", node, other})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = dispatch(ctx, a, config{rpcURL: rpc, controller: other})
+		cancel()
+		if err == nil {
+			t.Fatalf("%s: no error from a host where nothing listens", rpc)
+		}
+		got := message(a.name, err, rpc)
+		if strings.Contains(got, "synthetic") {
+			t.Errorf("the key is printed: %s", got)
+		}
+		if !strings.HasPrefix(got, "lp2-stake state: ") || !strings.Contains(got, host) {
+			t.Errorf("the failure does not name the action and the host: %s", got)
+		}
+		if !strings.Contains(err.Error(), "synthetic") {
+			t.Logf("%s: the error did not quote the URL: %v", rpc, err)
 		}
 	}
 }

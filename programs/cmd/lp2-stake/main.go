@@ -58,11 +58,13 @@
 // and that is not yet claimed; it skips the rounds not yet claimable and
 // the expired ones. withdraw-due withdraws, as a holder at NODE, its parts
 // of NODE's claimed rounds not yet withdrawn, in one withdrawParts. Each
-// reads the rounds from the one in --cursor-file, or from the current
-// round less 861 (the most a round can stay open: a reward delay of at
-// most 840 and a window of 21), to the current round; withdraw-due writes
-// to --cursor-file the first round that may still need a claim or a
-// withdrawal. Rounds before it are settled for good.
+// reads the rounds from the one in --cursor-file, however old, or without
+// one from the current round less 861 (the most a round can stay
+// claimable: a reward delay of at most 840 and a window of 21), to the
+// current round; withdraw-due writes to --cursor-file the first round that
+// may still need a claim or a withdrawal. Rounds before it are settled for
+// good. A claimed part never expires (R-24), so a cursor is followed back
+// past any claim window.
 //
 // join signs, with the key, the join lp2-sender's documentation specifies
 // for the key's address and NODE_URL, and posts it to SENDER_URL/join. It
@@ -72,8 +74,12 @@
 // state prints, as name=value lines, where NODE and HOLDER stand once every
 // transaction either has sent is mined: the chain id, the round, whether
 // NODE is registered, its operator key and proposed key, each one's test
-// LPT and ETH, HOLDER's allowance to StakeLedger, its bond staying at NODE
-// and its bond counting for NODE this round. It needs no keystore.
+// LPT and ETH, HOLDER's bond staying at NODE and its bond counting for
+// NODE this round. It needs no keystore.
+//
+// An error is printed as "lp2-stake <action>: <error>", with the
+// --rpc-url's user information, path and query, where a provider puts its
+// key, replaced by "…".
 //
 // new-key makes a new key and writes it to --keystore-file, encrypted with
 // the password in --keystore-password-file, and prints its address. It
@@ -86,6 +92,7 @@ import (
 	"flag"
 	"fmt"
 	"math/big"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -216,24 +223,24 @@ func main() {
 
 	a, err := parse(flag.Args())
 	if err != nil {
-		fail(err)
+		fail("", err, "")
 	}
 	if a.name == "new-key" {
 		addr, err := newKey(c.keystoreFile, c.passwordFile)
 		if err != nil {
-			fail(err)
+			fail(a.name, err, "")
 		}
 		fmt.Printf("address: %s\n", addr.Hex())
 		return
 	}
 	if c.rpcURL == "" || (a.name != "state" && (c.keystoreFile == "" || c.passwordFile == "")) {
-		fail(fmt.Errorf("--rpc-url, --keystore-file and --keystore-password-file are required"))
+		fail(a.name, fmt.Errorf("--rpc-url, --keystore-file and --keystore-password-file are required"), "")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	refused, err := dispatch(ctx, a, c)
 	if err != nil {
-		fail(err)
+		fail(a.name, err, c.rpcURL)
 	}
 	if refused {
 		os.Exit(3)
@@ -453,14 +460,12 @@ func state(ctx context.Context, s *chain.Session, addrs map[string]common.Addres
 		value any
 	}{
 		{"chain_id", id},
-		{"block", at},
 		{"round", r},
 		{"registered", call(addrs["registry"], "isRegistered", node)[0]},
 		{"operator", call(addrs["registry"], "operatorOf", node)[0]},
 		{"proposed", call(addrs["registry"], "proposedOperatorOf", node)[0]},
 		{"node_lpt", call(addrs["lpt"], "balanceOf", node)[0]},
 		{"holder_lpt", call(addrs["lpt"], "balanceOf", holder)[0]},
-		{"allowance", call(addrs["lpt"], "allowance", holder, addrs["ledger"])[0]},
 		{"staying", call(addrs["ledger"], "stayingOf", holder, node)[0]},
 		{"bond_now", call(addrs["ledger"], "bondAt", holder, node, r)[0]},
 		{"node_eth", eth(node)},
@@ -479,7 +484,49 @@ func state(ctx context.Context, s *chain.Session, addrs map[string]common.Addres
 	return nil
 }
 
-func fail(err error) {
-	fmt.Fprintln(os.Stderr, "lp2-stake:", err)
+func fail(name string, err error, rpcURL string) {
+	fmt.Fprintln(os.Stderr, message(name, err, rpcURL))
 	os.Exit(1)
+}
+
+// message is the line fail prints: the action and the error, with what
+// rpcURL may carry as a credential hidden.
+func message(name string, err error, rpcURL string) string {
+	if name != "" {
+		name = " " + name
+	}
+	return redact(fmt.Sprintf("lp2-stake%s: %v", name, err), rpcURL)
+}
+
+// redact replaces, in text, the user information, path, query and fragment
+// of rpcURL, in each form an error may quote them, with "…". The scheme
+// and the host stay, to say which endpoint failed.
+func redact(text, rpcURL string) string {
+	if rpcURL == "" {
+		return text
+	}
+	u, err := url.Parse(rpcURL)
+	if err != nil || u.Host == "" {
+		return strings.ReplaceAll(text, rpcURL, "…")
+	}
+	var hidden []string
+	for _, piece := range []string{u.User.String(), u.EscapedPath(), u.Path, u.RawQuery, u.Query().Encode(),
+		u.Fragment, u.EscapedFragment()} {
+		if piece != "" && piece != "/" {
+			hidden = append(hidden, piece)
+		}
+	}
+	if pw, ok := u.User.Password(); ok && pw != "" {
+		hidden = append(hidden, pw)
+	}
+	if len(hidden) == 0 {
+		return text
+	}
+	for _, whole := range []string{rpcURL, u.String(), u.Redacted()} {
+		text = strings.ReplaceAll(text, whole, u.Scheme+"://"+u.Host+"/…")
+	}
+	for _, h := range hidden {
+		text = strings.ReplaceAll(text, h, "…")
+	}
+	return text
 }

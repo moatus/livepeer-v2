@@ -34,11 +34,8 @@ func TestChooseClaimsOnlyRoundsWithStakeFeesInWindowAndUnclaimed(t *testing.T) {
 	if !reflect.DeepEqual(p.withdraw, []uint64{29}) {
 		t.Errorf("withdraw %v, want [29]: a claimed round's part, not withdrawn", p.withdraw)
 	}
-	for n, want := range map[uint64]string{11: "expired after round 39", 31: "no stake", 32: "no fees",
-		34: "not yet claimable: from round 41"} {
-		if p.left[n] != want {
-			t.Errorf("round %d left as %q, want %q", n, p.left[n], want)
-		}
+	if !reflect.DeepEqual(p.waiting, []uint64{34}) || !reflect.DeepEqual(p.expired, []uint64{11}) {
+		t.Errorf("not yet claimable %v, want [34]; expired %v, want [11]", p.waiting, p.expired)
 	}
 	if p.next != 12 {
 		t.Errorf("next %d, want 12: the first round still to claim", p.next)
@@ -50,14 +47,14 @@ func TestChooseReadsEachRoundsOwnRewardDelay(t *testing.T) {
 	a, b := r(19), r(20)
 	b.delay = 3
 	p := choose(24, []roundFacts{a, b})
-	if !reflect.DeepEqual(p.claim, []uint64{20}) || p.left[19] != "not yet claimable: from round 26" {
-		t.Errorf("claim %v, left %v", p.claim, p.left)
+	if !reflect.DeepEqual(p.claim, []uint64{20}) || !reflect.DeepEqual(p.waiting, []uint64{19}) {
+		t.Errorf("claim %v, not yet claimable %v", p.claim, p.waiting)
 	}
 	// Expiry follows the delay too: round 20 under 3 closes after 44,
 	// round 19 under 7 after 47.
 	p = choose(45, []roundFacts{a, b})
-	if !reflect.DeepEqual(p.claim, []uint64{19}) || p.left[20] != "expired after round 44" {
-		t.Errorf("claim %v, left %v", p.claim, p.left)
+	if !reflect.DeepEqual(p.claim, []uint64{19}) || !reflect.DeepEqual(p.expired, []uint64{20}) {
+		t.Errorf("claim %v, expired %v", p.claim, p.expired)
 	}
 }
 
@@ -113,11 +110,46 @@ func TestFirstRoundReadsTheCursorWithinItsBounds(t *testing.T) {
 	if got := firstRound(f, 50); got != 1 {
 		t.Errorf("a cursor after the current round is not believed: from %d", got)
 	}
-	if got := firstRound(f, 2000); got != 2000-861 {
-		t.Errorf("a cursor older than any open round: from %d", got)
+	if got := firstRound(f, 2000); got != 57 {
+		t.Errorf("a cursor older than any round still claimable: from %d, want 57, since a claimed part never expires", got)
 	}
 	os.WriteFile(f, []byte("x\n"), 0o600)
 	if got := firstRound(f, 100); got != 1 {
 		t.Errorf("an unreadable cursor: from %d", got)
+	}
+}
+
+// A long outage: the cursor was left at round 12, whose part was claimed
+// and not withdrawn, and the container comes back in round 874, when round
+// 12 is long past any claim window (12 + 840 + 21 = 873). The part is
+// still withdrawn, once.
+func TestALongOutageStillWithdrawsAClaimedPart(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "cursor")
+	if err := writeCursor(f, 12); err != nil {
+		t.Fatal(err)
+	}
+	const now = 874
+	facts := func(withdrawn bool) []roundFacts {
+		var out []roundFacts
+		for n := firstRound(f, now); n <= now; n++ {
+			x := r(n)
+			x.fees = new(big.Int)
+			if n == 12 {
+				x = r(12)
+				x.claimed, x.part, x.withdrawn = true, big.NewInt(5), withdrawn
+			}
+			out = append(out, x)
+		}
+		return out
+	}
+	p := choose(now, facts(false))
+	if !reflect.DeepEqual(p.withdraw, []uint64{12}) {
+		t.Fatalf("withdraw %v, want [12]: round 12's part, claimed before the outage", p.withdraw)
+	}
+	if err := writeCursor(f, p.next); err != nil {
+		t.Fatal(err)
+	}
+	if p = choose(now, facts(true)); len(p.withdraw) != 0 {
+		t.Errorf("withdrawn again on the next pass: %v", p.withdraw)
 	}
 }
