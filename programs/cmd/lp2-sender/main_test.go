@@ -10,22 +10,49 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode"
 
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/livepeer/node/destination"
 )
+
+// The node's packages the sender uses, its destination policy and its
+// decoder of the payment parameters, are those of the node the demo runs.
+func TestTheNodeModuleIsThePinnedNode(t *testing.T) {
+	var manifest struct{ Node struct{ Commit string } }
+	data, err := os.ReadFile("../../../deployments/stage-3-local.json")
+	if err != nil || json.Unmarshal(data, &manifest) != nil || len(manifest.Node.Commit) < 12 {
+		t.Fatalf("the stage 3 manifest's node commit: %v", err)
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		t.Fatal("no build information")
+	}
+	for _, d := range info.Deps {
+		if d.Path == "github.com/livepeer/node" {
+			if !strings.HasSuffix(d.Version, "-"+manifest.Node.Commit[:12]) {
+				t.Fatalf("go.mod requires the node at %s, the manifest pins %s", d.Version, manifest.Node.Commit)
+			}
+			return
+		}
+	}
+	t.Fatal("the sender does not use the node's module")
+}
 
 // --- the signed bytes and their signature -------------------------------------
 
@@ -100,6 +127,7 @@ func TestURLPolicy(t *testing.T) {
 		"public.example":  {netip.MustParseAddr("93.184.216.34")},
 		"mixed.example":   {netip.MustParseAddr("93.184.216.34"), netip.MustParseAddr("10.1.2.3")},
 		"private.example": {netip.MustParseAddr("192.168.1.5")},
+		"shared.example":  {netip.MustParseAddr("93.184.216.34"), netip.MustParseAddr("100.64.1.1")},
 	}
 	resolve := func(_ context.Context, host string) ([]netip.Addr, error) {
 		if a, ok := names[host]; ok {
@@ -129,6 +157,18 @@ func TestURLPolicy(t *testing.T) {
 		{"http://[::ffff:127.0.0.1]:8935", false, codeURLNotAllowed},
 		{"http://private.example", false, codeURLNotAllowed},
 		{"http://mixed.example", false, codeURLNotAllowed},
+		// Not public as the node's destination policy has it, though no
+		// loopback, private or link-local test says so: shared, benchmark,
+		// documentation and reserved space, and IPv6 outside 2000::/3.
+		{"http://100.64.0.1", false, codeURLNotAllowed},
+		{"http://shared.example", false, codeURLNotAllowed},
+		{"http://198.18.0.1", false, codeURLNotAllowed},
+		{"http://192.0.2.1", false, codeURLNotAllowed},
+		{"http://240.0.0.1", false, codeURLNotAllowed},
+		{"http://[2001:db8::1]", false, codeURLNotAllowed},
+		{"http://[64:ff9b::808:808]", false, codeURLNotAllowed},
+		{"http://public.example/a\u0085b", false, codeURLNotAllowed},
+		{"http://public.example/a\u00a0b", false, codeURLNotAllowed},
 		{"ftp://public.example", false, codeURLNotAllowed},
 		{"public.example:8935", false, codeURLNotAllowed},
 		{"http://user:pw@public.example", false, codeURLNotAllowed},
@@ -152,10 +192,13 @@ func TestURLPolicy(t *testing.T) {
 	}
 }
 
-// The client to nodes connects to public addresses only, whatever a name
-// resolves to when it connects, and follows no redirect.
+// The client to nodes dials through the node's destination policy: a name
+// that resolves to any address that is not public is refused when it is
+// dialled, whatever the other addresses, and no redirect is followed.
 func TestNodeClientRefusesPrivateAddressesAndRedirects(t *testing.T) {
+	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
 		if r.URL.Path == "/moved" {
 			http.Redirect(w, r, "/discovery", http.StatusFound)
 			return
@@ -163,10 +206,26 @@ func TestNodeClientRefusesPrivateAddressesAndRedirects(t *testing.T) {
 		w.Write([]byte("[]"))
 	}))
 	defer srv.Close()
-	if _, err := nodeClient(false, time.Second).Get(srv.URL + "/discovery"); err == nil || !strings.Contains(err.Error(), "not a public address") {
-		t.Fatalf("a loopback server was reached without the flag: %v", err)
+	_, port, _ := strings.Cut(strings.TrimPrefix(srv.URL, "http://"), ":")
+	p := nodePolicy(false)
+	p.Lookup = func(_ context.Context, host string) ([]net.IPAddr, error) {
+		switch host {
+		case "loop.example":
+			return []net.IPAddr{{IP: net.ParseIP("127.0.0.1")}}, nil
+		case "mixed.example":
+			return []net.IPAddr{{IP: net.ParseIP("93.184.216.34")}, {IP: net.ParseIP("127.0.0.1")}}, nil
+		}
+		return nil, errors.New("no such host")
 	}
-	resp, err := nodeClient(true, time.Second).Get(srv.URL + "/moved")
+	for _, u := range []string{srv.URL, "http://loop.example:" + port, "http://mixed.example:" + port} {
+		if _, err := nodeClient(p, time.Second).Get(u + "/discovery"); !errors.Is(err, destination.ErrDeniedAddress) {
+			t.Errorf("%s without the flag: %v, want the policy's refusal", u, err)
+		}
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("the loopback server was reached %d times without the flag", hits.Load())
+	}
+	resp, err := nodeClient(nodePolicy(true), time.Second).Get(srv.URL + "/moved")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,6 +270,28 @@ func TestListRefusesALineItCannotRead(t *testing.T) {
 		if _, err := parseList([]byte(text)); err == nil || !strings.Contains(err.Error(), "line ") {
 			t.Errorf("parseList(%q): %v, want an error naming the line", text, err)
 		}
+	}
+}
+
+// Every URL the join's policy accepts is read back from the list file as
+// it was written, so an accepted join can never leave a list the sender
+// cannot read when it restarts. Each Unicode character in turn is put in a
+// URL the policy would otherwise accept.
+func TestEveryAcceptedURLSurvivesTheListFile(t *testing.T) {
+	accepted := 0
+	for r := rune(0); r <= unicode.MaxRune; r++ {
+		u := "http://127.0.0.1:8935/a" + string(r) + "b"
+		if code, _ := checkURL(context.Background(), u, true, nil); code != "" {
+			continue
+		}
+		accepted++
+		got, err := parseList(formatList([]entry{{nodeA, u, 1, 0}}))
+		if err != nil || len(got) != 1 || got[0].URL != u {
+			t.Fatalf("U+%04X: accepted, and read back from the list as %v, %v", r, got, err)
+		}
+	}
+	if accepted < 60 {
+		t.Fatalf("only %d characters accepted in a URL path", accepted)
 	}
 }
 
@@ -409,6 +490,50 @@ func TestAChallengeOfAnotherRoundIsNotPaid(t *testing.T) {
 	}
 }
 
+// An attempt that starts only after the loop has seen a later round pays
+// for the round it was taken in, with that round's timing: the loop hands
+// it both as values. The attempt is queued, the round moves from 5 to 6,
+// and then the attempt runs; the node's challenge is still of round 5.
+func TestAnAttemptStartedAfterTheRoundMovesKeepsItsRound(t *testing.T) {
+	b := newBook(t, entry{nodeA, "http://a.example", 1, 4})
+	f := &fake{path: b.path, recipient: nodeA, round: 5}
+	var round atomic.Uint64
+	round.Store(5)
+	var mu sync.Mutex
+	var queue []func()
+	spawned, passed := make(chan struct{}, 10), make(chan struct{}, 10)
+	kick := make(chan struct{}, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	l := payLoop{b: b, st: f, poll: time.Hour, nodeTimeout: time.Minute, retry: time.Hour,
+		readRound: func(context.Context) (uint64, error) { return round.Load(), nil },
+		after:     func(context.Context) { passed <- struct{}{} },
+		spawn: func(job func()) {
+			mu.Lock()
+			queue = append(queue, job)
+			mu.Unlock()
+			spawned <- struct{}{}
+		}}
+	done := make(chan struct{})
+	go func() { l.run(ctx, kick); close(done) }()
+	<-spawned
+	<-passed
+	round.Store(6)
+	kick <- struct{}{}
+	<-passed
+	mu.Lock()
+	jobs := queue
+	mu.Unlock()
+	if len(jobs) != 1 {
+		t.Fatalf("%d attempts started, want the one for round 5", len(jobs))
+	}
+	jobs[0]()
+	cancel()
+	<-done
+	if f.relayed != 1 || b.list()[0].PaidRound != 5 {
+		t.Fatalf("relayed %d, paidRound %d on file: the attempt taken in round 5 did not pay for round 5", f.relayed, b.list()[0].PaidRound)
+	}
+}
+
 // --- the challenge's payment parameters -----------------------------------------
 
 func pbBytes(n uint64, b []byte) []byte {
@@ -582,5 +707,39 @@ func TestJoinAnswers(t *testing.T) {
 	}
 	if status, s, _ := fx.post(t, fx.body(t, fx.key, fx.addr, other, now+1)); status != 200 || s != "updated" {
 		t.Fatalf("a listed node's update when full: HTTP %d %s", status, s)
+	}
+}
+
+// A join whose URL holds a character the list file would read as a field
+// separator is refused, and every join accepted leaves a list file the
+// sender reads again when it restarts.
+func TestAJoinLeavesAListTheSenderRestartsWith(t *testing.T) {
+	fx := newJoinFixture(t, 10)
+	issued := fx.now.Unix() - 100
+	for _, sep := range []string{" ", "\t", "\u0085", "\u00a0", "\u1680", "\u2000", "\u2028", "\u2029", "\u202f", "\u3000", "\ufeff", "\x7f", "é"} {
+		u := "https://n.example/a" + sep + "b"
+		fx.recipient[u] = fx.addr
+		issued++
+		status, code, _ := fx.post(t, fx.body(t, fx.key, fx.addr, u, issued))
+		if status == 200 {
+			t.Errorf("a URL holding %q was accepted", sep)
+		} else if code != codeURLNotAllowed {
+			t.Errorf("a URL holding %q: HTTP %d %s, want %s", sep, status, code, codeURLNotAllowed)
+		}
+		if _, err := openBook(fx.j.book.path, 10); err != nil {
+			t.Fatalf("after the join with %q, the sender cannot restart: %v", sep, err)
+		}
+	}
+	u := "https://n.example/a-b_c~d%20e"
+	fx.recipient[u] = fx.addr
+	if status, s, _ := fx.post(t, fx.body(t, fx.key, fx.addr, u, issued+1)); status != 200 {
+		t.Fatalf("a printable URL: HTTP %d %s", status, s)
+	}
+	restarted, err := openBook(fx.j.book.path, 10)
+	if err != nil {
+		t.Fatalf("the sender cannot restart: %v", err)
+	}
+	if l := restarted.list(); len(l) != 1 || l[0].URL != u {
+		t.Fatalf("after a restart the list holds %v, want %s", l, u)
 	}
 }

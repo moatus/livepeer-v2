@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/binary"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -16,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/livepeer/node/pm/wire"
 )
 
 // challenge is what a node's runner asked for in its 402 answer: where
@@ -213,91 +212,25 @@ func (snd *sender) runnerURL(ctx context.Context, e entry) (string, error) {
 }
 
 // readParams reads, from a challenge's payment_params (base64 of the
-// node's OrchestratorInfo, protobuf), the ticket's recipient (field 2,
-// TicketParams, then its field 1) and its creation round (TicketParams
-// field 7, ExpirationParams, then its field 1). As in protobuf, a field
-// given twice takes its last value.
+// node's OrchestratorInfo), the ticket's recipient and its creation round,
+// with the node's own decoder of that message.
 func readParams(b64 string) (common.Address, uint64, error) {
 	raw, err := base64.StdEncoding.DecodeString(b64)
 	if err != nil {
 		return common.Address{}, 0, err
 	}
-	var recipient []byte
-	var round uint64
-	err = fields(raw, func(n uint64, val []byte, _ uint64) error {
-		if n != 2 || val == nil {
-			return nil
-		}
-		return fields(val, func(n uint64, val []byte, _ uint64) error {
-			switch {
-			case n == 1 && val != nil:
-				recipient = val
-			case n == 7 && val != nil:
-				return fields(val, func(n uint64, val []byte, v uint64) error {
-					if n == 1 && val == nil {
-						round = v
-					}
-					return nil
-				})
-			}
-			return nil
-		})
-	})
+	info, err := wire.DecodeOrchestratorInfo(raw)
 	if err != nil {
 		return common.Address{}, 0, err
 	}
-	if len(recipient) != common.AddressLength {
-		return common.Address{}, 0, fmt.Errorf("the ticket's recipient is %d bytes, not an address", len(recipient))
+	t := info.TicketParams
+	if len(t.Recipient) != common.AddressLength {
+		return common.Address{}, 0, fmt.Errorf("the ticket's recipient is %d bytes, not an address", len(t.Recipient))
 	}
-	return common.BytesToAddress(recipient), round, nil
-}
-
-// fields walks a protobuf message: fn gets each field's number and either
-// its bytes (length-delimited) or its integer (varint; val is nil).
-// Fixed-width fields are skipped.
-func fields(b []byte, fn func(n uint64, val []byte, v uint64) error) error {
-	bad := errors.New("not a protobuf message")
-	for len(b) > 0 {
-		tag, k := binary.Uvarint(b)
-		if k <= 0 {
-			return bad
-		}
-		b = b[k:]
-		switch tag & 7 {
-		case 0:
-			v, k := binary.Uvarint(b)
-			if k <= 0 {
-				return bad
-			}
-			b = b[k:]
-			if err := fn(tag>>3, nil, v); err != nil {
-				return err
-			}
-		case 2:
-			l, k := binary.Uvarint(b)
-			if k <= 0 || l > uint64(len(b)-k) {
-				return bad
-			}
-			val := b[k : k+int(l)]
-			b = b[k+int(l):]
-			if err := fn(tag>>3, append([]byte{}, val...), 0); err != nil {
-				return err
-			}
-		case 1:
-			if len(b) < 8 {
-				return bad
-			}
-			b = b[8:]
-		case 5:
-			if len(b) < 4 {
-				return bad
-			}
-			b = b[4:]
-		default:
-			return bad
-		}
+	if t.Expiration.CreationRound < 0 {
+		return common.Address{}, 0, fmt.Errorf("the ticket's creation round is %d", t.Expiration.CreationRound)
 	}
-	return nil
+	return common.BytesToAddress(t.Recipient), uint64(t.Expiration.CreationRound), nil
 }
 
 func post(ctx context.Context, client *http.Client, target string, body []byte, headers map[string]string) (int, []byte, error) {

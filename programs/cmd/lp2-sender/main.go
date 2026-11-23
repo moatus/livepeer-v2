@@ -33,9 +33,12 @@
 //  2. issuedAt is within 600 s of the sender's clock and newer than the
 //     last join accepted for node (400 STALE: a replayed join is stale);
 //  3. url is http or https with a host and no user, query or fragment,
-//     and its host resolves only to public addresses, not loopback,
-//     private or link-local (400 URL_NOT_ALLOWED), unless the sender was
-//     started with --allow-private-urls, which only the local demo uses;
+//     in printable ASCII, at most 512 bytes, and every address its host
+//     resolves to is public as the pinned node's destination policy
+//     classifies it (destination.Public: not loopback, private,
+//     link-local, shared, documentation or other reserved space) (400
+//     URL_NOT_ALLOWED), unless the sender was started with
+//     --allow-private-urls, which only the local demo uses;
 //  4. the Registry has node registered (403 NOT_REGISTERED);
 //  5. node is listed already, or fewer than --max-nodes are (503 FULL,
 //     with Retry-After);
@@ -59,7 +62,9 @@
 // per round of the chain's round clock: the sender reads the round every
 // --poll, and a node whose paidRound is below the current round is due.
 // The round is written to the file before the paid request is sent, so a
-// restarted sender does not send a node a second request in a round.
+// restarted sender does not send a node a second request in a round; a
+// sender that stops between the write and the send skips that node for
+// the round.
 //
 // One paid request is: the node's /discovery, for its runner; the request
 // with no payment, which the node answers 402 with a challenge; a check
@@ -68,8 +73,11 @@
 // stand-in) into its wallet, then one approve and one fund of the deposit
 // and the node's earmark (rulebook R-21, D-24); the challenge to the
 // signer, which signs a ticket; and the request again with the ticket.
-// Each node is paid on its own, and its whole attempt is bounded by
-// --node-timeout, so a node that accepts a connection and never answers
+// Every connection to a node is dialled through the node's destination
+// policy, which refuses a name that resolves to any address that is not
+// public at the time, and the sender follows no redirect and uses no
+// proxy. Each node is paid on its own, and its whole attempt is bounded
+// by --node-timeout, so a node that accepts a connection and never answers
 // delays no other node. Until the round is written down, a failed attempt
 // is tried again after --retry; once the paid request is sent, the node is
 // not sent another in that round, whatever the outcome.
@@ -198,7 +206,7 @@ func main() {
 	snd := &sender{s: s, broker: found["TicketBroker"], registry: found["BondingManager"], clock: found["RoundsManager"],
 		usdc: common.HexToAddress(*usdc), signer: strings.TrimRight(*signerURL, "/"), app: *app,
 		job: strings.TrimLeft(*job, "/"), depositLow: amounts[0], depositAdd: amounts[1], earmarkLow: amounts[2],
-		earmarkAdd: amounts[3], mintAdd: amounts[4], nodes: nodeClient(*allowPrivate, *nodeTimeout),
+		earmarkAdd: amounts[3], mintAdd: amounts[4], nodes: nodeClient(nodePolicy(*allowPrivate), *nodeTimeout),
 		signerHTTP: &http.Client{Timeout: *nodeTimeout}}
 	b, err := openBook(*nodesFile, *maxNodes)
 	if err != nil {
@@ -245,40 +253,59 @@ func loopback(raw string) error {
 	return fmt.Errorf("--signer-url %q: the signer must listen on a loopback address, such as http://127.0.0.1:8937", raw)
 }
 
-// run is the sender's loop: each --poll, and at once after a join, it
-// reads the round and starts an attempt for each node due, then logs the
-// payer's redemptions since it last looked.
+// run is the sender's loop against the chain, the signer and the nodes.
 func (snd *sender) run(ctx context.Context, b *book, kick <-chan struct{}, poll, nodeTimeout, retry time.Duration) {
-	var wg sync.WaitGroup
-	defer wg.Wait()
-	t := time.NewTicker(poll)
-	defer t.Stop()
-	var round uint64
-	var seen time.Time
 	var from uint64
 	if head, err := snd.s.Client.BlockNumber(ctx); err == nil {
 		from = head + 1
 	}
+	payLoop{b: b, st: live{snd}, poll: poll, nodeTimeout: nodeTimeout, retry: retry,
+		readRound: func(ctx context.Context) (uint64, error) {
+			r, err := snd.s.Uint(ctx, snd.clock, "currentRound")
+			if err != nil {
+				return 0, err
+			}
+			return r.Uint64(), nil
+		},
+		after: func(ctx context.Context) { from = snd.redemptions(ctx, from) },
+		spawn: func(f func()) { go f() },
+	}.run(ctx, kick)
+}
+
+// payLoop is the sender's loop: each poll, and at once after a join, it
+// reads the round and starts an attempt for each node due, then calls
+// after (which logs the payer's redemptions since it last looked).
+type payLoop struct {
+	b                        *book
+	st                       steps
+	readRound                func(context.Context) (uint64, error)
+	after                    func(context.Context)
+	spawn                    func(func()) // starts an attempt: go f(), or a test's queue
+	poll, nodeTimeout, retry time.Duration
+}
+
+func (l payLoop) run(ctx context.Context, kick <-chan struct{}) {
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	t := time.NewTicker(l.poll)
+	defer t.Stop()
+	var round uint64
+	var seen time.Time
 	for {
-		r, err := snd.s.Uint(ctx, snd.clock, "currentRound")
+		r, err := l.readRound(ctx)
 		if err != nil {
 			log.Printf("the round: %v", err)
-		} else if r.Uint64() != round {
-			round, seen = r.Uint64(), time.Now()
-			log.Printf("round %d seen: %d nodes listed", round, len(b.list()))
+		} else if r != round {
+			round, seen = r, time.Now()
+			log.Printf("round %d seen: %d nodes listed", round, len(l.b.list()))
 		}
 		if round > 0 {
-			for _, e := range b.take(round, time.Now()) {
+			for _, e := range l.b.take(round, time.Now()) {
 				wg.Add(1)
-				go func(e entry) {
-					defer wg.Done()
-					actx, cancel := context.WithTimeout(ctx, nodeTimeout)
-					defer cancel()
-					attempt(actx, live{snd}, b, e, round, seen, retry)
-				}(e)
+				l.spawn(l.job(ctx, &wg, e, round, seen))
 			}
 		}
-		from = snd.redemptions(ctx, from)
+		l.after(ctx)
 		select {
 		case <-ctx.Done():
 			log.Printf("stopping")
@@ -286,6 +313,18 @@ func (snd *sender) run(ctx context.Context, b *book, kick <-chan struct{}, poll,
 		case <-t.C:
 		case <-kick:
 		}
+	}
+}
+
+// job is one node's attempt for round, which the loop saw begin at seen.
+// Both are copied when the job is made, so an attempt that starts after
+// the loop has seen a later round still pays for the round it was taken in.
+func (l payLoop) job(ctx context.Context, wg *sync.WaitGroup, e entry, round uint64, seen time.Time) func() {
+	return func() {
+		defer wg.Done()
+		actx, cancel := context.WithTimeout(ctx, l.nodeTimeout)
+		defer cancel()
+		attempt(actx, l.st, l.b, e, round, seen, l.retry)
 	}
 }
 

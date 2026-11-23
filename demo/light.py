@@ -11,10 +11,11 @@ answers joins.
 Then: each join that should be refused is refused, with its code, and
 leaves no earmark and no list line. N and M join and are each sent a paid
 request at once, then one a round; S joins and its request never answers.
-The sender is stopped and restarted within a round. Once N and M have been
-paid in four rounds, the sender stops, the nodes redeem, and the chain is
-read: one ticket per node per round, one ticket for each relay, and each
-node's payout up by its half of each.
+The sender is stopped and restarted within a round, while S's paid request
+of that round is forwarded to its runner and unanswered. Once N and M have
+been paid in four rounds, the sender stops, the nodes redeem, and the chain
+is read: for every node one ticket per round and one ticket for each paid
+request sent, and N's and M's payouts up by their half of each.
 
 Exit 0 every check passed; 1 one failed; 2 the run could not run.
 """
@@ -81,13 +82,23 @@ def relays(lines: list[str] | None = None) -> dict[str, list[dict]]:
     return out
 
 
-def gave_up() -> dict[str, list[tuple[int, int, bool]]]:
+def gave_up(lines: list[str] | None = None) -> dict[str, list[tuple[int, int, bool]]]:
     """Each node's paid requests sent and not answered: (round, ms, whether
     the bound ended it rather than the sender stopping)."""
     out: dict[str, list[tuple[int, int, bool]]] = {}
-    for line in sender_log().splitlines():
+    for line in sender_log().splitlines() if lines is None else lines:
         if m := GAVE_UP.match(line):
             out.setdefault(name(m.group(2)), []).append((int(m.group(3)), int(m.group(4)), bool(m.group(5))))
+    return out
+
+
+def paid_requests(lines: list[str] | None = None) -> dict[str, list[int]]:
+    """The rounds of each node's paid requests sent, answered or not."""
+    out: dict[str, list[int]] = {}
+    for n, xs in relays(lines).items():
+        out.setdefault(n, []).extend(x["round"] for x in xs)
+    for n, xs in gave_up(lines).items():
+        out.setdefault(n, []).extend(r for r, _, _ in xs)
     return out
 
 
@@ -98,6 +109,9 @@ def wait(what: str, ready, seconds: float) -> float:
             return time.time() - start
         time.sleep(0.25)
     raise Failed(f"timed out after {seconds:.0f} s waiting for {what}")
+
+
+FORWARDED: list[float] = []   # when S's runner was handed each paid request
 
 
 class Stuck(BaseHTTPRequestHandler):
@@ -114,6 +128,7 @@ class Stuck(BaseHTTPRequestHandler):
         self.hang()
 
     def do_POST(self):
+        FORWARDED.append(time.time())
         self.hang()
 
     def hang(self):
@@ -280,24 +295,35 @@ def main() -> int:
     check("a fourth node's join is refused with FULL while 3 are listed", (status, code), (503, "FULL"))
     check("the refused joins left no earmark for X or U", (earmark("X"), earmark("U")), (0, 0))
 
-    say("\n5. The sender is stopped and restarted within one round")
+    say("\n5. The sender is stopped and restarted within one round, with S's paid request of that round unanswered")
     wait("a round after S joined in which N and M are both paid",
          lambda: all(any(r["round"] > s_round for r in relays().get(n, [])) for n in ("N", "M")), 3 * 60)
     r = max(x["round"] for x in relays()["N"])
+    # In round r, S's runner holds a paid request the sender has not yet
+    # given up: the sender is stopped while it hangs.
+    wait(f"S's paid request of round {r} to reach its runner",
+         lambda: current_round() == r and len(FORWARDED) > len(gave_up().get("S", [])), BOUND)
     stop("sender")
+    in_flight = [x for x in gave_up().get("S", []) if x[0] == r]
     start_sender()
     after = current_round()
-    say(f"  stopped after N and M were paid in round {r}; restarted in round {after}")
+    say(f"  stopped after N and M were paid in round {r}, with S's paid request of round {r} forwarded to its runner "
+        f"and unanswered; restarted in round {after}")
+    check(f"the sender was stopped with S's paid request of round {r} sent and still unanswered",
+          [bound for _, _, bound in in_flight], [False])
     check("the sender was restarted in the round it was stopped in", after, r)
-    second = runs()[-1]
-    check("the restarted sender began in that round", [int(m.group(2)) for line in second if (m := SEEN.match(line))][:1], [r])
+    wait("the restarted sender to read the round", lambda: any(SEEN.match(line) for line in runs()[-1]), 10)
+    check("the restarted sender began in that round",
+          [int(m.group(2)) for line in runs()[-1] if (m := SEEN.match(line))][:1], [r])
 
     say(f"\n6. Each node is paid once a round, with nobody acting, until N and M have been paid in {ROUNDS} rounds")
     last = {n: round0[n] + ROUNDS - 1 for n in ("N", "M")}
     wait(f"N and M paid in {ROUNDS} rounds", lambda: all(any(x["round"] >= last[n] for x in relays().get(n, [])) for n in ("N", "M")),
          ROUNDS * 80)
-    check("the restarted sender sent no node a relay in the round it was restarted in",
-          sorted(n for n, xs in relays(second).items() for x in xs if x["round"] == r), [])
+    # The restarted process's lines as they are now, not as they were at
+    # the restart: a repeat in the round can come any time before it ends.
+    check("the restarted sender sent no node, S included, a paid request in the round it was restarted in",
+          sorted(n for n, rs in paid_requests(runs()[-1]).items() if r in rs), [])
     stop("sender")
     STOP.set()
     stuck.shutdown()
@@ -320,12 +346,13 @@ def main() -> int:
     check(f"with S listed, N and M were each paid within {BOUND} s of the round being seen", worst <= BOUND, True)
 
     say("\n7. The nodes redeem each ticket once its parameters expire (40 blocks); the chain is read")
-    want = {n: len(got[n]) for n in ("N", "M")}
+    sent = paid_requests()
+    want = {n: len(sent[n]) for n in ("N", "M", "S")}
     mine(41)
 
     def mine_tickets(n: str) -> list[dict]:
         return [x for x in settlements() if x["recipient"].lower() == ADDR[n].lower()]
-    wait("N's and M's redemptions", lambda: all(len(mine_tickets(n)) >= want[n] for n in ("N", "M")), 3 * 60)
+    wait("N's, M's and S's redemptions", lambda: all(len(mine_tickets(n)) >= want[n] for n in ("N", "M", "S")), 3 * 60)
     time.sleep(3)
     face = ticket_face()
     for n in ("N", "M"):
@@ -341,8 +368,15 @@ def main() -> int:
         check(f"{n}'s payout rose by its half of the ticket for each relay", usdc, want[n] * (face // 2))
         check(f"{n}: each ticket's node part is half of it, rounded down", all(x["node_amount"] == x["gross"] // 2 for x in t), True)
     s_tickets = mine_tickets("S")
-    say(f"  S: {len(s_tickets)} tickets redeemed for {len(s_gave_up)} paid requests that never answered: the node takes "
-        "the ticket before its runner answers, so a redemption is not a relay")
+    s_created = [x["created_round"] for x in s_tickets]
+    say(f"  S: {len(s_tickets)} tickets redeemed, created in rounds {s_created}, for {len(s_gave_up)} paid requests that "
+        f"never answered and {len(FORWARDED)} handed to its runner: the node takes the ticket before its runner answers, "
+        "so a redemption is not a relay")
+    check("S: no paid request answered", got.get("S", []), [])
+    check("S: one paid request sent in each round, the restart's included", len(sent["S"]) == len(set(sent["S"])) and r in sent["S"], True)
+    check("S: on chain, no two tickets created in one round", len(s_created), len(set(s_created)))
+    check("S: on chain, one ticket for each paid request sent, of its round", sorted(s_created), sorted(sent["S"]))
+    check("S: its runner was handed one request for each ticket", len(FORWARDED), len(s_tickets))
     check("P's tickets are the only ones settled", {name(x["sender"]) for x in settlements()}, {"P"})
     # A fund with no earmark names no node (address 0).
     funded = {name("0x" + x["topics"][2][-40:]) for x in logs(C["Broker"], "Funded(address,uint256,address,uint256)")

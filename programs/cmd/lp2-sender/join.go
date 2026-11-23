@@ -8,19 +8,18 @@ import (
 	"io"
 	"log"
 	"math/big"
-	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/livepeer/node/destination"
 )
 
 // The join's answers. A refusal is a 4xx with exactly one of these codes.
@@ -79,22 +78,16 @@ func signer(msg []byte, sig []byte) (common.Address, error) {
 	return crypto.PubkeyToAddress(*pub), nil
 }
 
-// publicAddr says whether ip is an address anyone may reach: not
-// loopback, private, link-local, unspecified or multicast.
-func publicAddr(ip netip.Addr) bool {
-	ip = ip.Unmap()
-	return ip.IsValid() && !ip.IsLoopback() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast() &&
-		!ip.IsLinkLocalMulticast() && !ip.IsInterfaceLocalMulticast() && !ip.IsMulticast() && !ip.IsUnspecified()
-}
-
 // checkURL is the policy on a joining node's URL. The URL is http or https
-// with a host, and nothing else: no user, query, fragment, space or
-// control character, at most 512 bytes. With allowPrivate false, every
-// address its host resolves to is public. It returns the refusal's code,
-// or "" when the URL may be listed.
+// with a host, and nothing else: printable ASCII only (so no space, which
+// separates the list file's fields), no user, query or fragment, at most
+// 512 bytes. With allowPrivate false, every address its host resolves to
+// is public as the node's own destination policy classifies it
+// (destination.Public). It returns the refusal's code, or "" when the URL
+// may be listed.
 func checkURL(ctx context.Context, raw string, allowPrivate bool, resolve func(context.Context, string) ([]netip.Addr, error)) (string, error) {
-	if len(raw) == 0 || len(raw) > 512 || strings.IndexFunc(raw, func(r rune) bool { return r <= ' ' || r == 0x7f }) >= 0 {
-		return codeURLNotAllowed, errors.New("the URL is empty, longer than 512 bytes, or holds a space or control character")
+	if len(raw) == 0 || len(raw) > 512 || strings.IndexFunc(raw, func(r rune) bool { return r <= ' ' || r > '~' }) >= 0 {
+		return codeURLNotAllowed, errors.New("the URL is empty, longer than 512 bytes, or holds a character that is not printable ASCII")
 	}
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -115,31 +108,37 @@ func checkURL(ctx context.Context, raw string, allowPrivate bool, resolve func(c
 		return codeUnreachable, fmt.Errorf("the host %s does not resolve: %v", host, err)
 	}
 	for _, ip := range addrs {
-		if !publicAddr(ip) {
+		if !destination.Public(ip) {
 			return codeURLNotAllowed, fmt.Errorf("the host %s resolves to %s, which is not a public address", host, ip)
 		}
 	}
 	return "", nil
 }
 
-// nodeClient is the HTTP client for nodes. It follows no redirect, uses
-// no proxy, and, unless allowPrivate, connects to public addresses only,
-// whatever a name resolves to at the time.
-func nodeClient(allowPrivate bool, timeout time.Duration) *http.Client {
-	d := &net.Dialer{Timeout: timeout}
-	if !allowPrivate {
-		d.Control = func(_, address string, _ syscall.RawConn) error {
-			ap, err := netip.ParseAddrPort(address)
-			if err != nil || !publicAddr(ap.Addr()) {
-				return fmt.Errorf("%s is not a public address", address)
-			}
-			return nil
-		}
+// nodePolicy is the node's own destination policy for the sender's
+// connections to nodes: every address a name resolves to when it is
+// dialled must be public, or the connection is refused. allowPrivate (the
+// local demo) grants every address.
+func nodePolicy(allowPrivate bool) destination.Policy {
+	var grants []string
+	if allowPrivate {
+		grants = []string{"0.0.0.0/0", "::/0"}
 	}
+	p, err := destination.New("node", grants)
+	if err != nil {
+		panic(err) // the grants above are constants
+	}
+	return p
+}
+
+// nodeClient is the HTTP client for nodes. It dials through p, so the
+// address policy holds at every connection, and it follows no redirect and
+// uses no proxy.
+func nodeClient(p destination.Policy, timeout time.Duration) *http.Client {
 	return &http.Client{
 		Timeout:       timeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-		Transport: &http.Transport{Proxy: nil, DialContext: d.DialContext, TLSHandshakeTimeout: timeout,
+		Transport: &http.Transport{Proxy: nil, DialContext: p.DialContext, TLSHandshakeTimeout: timeout,
 			ResponseHeaderTimeout: timeout, MaxIdleConnsPerHost: 2, IdleConnTimeout: time.Minute},
 	}
 }

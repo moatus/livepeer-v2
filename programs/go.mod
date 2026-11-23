@@ -1,8 +1,11 @@
 module lp2core/programs
 
-go 1.27
+go 1.27.3
 
-require github.com/ethereum/go-ethereum v1.17.8
+require (
+	github.com/ethereum/go-ethereum v1.17.8
+	github.com/livepeer/node v1.0.7-0.20261103081012-e2b331958a57
+)
 
 require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
@@ -32,6 +35,7 @@ require (
 	go.opentelemetry.io/otel/metric v1.46.0 // indirect
 	go.opentelemetry.io/otel/trace v1.46.0 // indirect
 	golang.org/x/crypto v0.55.0 // indirect
-	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/sync v0.23.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
+	google.golang.org/protobuf v1.36.12 // indirect
 )

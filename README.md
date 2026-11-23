@@ -175,30 +175,26 @@ sign`) over the bytes
 `lp2-join:v1:<chainId>:<registry>:<node>:<url>:<issuedAt>`, with the
 Registry's and the node's addresses in lowercase 0x hex and `issuedAt` in
 Unix seconds. The answer is 200 when the node is listed or its URL
-updated; a refusal carries one code: `BAD_SIGNATURE`, `STALE` (more than
-600 s from the sender's clock, or not newer than the node's last join),
-`URL_NOT_ALLOWED` (not http or https, or a loopback, private or
-link-local address), `NOT_REGISTERED`, `UNREACHABLE` (no runner in the
-node's discovery, or no payment challenge from it) or
-`RECIPIENT_MISMATCH` (the node at that URL asks to be paid to another
-address); `FULL`, with `Retry-After`, when the list is full. The header of
-`programs/cmd/lp2-sender/main.go` gives the details. A node operator needs
-an orchestrator reachable at a public URL, its runner, and test ETH for
-gas: one registration, then one redemption for each paid request, about
-one a round, since every ticket wins.
+updated, and otherwise a refusal with one stable code. The checks a join
+must pass, in order, each refusal's code and status, and how the sender
+pays are in the header of
+[`programs/cmd/lp2-sender/main.go`](programs/cmd/lp2-sender/main.go). A
+node operator needs an orchestrator reachable at a public URL, its runner,
+and test ETH for gas: one registration, then one redemption for each paid
+request, about one a round, since every ticket wins.
 
 The demo sends each refused join and checks its code, and that it left no
 earmark and no line in the sender's list. Nodes N and M join; each is sent
 a paid request at once (the demo fails if a first relay comes more than
 60 s after the join) and then one a round, with nobody acting. A third
-node, whose runner answers its health check and never a request, joins;
+node, S, whose runner answers its health check and never a request, joins;
 the demo shows its requests given up at the 10 s bound while N and M are
 still paid within seconds of each round. The sender is stopped and
-restarted within a round and pays nobody twice in it. After four rounds
-the nodes redeem, and the demo reads from the chain one ticket per node
-per round, one for each relay, and each node's payout up by half of each.
-A run takes about three and a half minutes, and uses 25 ports from
-47700.
+restarted within a round, while S's paid request of that round hangs, and
+pays nobody twice in it. After four rounds the nodes redeem, and the demo
+reads from the chain, for each node, one ticket per round and one for each
+paid request sent, and N's and M's payouts up by half of each. A run takes
+about three and a half minutes, and uses 25 ports from 47700.
 
 ### Run results
 
