@@ -5,6 +5,8 @@ import {vm} from "./Vm.sol";
 import {Stage4, LyingPool, OtherExecutor} from "./Stage4.sol";
 import {ScoreStub} from "./Stage3.sol";
 import {Parameters} from "../src/authority/Parameters.sol";
+import {Scores} from "../src/scores/Scores.sol";
+import {IStakeLedger} from "../interfaces/IStakeLedger.sol";
 import {Buyback} from "../src/money/Buyback.sol";
 import {TestPool} from "../src/money/TestPool.sol";
 import {MockUSDC} from "../src/money/MockUSDC.sol";
@@ -147,15 +149,18 @@ contract ParametersTest is Stage4 {
     }
 
     /// A case's world: the deployment the demo makes, then a Parameters
-    /// with the authority the case names, the stub "Scores" as its score
-    /// source, the deployment's pool "Pool" and its Buyback "Buyback" as
+    /// with the authority the case names, the deployment's Scores as its
+    /// score source, the deployment's pool "Pool" and its Buyback "Buyback" as
     /// the executor, which accepts a pool with Pool's code and the two
     /// tokens. Each name under `addresses` is made as the case describes
     /// it; one that gives `accepts` is an executor of another design that
     /// accepts those pools, made once every pool is.
     function world() internal {
         deployStage4(1_000_000_000e18, 0);
-        ScoreStub s = new ScoreStub();
+        // The deployment's real Scores: an address with code and no
+        // acceptsPool, which parameters-executor names for group 10. A
+        // Parameters case reads no score from it.
+        Scores s = new Scores(registry, clock, IStakeLedger(address(params)), params);
         name("Scores", address(s));
         name("Pool", address(pool));
         name("Buyback", address(buyback));
