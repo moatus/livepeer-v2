@@ -172,7 +172,7 @@ BASE = int(os.environ.get("LP2_DEMO_PORT_BASE", "47700"))
 PORT = {"chain": BASE, "orch": BASE + 1, "orch_metrics": BASE + 2, "signer_p": BASE + 3,
         "signer_p_metrics": BASE + 4, "signer_p2": BASE + 5, "signer_p2_metrics": BASE + 6, "model": BASE + 7,
         "orch_m": BASE + 8, "orch_m_metrics": BASE + 9, "orch_k": BASE + 10, "orch_k_metrics": BASE + 11,
-        "orch_l": BASE + 12, "orch_l_metrics": BASE + 13}
+        "orch_l": BASE + 12, "orch_l_metrics": BASE + 13, "explorer": BASE + 14}
 
 
 def preflight(ports: list[str], docker: bool = True) -> None:
@@ -253,7 +253,7 @@ GO_ENV = {**{k: v for k, v in os.environ.items() if k != "GOFLAGS"}, "GOENV": "o
 
 # Each helper program: its binary name and the package it is built from.
 PROGRAMS = {"lp2-fund": "./cmd/lp2-fund", "lp2-keeper": "./cmd/lp2-keeper", "lp2-params": "./cmd/lp2-params",
-            "lp2-stake": "./cmd/lp2-stake",
+            "lp2-stake": "./cmd/lp2-stake", "lp2-explorer": "./cmd/lp2-explorer",
             "lp2-validators": "./validators"}
 
 

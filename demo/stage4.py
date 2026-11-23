@@ -1,7 +1,10 @@
 """Stage 4 on a fresh chain, with real jobs and exact calculator checks."""
+import json
 import os
 import signal
 import time
+import urllib.error
+import urllib.request
 
 import stage3 as s3
 import buyback as bb
@@ -97,12 +100,111 @@ def check_buys(seed):
     c.check("Bought amounts agree with the calculator", observed, calc["bought"])
 
 
+# --- the explorer: one node's page, read from the chain --------------------------
+
+def explorer_get(path: str) -> str | None:
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{c.PORT['explorer']}{path}", timeout=30) as r:
+            return r.read().decode()
+    except (urllib.error.URLError, ConnectionError, OSError):
+        return None
+
+
+def explorer_status() -> dict:
+    body = explorer_get("/status.json")
+    if body is None:
+        raise c.Failed("lp2-explorer did not answer /status.json")
+    return json.loads(body)
+
+
+def start_explorer(first_block: int) -> None:
+    """lp2-explorer for N, scanning events from the block before the deployment."""
+    c.start("explorer", [str(c.RUN / "bin" / "lp2-explorer"), "--rpc-url", c.RPC,
+                         "--controller-address", C["Controller"], "--parameters-address", C["Parameters"],
+                         "--stake-ledger-address", C["StakeLedger"], "--claims-address", C["Claims"],
+                         "--usdc-address", C["MockUSDC"], "--first-block", str(first_block),
+                         "--node", ADDR["N"], "--listen", f"127.0.0.1:{c.PORT['explorer']}"])
+    s3.wait("lp2-explorer to answer", lambda: explorer_get("/status.json") is not None, 30)
+    status = explorer_status()
+    c.check("explorer, first read: N registered, every figure read, no buy yet",
+            (status["node"]["registered"], status["unavailable"], status["testnet"]["buys"]), (True, [], []))
+
+
+def check_explorer(fixture: dict, calc: dict) -> None:
+    """The explorer's figures for N against the chain, read at the block the
+    explorer read, and against the calculator for round 2, which N claimed."""
+    c.say("\nThe explorer: N's page against the chain and the calculator")
+    status = explorer_status()
+    node, net, block = status["node"], status["testnet"], status["block"]
+    n = ADDR["N"]
+    c.check("explorer: no figure unavailable", status["unavailable"], [])
+    now = c.current_round(block)
+    c.check("explorer: round, executor in force, validator set, as the chain has them",
+            (net["round"], net["executor"].lower(), sorted(c.name(v) for v in net["validators"])),
+            (now, C["Buyback"].lower(), s3.members_at(now, block)))
+    c.check("explorer: registered, operator key, payout address",
+            (node["registered"], node["operator"].lower(), node["payout"].lower()),
+            (True, ADDR["K2"].lower(), ADDR["W"].lower()))
+    c.check("explorer: stake and own bond this round, payout's USDC, total fees this round, node key's ETH",
+            [int(node["stake_wei"]), int(node["bond_wei"]), int(node["payout_usdc_micro"]), int(net["total_fees_usdc_micro"]),
+             int(node["eth_wei"])],
+            [c.call(C["StakeLedger"], "stakeAt(address,uint256)", n, now, block=block),
+             c.call(C["StakeLedger"], "bondAt(address,address,uint256)", n, n, now, block=block),
+             c.call(C["MockUSDC"], "balanceOf(address)", ADDR["W"], block=block),
+             c.call(C["Broker"], "totalFees(uint256)", now, block=block),
+             int(c.rpc("eth_getBalance", [n, hex(block)]), 16)])
+    started = [e for e in c.logs(C["RoundClock"], "RoundStarted(uint256,uint256,bytes32)", block)
+               if int(e["topics"][1], 16) == now]
+    c.check("explorer: the block the round started in", net["round_start_block"], int(started[-1]["blockNumber"], 16))
+
+    # Round 2: N earned 1 USDC of fees, and its operator key claimed it in round 9.
+    row = next(r for r in node["rounds"] if r["round"] == 2)
+    steps = fixture["steps"]
+    delay, window = int(c.PARAMS["reward_delay_rounds"]), int(c.PARAMS["claim_window_rounds"])
+    c.check("explorer: round 2 claimed, claimable from round 9 to 30",
+            (row["state"], row["claimable_from"], row["claimable_until"]), ("claimed", 2 + delay, 2 + delay + window))
+    # The calculator's figures: W, N's payout when it claimed round 2, holds
+    # only that claim's cut; the pot is the rest; N holds no bond to itself,
+    # so its part of the pot is 0 (R-24's floor of pot x bond / stake).
+    paid = int(calc["lpt_wei"]["W"])
+    cut = paid * int(next(s["cut_millionths"] for s in steps if s["action"] == "set_cut")) // 10**6
+    stake = int(next(o["stake_wei"] for o in calc["observed"] if o["step"] == "16"))
+    own = sum(int(s["amount_wei"]) for s in steps if s["action"] == "bond" and s["holder"] == "N" and s["node"] == "N")
+    _, chain_paid, chain_pot = c.words(C["Claims"], "entitlementOf(address,uint256)", n, 2, block=block)
+    chain_part, chain_withdrawn = c.words(C["Claims"], "partOf(address,address,uint256)", n, n, 2, block=block)
+    claimed_at = next(s for s in steps if s["action"] == "claim" and s["earned_round"] == "2")
+    for label, page, chain, calculator, fmt in (
+            ("Round 2: fees counted for N", int(row["fees_usdc_micro"]),
+             c.call(C["Broker"], "feesOf(uint256,address)", 2, n, block=block), int(calc["fees_micro_usdc"]["2"]["N"]), c.money),
+            ("Round 2: N's stake", int(row["stake_wei"]),
+             c.call(C["StakeLedger"], "stakeAt(address,uint256)", n, 2, block=block), stake, c.lpt),
+            ("N's score, which round 2's claim read", int(node["score"]),
+             c.call(C["Scores"], "scoreOf(address)", n, block=block), int(claimed_at["score"]), str),
+            ("Round 2: claim paid (cut and pot)", int(row["paid_wei"]), chain_paid, paid, c.lpt),
+            ("Round 2: pot", int(row["pot_wei"]), chain_pot, paid - cut, c.lpt),
+            ("Round 2: N's own part", int(row["part_wei"]), chain_part, (paid - cut) * own // stake, c.lpt)):
+        s3.side(f"Explorer: {label}", page, calculator, fmt)
+        c.check(f"explorer: {label} as the chain has it", page, chain)
+    c.check("explorer: round 2 part not withdrawn, as the chain has it", row["part_withdrawn"], bool(chain_withdrawn))
+
+    bought = c.logs(C["Buyback"], bb.BOUGHT, block)
+    want = [{"round": int(e["topics"][1], 16), "block": int(e["blockNumber"], 16), "tx": e["transactionHash"],
+             **{k: str(int(e["data"][2 + 64 * i:66 + 64 * i], 16)) for i, k in
+                ((1, "usdc_in_micro"), (2, "lpt_bought_wei"), (3, "burned_wei"))}}
+            for e in reversed(bought[-5:])]
+    c.check("explorer: the latest buys and burns, as the Bought events have them", net["buys"], want)
+    c.check("explorer: at least one buy burned LPT", any(int(b["burned_wei"]) > 0 for b in net["buys"]), True)
+    page = explorer_get("/") or ""
+    c.check("explorer: the page reloads itself, carries no script and shows no figure unavailable",
+            ('http-equiv="refresh"' in page, "<script" in page.lower(), "unavailable" in page), (True, False, False))
+
+
 def main():
     started = time.time()
     c.open_log()
     c.say("Stage 4: announced parameters, operator rotation and settlement recovery")
     c.say("The unmodified node earns in mock USDC, and the keeper buys and burns test LPT.")
-    c.preflight(["chain", "orch", "orch_metrics", "signer_p", "signer_p_metrics", "model"])
+    c.preflight(["chain", "orch", "orch_metrics", "signer_p", "signer_p_metrics", "model", "explorer"])
     node_bin, model = c.fetch_node(), c.fetch_model()
     c.build_ours()
     c.start_chain()
@@ -118,12 +220,14 @@ def main():
         s3.KEYS[who] = c.keystore(who, pw)
     treasury = "0x" + os.urandom(20).hex()
     ADDR["Treasury"], NAMES[treasury.lower()] = treasury, "Treasury"
+    first_block = c.block_number()
     bb.deploy_stage4()
     vector = c.CASES["ledger-authority"]
     fixture = vector["inputs"]
     calc = s3.calculate("ledger", fixture)
     for who in ("N", "V1", "V2", "V3"):
         c.send(KEY[who], C["Registry"], "register()")
+    start_explorer(first_block)
     n, w = ADDR["N"], ADDR["W"]
 
     def stake(who, *args):
@@ -254,6 +358,7 @@ def main():
     s3.start_keeper()
     claim(11, int(calc["lpt_wei"]["W11"]))
     check_share_mints(fixture)
+    check_explorer(fixture, calc)
     return c.finish(started, "Stage 4: parameter change, key rotation, recovery and buyback")
 
 

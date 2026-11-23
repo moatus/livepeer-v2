@@ -128,6 +128,8 @@ rounds later, a withdrawn change leaving the old value in force, and a
 new operator key claiming while the old key is refused. It restarts the
 node during settlement and checks that each payment is collected once.
 The keeper buys and burns test LPT. The demo checks the figures against
+the calculator. It also runs `lp2-explorer` for the node and checks the
+explorer's figures against the chain, and those of a claimed round against
 the calculator.
 
 ### The buyback
@@ -233,6 +235,22 @@ you give it. It runs the team's node through one paid job and one reward
 cycle in real time, then reconciles every figure against the calculator.
 `demo/PUBLIC.md` says what to set, what it costs and how long it takes.
 
+`programs/cmd/lp2-explorer` is a page a node's operator opens on their own
+machine to see, read from the chain, that their node and the testnet are
+working. It holds no key and sends nothing. Give it the RPC URL, the
+Controller, Parameters, StakeLedger, Claims and mock USDC addresses, the
+deployment's first block and the node's address; it serves
+`http://127.0.0.1:8080/` and the same figures as JSON at `/status.json`.
+It shows whether the node is registered, its operator key and payout
+address, its bond and stake, the score a claim made now would read, its
+test USDC and its key's ETH, with a warning under 0.001 ETH; for each
+recent round, the fees counted for it, its stake and where its reward
+stands (claimable from which round, claimed, its part, withdrawn); and
+for the testnet, the round and when it started, the fees this round, the
+validator set, the buyback executor in force and its latest buys and
+burns. A figure it could not read is shown as unavailable, never as 0.
+Its header comment says where each figure comes from.
+
 ## How the code is arranged
 
 - `rulebook/` holds the rules, each citing the litepaper's page, and
@@ -241,7 +259,8 @@ cycle in real time, then reconciles every figure against the calculator.
   `contracts/` runs every one through the contracts.
 - `programs/` holds what runs beside the node: the funding program, the
   round keeper, `lp2-stake` for holders and nodes, `lp2-params` for the
-  governance authority, and the scripted validators; `demo/` holds the
+  governance authority, `lp2-explorer` for an operator's view of the
+  chain, and the scripted validators; `demo/` holds the
   one-command demo.
 - `deployments/` names what each testnet version contains.
 - `SEAMS.md` names the places where something important crosses (rules,
