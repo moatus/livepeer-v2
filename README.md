@@ -26,7 +26,7 @@ once. Stage 4 has yet to be deployed on a public test chain.
 | Independent calculator | Computes every shared example from the rulebook alone |
 | Contracts | Stage 2: Controller, Registry, RoundClock, Broker, MockUSDC. Stage 3: TestLPT, StakeLedger, Scores, Claims. Stage 4: Parameters, TestPool, Buyback |
 | Node integration | The unmodified node, configured by flags alone; no fork |
-| One-command demo | `./dev demo` (stage 3); `./dev demo stage-2` still runs stage 2's; `./dev demo stage-4` runs stage 4's; `./dev demo buyback` runs the buyback's walk; `./dev demo light` runs the services that pay each node that joins |
+| One-command demo | `./dev demo` (stage 3); `./dev demo stage-2` still runs stage 2's; `./dev demo stage-4` runs stage 4's; `./dev demo buyback` runs the buyback's walk; `./dev demo light` runs the services that pay each node that joins and grant each registered node test LPT |
 
 ## Run the demo
 
@@ -197,6 +197,21 @@ pays nobody twice in it. After four rounds the nodes redeem, and the demo
 reads from the chain, for each node, one ticket per round and one for each
 paid request sent, and N's and M's payouts up by half of each. A run takes
 about three and a half minutes, and uses 25 ports from 47700.
+
+Beside the sender runs `lp2-faucet`, which holds a faucet account's key and
+gives each node the Registry shows registered one grant of test LPT (1,000
+unless set), once, so that a node has LPT to bond before it starts. It
+answers nothing: an operator sees the grant in its node's own balance of
+test LPT. Before it broadcasts a grant it writes the signed transaction to
+a journal, so a crash at any moment never grants a node twice and never
+loses a grant; the header of
+[`programs/cmd/lp2-faucet/main.go`](programs/cmd/lp2-faucet/main.go) says
+how, the log lines it writes, and how to run it. In the demo the deployer
+funds the faucet; it grants each node registered before it starts and one
+registered while it runs, and is killed three times with a grant in flight:
+after the broadcast reached the chain, with the broadcast dropped from the
+chain's pool, and with the grant mined and reverted. The token's Transfer
+logs then show every registered node granted exactly once.
 
 ### Run results
 

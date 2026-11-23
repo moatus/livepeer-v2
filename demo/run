@@ -13,7 +13,9 @@
                           so no docker
   ./dev demo light        the standing services: lp2-sender refuses bad
                           joins and pays each node that joins, serving
-                          lp2-responder, once a round; no model, no docker
+                          lp2-responder, once a round, and lp2-faucet
+                          grants each registered node test LPT once,
+                          through three kills; no model, no docker
 
 Exit 0 every figure equal and every behaviour seen; 1 a figure differed or
 a behaviour was missing; 2 the demo could not run (a tool, a download or a
