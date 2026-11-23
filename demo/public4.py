@@ -57,7 +57,8 @@ SERVICES = "services.json"
 SYNC = "Sync(uint112,uint112)"
 OBSERVED = "Observed(address,uint256,uint256)"
 FEE_SETTLED = "FeeSettled(uint256,address,address,bytes32,uint256,uint256,uint256,address)"
-AUTHORITY: list[str] = []   # lp2-params' signing flags: G's keystore and password file
+AUTHORITY: list[str] = []
+KEEPER_TX_GAS = 200_000   # lp2-params' signing flags: G's keystore and password file
 
 
 def keeper_options() -> tuple[str, ...]:
@@ -103,6 +104,14 @@ def deploy() -> None:
     public.deploy(bb.deploy_stage4)
     for n in ("TestPool", "Buyback", "Broker", "Parameters"):
         NAMES[C[n].lower()] = n
+
+
+def keeper_gas() -> int:
+    """How many more transactions the keeper can pay for: its balance over
+    200,000 gas, about what a buy uses, at the chain's gas price. It sends
+    two a round, so its gas money runs out unless someone tops it up."""
+    balance, price = common.rpc_batch([("eth_getBalance", [ADDR["Keeper"], "latest"]), ("eth_gasPrice", [])])
+    return int(balance["result"], 16) // (KEEPER_TX_GAS * max(1, int(price["result"], 16)))
 
 
 def executor_in_force() -> str:
@@ -256,6 +265,9 @@ def wait_both(change: dict) -> None:
                                      "bought for 15 minutes; see logs/keeper.log in the state directory")
         elif now != last:
             say(f"  {time.strftime('%H:%M:%S')} round {now}")
+        if now != last and keeper_gas() < 1:
+            raise Failed(f"the keeper's gas money has run out, so no round can start: send its address {ADDR['Keeper']} "
+                         "more of the chain's native token, then start the run again (it resumes)")
         last = now
         if all(n in public.STATE["done"] for n in ("buy", "change before", "change from")):
             return
@@ -528,7 +540,8 @@ def serve() -> int:
         if not stage3.KEYS[who].is_file():
             raise NotRun(f"the state directory holds no key file for {who} ({svc['keys'][who]})")
     say("The standing services of the stage 4 deployment: N's node, the keeper and the scripted validator V")
-    say(f"  chain id {chain_id}; Controller {C['Controller']}; executor in force {executor_in_force()}")
+    say(f"  chain id {chain_id}; Controller {C['Controller']}; executor in force {executor_in_force()}; "
+        f"the keeper {ADDR['Keeper']} can pay for about {keeper_gas()} more transactions, two a round")
 
     common.preflight(["orch", "orch_metrics", "model"])
     node_bin = common.fetch_node()
@@ -551,7 +564,10 @@ def serve() -> int:
                     raise Failed(f"{name} exited with status {p.returncode}; see logs/{name}.log in the state directory")
             now = stage3.current_round()
             if now != last:
-                say(f"  {time.strftime('%H:%M:%S')} round {now} started")
+                left = keeper_gas()
+                low = (f"; the keeper can pay for about {left} more transactions: send its address {ADDR['Keeper']} "
+                       "more of the chain's native token" if left < 100 else "")
+                say(f"  {time.strftime('%H:%M:%S')} round {now} started{low}")
                 last = now
             time.sleep(5)
     except KeyboardInterrupt:
