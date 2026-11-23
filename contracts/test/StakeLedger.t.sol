@@ -8,12 +8,12 @@ import {TestLPT} from "../src/money/TestLPT.sol";
 import {Registry} from "../src/authority/Registry.sol";
 
 /// Runs the `ledger` cases with no claims, from
-/// vectors/october-main-text-v4.json, with the holding checks of rulebook
+/// vectors/october-main-text-v5.json, with the holding checks of rulebook
 /// v2 after every step; then the refusals no case reaches, the mint
 /// refusals, and R-23's gas check. Claims.t.sol runs the cases with claims.
 contract StakeLedgerTest is LedgerRunnerV2 {
     function setUp() external {
-        loadVectors("october-main-text-v4");
+        loadVectors("october-main-text-v5");
     }
 
     function test_ledger_stake() external {

@@ -5,7 +5,7 @@ import {vm} from "./Vm.sol";
 import {RewardMath} from "../src/math/RewardMath.sol";
 
 /// Runs every `ceiling`, `round`, `split` and `validator-pay` case of
-/// vectors/october-main-text-v4.json through RewardMath. Every input and
+/// vectors/october-main-text-v5.json through RewardMath. Every input and
 /// every expected number is read from that file, the shares too: they are
 /// the deployment's emission values (R-25), arguments to RewardMath.
 ///
@@ -19,7 +19,7 @@ contract RewardMathTest {
     string private vectors;
 
     function setUp() external {
-        vectors = vm.readFile(string.concat(vm.projectRoot(), "/../vectors/october-main-text-v4.json"));
+        vectors = vm.readFile(string.concat(vm.projectRoot(), "/../vectors/october-main-text-v5.json"));
     }
 
     function test_parameters_are_the_examples() external view {

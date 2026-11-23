@@ -81,7 +81,7 @@ abstract contract Stage3 is Stage2 {
         uint256 n = vm.getNonce(address(this));
         address parameters = vm.computeCreateAddress(address(this), n + 8);
         address next = vm.computeCreateAddress(address(this), n + 9);
-        deployBase(address(0), parameters);
+        deployBase(parameters);
         lpt = new TestLPT(next, genesis);
         ledger = new StakeLedger(lpt, registry, clock, params);
         address source;
@@ -95,7 +95,7 @@ abstract contract Stage3 is Stage2 {
             validatorSet = IScores(address(scores));
             source = address(scores);
         }
-        newParameters(source, address(0), bytes32(0), address(lpt));
+        newParameters(source, address(0), address(0));
         claims = new Claims(lpt, registry, clock, broker, ledger, params, validatorSet, treasuryAddress());
         require(address(claims) == next, "Claims at the address the token was given");
     }

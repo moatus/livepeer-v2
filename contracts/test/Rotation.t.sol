@@ -202,7 +202,7 @@ contract RotationTest is Stage3 {
     // --- the proposed operator: one slot per node ----------------------------
 
     function setUp() external {
-        loadVectors("october-main-text-v4");
+        loadVectors("october-main-text-v5");
         deployStage3WithScores();
     }
 

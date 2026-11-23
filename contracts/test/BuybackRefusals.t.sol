@@ -2,13 +2,14 @@
 pragma solidity 0.8.30;
 
 import {vm, Vm} from "./Vm.sol";
-import {Stage4, ValuesStub, LyingPool} from "./Stage4.sol";
+import {Stage4, ValuesStub, LyingPool, OtherExecutor} from "./Stage4.sol";
 import {TestPool} from "../src/money/TestPool.sol";
 import {TestLPT} from "../src/money/TestLPT.sol";
 import {Broker} from "../src/money/Broker.sol";
 import {Buyback} from "../src/money/Buyback.sol";
 import {IParameters} from "../interfaces/IParameters.sol";
 import {IBuyback} from "../interfaces/IBuyback.sol";
+import {IBuybackExecutor} from "../interfaces/IBuybackExecutor.sol";
 import {IBuybackValues} from "../interfaces/IBuybackValues.sol";
 
 /// What the shared examples cannot show (R-16): lying pools, a pool of
@@ -21,7 +22,7 @@ contract BuybackRefusalsTest is Stage4 {
     uint256 private constant T0 = 1_000_000;
 
     function setUp() external {
-        loadVectors("october-main-text-v4");
+        loadVectors("october-main-text-v5");
         vm.warp(T0);
     }
 
@@ -92,9 +93,13 @@ contract BuybackRefusalsTest is Stage4 {
             );
             Buyback wired = new Buyback(named, broker, clock, lpt, usdc, f.codehash);
             require(wired.poolCodeHash() == f.codehash, "the hash passes");
-            expectRefused(as_(who("Anyone"), address(wired), abi.encodeCall(IBuyback.poke, ())), poolInvalid(f), "poke");
+            expectRefused(
+                as_(who("Anyone"), address(wired), abi.encodeCall(IBuybackExecutor.poke, ())), poolInvalid(f), "poke"
+            );
             vm.warp(block.timestamp + HOUR);
-            expectRefused(as_(who("Anyone"), address(wired), abi.encodeCall(IBuyback.buy, ())), poolInvalid(f), "buy");
+            expectRefused(
+                as_(who("Anyone"), address(wired), abi.encodeCall(IBuybackExecutor.buy, ())), poolInvalid(f), "buy"
+            );
         }
     }
 
@@ -275,8 +280,8 @@ contract BuybackRefusalsTest is Stage4 {
         return lim > base ? (lim - base) / (997 << 112) : 0;
     }
 
-    /// Draw: NOT_AUTHORIZED from any other address, the amount aside; then
-    /// AMOUNT_TOO_LARGE above what is held.
+    /// Draw: NOT_AUTHORIZED from any address but group 10's, the amount
+    /// aside; then AMOUNT_TOO_LARGE above what is held.
     function test_draw_refusals_in_order() external {
         deployStage4(GENESIS, STUB);
         job(1000e6);
@@ -286,19 +291,98 @@ contract BuybackRefusalsTest is Stage4 {
         expectRefused(as_(who("Anyone"), address(broker), over), err("NOT_AUTHORIZED()"), "another address, too much");
         expectRefused(as_(who("Anyone"), address(broker), within), err("NOT_AUTHORIZED()"), "another address");
         expectRefused(as_(address(buyback), address(broker), over), err("AMOUNT_TOO_LARGE()"), "above held");
-        require(broker.buyback() == address(buyback) && buyback.broker() == address(broker), "fixed at deployment");
+        require(params.valuesAt(10, clock.currentRound())[0] == uint256(uint160(address(buyback))), "group 10");
+        require(buyback.broker() == address(broker), "the Buyback's Broker");
         require(as_(address(buyback), address(broker), within).length == 0, "the Buyback draws");
         expectEq(broker.networkHeld(), 0, "held after the draw");
         expectEq(usdc.balanceOf(who("anyone")), held, "paid to");
     }
 
-    /// A Broker deployed with no Buyback lets nobody draw.
+    /// A deployment with no Buyback has group 10 address(0), and nobody
+    /// may draw.
     function test_no_buyback_no_draw() external {
         deploy();
-        require(broker.buyback() == address(0), "no Buyback");
+        require(params.valuesAt(10, clock.currentRound())[0] == 0, "no executor");
         bytes memory d = abi.encodeCall(Broker.drawNetwork, (0, who("anyone")));
         expectRefused(as_(address(0), address(broker), d), err("NOT_AUTHORIZED()"), "address(0)");
         expectRefused(as_(address(this), address(broker), d), err("NOT_AUTHORIZED()"), "the deployer");
+    }
+
+    // --- rule 10: the draw follows group 10, by round (D-51) ----------------
+
+    /// The parameters-executor case's draws, which a case does not hold.
+    /// X, the deployment's Buyback, buys from P. X3, an executor of another
+    /// design, accepts only Q, a pool that is not a TestPool. In round A the
+    /// authority announces X3 for group 10, counting from A + 7, and in
+    /// A + 1 Q for group 9, which X3, pending, is asked about and accepts,
+    /// counting from A + 8. Up to A + 6 only X draws: X3's draw is refused
+    /// NOT_AUTHORIZED and X buys. In A + 7 the executor is X3 and the pool
+    /// still P: X's buy, which X accepts, is refused at the draw with
+    /// NOT_AUTHORIZED, and no balance moves; X3 refuses P. From A + 8 X3
+    /// draws all that is held to Q.
+    function test_the_draw_follows_the_executor_of_its_round() external {
+        deployStage4(GENESIS, 0);
+        seed(pool, 500_000e6, 100_000e18);
+        require(poke().length == 0, "poke P");
+        vm.warp(block.timestamp + HOUR);
+        LyingPool q = new LyingPool(address(usdc), address(lpt));
+        OtherExecutor x3 = new OtherExecutor(broker, params, clock);
+        x3.accept(address(q));
+        require(!buyback.acceptsPool(address(q)) && buyback.acceptsPool(address(pool)), "X accepts P, not Q");
+        bytes memory x3buy = abi.encodeCall(IBuybackExecutor.buy, ());
+        bytes memory x3draw = abi.encodeCall(Broker.drawNetwork, (1, address(q)));
+
+        uint256 a = clock.currentRound();
+        uint256[] memory v = new uint256[](4);
+        (v[0], v[1], v[2], v[3]) = (uint256(uint160(address(q))), HOUR, 10_000, 1);
+        expectRefused(announce(9, v), poolInvalid(address(q)), "Q, before X3 is pending, is put to X");
+        uint256[] memory e = new uint256[](1);
+        e[0] = uint256(uint160(address(x3)));
+        expectRefused(announce(10, e), "", "X3 for group 10");
+        toRound(a + 1);
+        expectRefused(announce(9, v), "", "Q, put to X3, pending");
+
+        // A + 6: X is the executor.
+        toRound(a + 6);
+        job(1000e6);
+        vm.warp(block.timestamp + HOUR);
+        expectRefused(as_(address(x3), address(broker), x3draw), err("NOT_AUTHORIZED()"), "X3 draws in A + 6");
+        require(buy().length == 0, "X buys in A + 6");
+        expectEq(broker.networkHeld(), 0, "A + 6: all bought");
+
+        // A + 7: X3 is the executor, the pool still P.
+        toRound(a + 7);
+        job(1000e6);
+        vm.warp(block.timestamp + HOUR);
+        uint256 held = broker.networkHeld();
+        uint256[4] memory was = [
+            usdc.balanceOf(address(broker)),
+            usdc.balanceOf(address(pool)),
+            lpt.balanceOf(address(pool)),
+            lpt.totalSupply()
+        ];
+        uint256 last = buyback.lastBuyRound();
+        expectRefused(buy(), err("NOT_AUTHORIZED()"), "X buys in A + 7");
+        expectEq(broker.networkHeld(), held, "A + 7: held");
+        uint256[4] memory now_ = [
+            usdc.balanceOf(address(broker)),
+            usdc.balanceOf(address(pool)),
+            lpt.balanceOf(address(pool)),
+            lpt.totalSupply()
+        ];
+        for (uint256 i = 0; i < 4; i++) {
+            expectEq(now_[i], was[i], "A + 7: a balance moved");
+        }
+        expectEq(buyback.lastBuyRound(), last, "A + 7: the round is not used");
+        expectRefused(as_(who("Anyone"), address(x3), x3buy), poolInvalid(address(pool)), "X3 refuses P");
+
+        // A + 8: X3 draws to Q; X still may not.
+        toRound(a + 8);
+        expectRefused(buy(), poolInvalid(address(q)), "X refuses Q");
+        expectRefused(as_(address(buyback), address(broker), x3draw), err("NOT_AUTHORIZED()"), "X draws in A + 8");
+        require(as_(who("Anyone"), address(x3), x3buy).length == 0, "X3 buys in A + 8");
+        expectEq(broker.networkHeld(), 0, "A + 8: all drawn");
+        expectEq(usdc.balanceOf(address(q)), held, "A + 8: paid to Q");
     }
 
     // --- rule 4 at full width ----------------------------------------------

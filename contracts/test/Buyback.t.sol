@@ -5,7 +5,7 @@ import {vm} from "./Vm.sol";
 import {Stage4} from "./Stage4.sol";
 import {IBuyback} from "../interfaces/IBuyback.sol";
 
-/// The buyback (rulebook v4, R-16): every `buyback` case of the shared
+/// The buyback (rulebook v5, R-16): every `buyback` case of the shared
 /// examples run step by step against the deployment the demo makes. What
 /// the cases cannot show is in BuybackRefusals.t.sol.
 contract BuybackTest is Stage4 {
@@ -13,7 +13,7 @@ contract BuybackTest is Stage4 {
     uint256 private constant DONATION = 7e18;
 
     function setUp() external {
-        loadVectors("october-main-text-v4");
+        loadVectors("october-main-text-v5");
     }
 
     // --- the shared examples ------------------------------------------------

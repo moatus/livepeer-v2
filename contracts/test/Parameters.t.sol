@@ -2,18 +2,19 @@
 pragma solidity 0.8.30;
 
 import {vm} from "./Vm.sol";
-import {Stage4, LyingPool} from "./Stage4.sol";
+import {Stage4, LyingPool, OtherExecutor} from "./Stage4.sol";
 import {ScoreStub} from "./Stage3.sol";
 import {Parameters} from "../src/authority/Parameters.sol";
+import {Buyback} from "../src/money/Buyback.sol";
 import {TestPool} from "../src/money/TestPool.sol";
 import {MockUSDC} from "../src/money/MockUSDC.sol";
 import {RewardMath} from "../src/math/RewardMath.sol";
 import {IParameters} from "../interfaces/IParameters.sol";
 
-/// Parameters (rulebook v4, R-25): every `parameters` case of the shared
+/// Parameters (rulebook v5, R-25): every `parameters` case of the shared
 /// examples, step by step, on a Parameters built for the case beside the
 /// deployment the demo makes, with its pool and tokens. Every input and
-/// expected number is read from vectors/october-main-text-v4.json.
+/// expected number is read from vectors/october-main-text-v5.json.
 ///
 /// After every step, the values of every round that has started are the
 /// values that round started with, for every group: the values of a round,
@@ -24,11 +25,26 @@ import {IParameters} from "../interfaces/IParameters.sol";
 /// to 519 under the half-life of 420 the case parameters-half-life
 /// announces; contracts/check holds each to R-05's exact inequality and to
 /// the calculator.
+/// Answers any call with one word, or reverts when the word is 2^256 - 1:
+/// an executor that says no, or something that is not a yes.
+contract Answers {
+    uint256 private immutable word;
+
+    constructor(uint256 word_) {
+        word = word_;
+    }
+
+    fallback(bytes calldata) external returns (bytes memory) {
+        require(word != type(uint256).max, "no answer");
+        return abi.encode(word);
+    }
+}
+
 contract ParametersTest is Stage4 {
     event log_named_uint(string key, uint256 val);
     event log_string(string val);
 
-    uint256 private constant GROUPS = 9;
+    uint256 private constant GROUPS = 10;
 
     Parameters internal p;
     /// The case's names for addresses: the deployment's score source and
@@ -51,7 +67,7 @@ contract ParametersTest is Stage4 {
     mapping(uint256 => mapping(uint256 => bytes32)) internal started;
 
     function setUp() external {
-        loadVectors("october-main-text-v4");
+        loadVectors("october-main-text-v5");
     }
 
     // --- the shared examples ----------------------------------------------
@@ -96,9 +112,13 @@ contract ParametersTest is Stage4 {
         parametersCase("parameters-refusal-order");
     }
 
+    function test_parameters_executor() external {
+        parametersCase("parameters-executor");
+    }
+
     /// Each case of kind `parameters` in the examples has a test above.
     function test_every_parameters_case_is_run() external view {
-        string[10] memory run = [
+        string[11] memory run = [
             "parameters-emission",
             "parameters-half-life",
             "parameters-drop",
@@ -108,7 +128,8 @@ contract ParametersTest is Stage4 {
             "parameters-delays",
             "parameters-score-source",
             "parameters-set-size",
-            "parameters-refusal-order"
+            "parameters-refusal-order",
+            "parameters-executor"
         ];
         string[] memory ids = abi.decode(vm.parseJson(vectors, ".cases[*].id"), (string[]));
         string[] memory kinds = abi.decode(vm.parseJson(vectors, ".cases[*].kind"), (string[]));
@@ -127,31 +148,29 @@ contract ParametersTest is Stage4 {
 
     /// A case's world: the deployment the demo makes, then a Parameters
     /// with the authority the case names, the stub "Scores" as its score
-    /// source and the deployment's pool "Pool", pinned to that pool's code.
-    /// Each name under `addresses` is made as the case describes it.
+    /// source, the deployment's pool "Pool" and its Buyback "Buyback" as
+    /// the executor, which accepts a pool with Pool's code and the two
+    /// tokens. Each name under `addresses` is made as the case describes
+    /// it; one that gives `accepts` is an executor of another design that
+    /// accepts those pools, made once every pool is.
     function world() internal {
         deployStage4(1_000_000_000e18, 0);
         ScoreStub s = new ScoreStub();
         name("Scores", address(s));
         name("Pool", address(pool));
+        name("Buyback", address(buyback));
         name("MockUSDC", address(usdc));
         name("TestLPT", address(lpt));
         name("OtherToken", address(new MockUSDC()));
-        p = new Parameters(
-            who(str(at, ".inputs.authority")),
-            clock,
-            address(s),
-            address(pool),
-            address(pool).codehash,
-            address(usdc),
-            address(lpt)
-        );
+        p = new Parameters(who(str(at, ".inputs.authority")), clock, address(s), address(pool), address(buyback));
         string memory a = string.concat(at, ".inputs.addresses");
         if (!vm.keyExistsJson(vectors, a)) return;
         string[] memory ns = vm.parseJsonKeys(vectors, a);
         for (uint256 i = 0; i < ns.length; i++) {
             string memory e = string.concat(a, ".", ns[i]);
-            if (!vm.parseJsonBool(vectors, string.concat(e, ".code"))) {
+            if (vm.keyExistsJson(vectors, string.concat(e, ".accepts"))) {
+                continue;
+            } else if (!vm.parseJsonBool(vectors, string.concat(e, ".code"))) {
                 name(ns[i], who(ns[i]));
             } else if (!vm.keyExistsJson(vectors, string.concat(e, ".pinned_pool_code"))) {
                 name(ns[i], address(new ScoreStub()));
@@ -165,6 +184,16 @@ contract ParametersTest is Stage4 {
                     : address(new LyingPool(t0, t1));
                 name(ns[i], made);
             }
+        }
+        for (uint256 i = 0; i < ns.length; i++) {
+            string memory e = string.concat(a, ".", ns[i], ".accepts");
+            if (!vm.keyExistsJson(vectors, e)) continue;
+            OtherExecutor x = new OtherExecutor(broker, p, clock);
+            string[] memory pools = strings(e);
+            for (uint256 j = 0; j < pools.length; j++) {
+                x.accept(addressOf(pools[j]));
+            }
+            name(ns[i], address(x));
         }
     }
 
@@ -310,26 +339,48 @@ contract ParametersTest is Stage4 {
         }
     }
 
-    // --- the pool check (R-16 rule 13, at the announce) --------------------
+    // --- the pool check (R-25, D-51: the executor is asked) ----------------
 
-    /// A pool with the pinned code must hold this deployment's two tokens,
-    /// in either order; one of other code is refused whatever it holds. A
-    /// Parameters pinned to a pool code that reports any tokens it is given
-    /// shows the token check on its own.
+    /// The Buyback, asked at the announce, accepts a pool with its pinned
+    /// code only when it holds this deployment's two tokens, in either
+    /// order; one of other code is refused whatever it holds. A Buyback
+    /// pinned to a pool code that reports any tokens it is given shows the
+    /// token check on its own.
     function test_the_pool_check_reads_the_tokens() external {
         deployStage4(1_000_000_000e18, 0);
         LyingPool ours = new LyingPool(address(usdc), address(lpt));
         LyingPool other = new LyingPool(address(usdc), address(new MockUSDC()));
         LyingPool same = new LyingPool(address(usdc), address(usdc));
-        Parameters q = new Parameters(
-            who("G"), clock, address(0), address(ours), address(ours).codehash, address(usdc), address(lpt)
-        );
+        Buyback pinned = new Buyback(params, broker, clock, lpt, usdc, address(ours).codehash);
+        Parameters q = new Parameters(who("G"), clock, address(0), address(ours), address(pinned));
         require(address(other).codehash == address(ours).codehash, "one code");
         expectEq(announceOn(q, address(ours)).length, 0, "the deployment's two tokens");
         expectPoolInvalid(announceOn(q, address(other)), address(other), "another token");
         expectPoolInvalid(announceOn(q, address(same)), address(same), "USDC twice");
         expectPoolInvalid(announceOn(q, who("Nobody")), who("Nobody"), "no code");
         expectPoolInvalid(announceOn(q, address(pool)), address(pool), "TestPool, not the pinned code");
+    }
+
+    /// An executor that cannot say yes refuses every pool: one that reverts,
+    /// one with code but no acceptsPool, one that answers no, one that
+    /// answers a word that is not true, and address(0), the executor of a
+    /// deployment with none. The Buyback, asked of the same pool, says yes.
+    function test_an_executor_that_cannot_answer_refuses_the_pool() external {
+        deployStage4(1_000_000_000e18, 0);
+        address[5] memory cannot = [
+            address(new Answers(type(uint256).max)),
+            address(new ScoreStub()),
+            address(new Answers(0)),
+            address(new Answers(2)),
+            address(0)
+        ];
+        string[5] memory what = ["reverts", "no acceptsPool", "no", "not a bool", "address(0)"];
+        for (uint256 i = 0; i < cannot.length; i++) {
+            Parameters q = new Parameters(who("G"), clock, address(0), address(pool), cannot[i]);
+            expectPoolInvalid(announceOn(q, address(pool)), address(pool), what[i]);
+        }
+        Parameters yes = new Parameters(who("G"), clock, address(0), address(pool), address(buyback));
+        expectEq(announceOn(yes, address(pool)).length, 0, "the Buyback says yes");
     }
 
     function announceOn(Parameters q, address poolAddress) internal returns (bytes memory) {
@@ -349,12 +400,12 @@ contract ParametersTest is Stage4 {
 
     // --- counts and words the shared examples do not reach ----------------
 
-    /// A Parameters of this deployment, with a stub score source and the
-    /// deployment's pool, pinned to that pool's code.
+    /// A Parameters of this deployment, with a stub score source, the
+    /// deployment's pool and its Buyback as the executor.
     function freshParameters() internal returns (Parameters q, address scores) {
         deployStage4(1_000_000_000e18, 0);
         scores = address(new ScoreStub());
-        q = new Parameters(who("G"), clock, scores, address(pool), address(pool).codehash, address(usdc), address(lpt));
+        q = new Parameters(who("G"), clock, scores, address(pool), address(buyback));
     }
 
     function announceAs(Parameters q, uint256 group, uint256[] memory v) internal returns (string memory) {

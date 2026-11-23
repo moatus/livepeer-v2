@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import {IParameters} from "../../interfaces/IParameters.sol";
 import {IRoundClock} from "../../interfaces/IRoundClock.sol";
-import {ITestPool} from "../../interfaces/ITestPool.sol";
+import {IBuybackExecutor} from "../../interfaces/IBuybackExecutor.sol";
 import {RewardMath} from "../math/RewardMath.sol";
 
 /// The values governance may change (rulebook R-25), each kept as the
@@ -23,8 +23,9 @@ import {RewardMath} from "../math/RewardMath.sol";
 /// would count in, as it stands; withdrawn or replaced, it is gone.
 ///
 /// The deployment's values are the rulebook's (R-25's table, the units
-/// section): two of them, the score source and the pool, are addresses
-/// given at construction.
+/// section): three of them, the score source, the pool and the executor, are
+/// addresses given at construction. It holds no pool design: an announced
+/// pool is put to an executor, which accepts it or not (D-51).
 contract Parameters is IParameters {
     uint256 private constant FEE = 1;
     uint256 private constant EMISSION = 2;
@@ -35,6 +36,7 @@ contract Parameters is IParameters {
     uint256 private constant UNBONDING = 7;
     uint256 private constant BUYBACK_CUTS = 8;
     uint256 private constant BUYBACK_VALUES = 9;
+    uint256 private constant BUYBACK_EXECUTOR = 10;
 
     /// A change counts from the round of its announcement + 7 (D-42).
     uint256 private constant NOTICE = 7;
@@ -48,11 +50,11 @@ contract Parameters is IParameters {
 
     address public immutable authority;
     IRoundClock private immutable clock;
-    bytes32 public immutable poolCodeHash;
-    address private immutable usdc;
-    address private immutable lpt;
     address private immutable scoreSource;
     address private immutable pool;
+    /// Not checked for code: the deployment predicts the Buyback's address
+    /// and deploys it after the Parameters; address(0) where there is none.
+    address private immutable executor;
 
     struct Change {
         uint256 countsFrom;
@@ -62,36 +64,26 @@ contract Parameters is IParameters {
     /// group => its changes, sorted by countsFrom.
     mapping(uint256 => Change[]) private changes;
 
-    constructor(
-        address authority_,
-        IRoundClock clock_,
-        address scoreSource_,
-        address pool_,
-        bytes32 poolCodeHash_,
-        address usdc_,
-        address lpt_
-    ) {
+    constructor(address authority_, IRoundClock clock_, address scoreSource_, address pool_, address executor_) {
         require(authority_ != address(0) && address(clock_) != address(0), "zero address");
         authority = authority_;
         clock = clock_;
         scoreSource = scoreSource_;
         pool = pool_;
-        poolCodeHash = poolCodeHash_;
-        usdc = usdc_;
-        lpt = lpt_;
+        executor = executor_;
     }
 
     // --- the authority's calls ------------------------------------------
 
     function announce(uint256 group, uint256[] calldata values) external returns (uint256 countsFrom) {
         if (msg.sender != authority) revert NOT_AUTHORIZED();
-        if (group == 0 || group > BUYBACK_VALUES) revert NOT_ADJUSTABLE();
+        if (group == 0 || group > BUYBACK_EXECUTOR) revert NOT_ADJUSTABLE();
         uint256 now_ = clock.currentRound();
         uint256[] memory inForce = _at(group, now_);
         if (group == SCHEDULE && values.length == 2 && values[1] > inForce[1]) revert SCHEDULE_RAISED();
         if (!_inRange(group, values, inForce)) revert VALUE_OUT_OF_RANGE();
         if ((group == FEE || group == EMISSION) && _sum(values) != ONE) revert IDENTITY_NOT_WHOLE();
-        if (group == BUYBACK_VALUES) _checkPool(address(uint160(values[0])));
+        if (group == BUYBACK_VALUES) _checkPool(address(uint160(values[0])), now_);
 
         countsFrom = now_ + NOTICE;
         uint256[] memory recorded = values;
@@ -117,7 +109,7 @@ contract Parameters is IParameters {
 
     function withdraw(uint256 group) external {
         if (msg.sender != authority) revert NOT_AUTHORIZED();
-        if (group == 0 || group > BUYBACK_VALUES) revert NOT_ADJUSTABLE();
+        if (group == 0 || group > BUYBACK_EXECUTOR) revert NOT_ADJUSTABLE();
         Change[] storage list = changes[group];
         uint256 n = list.length;
         if (n == 0 || list[n - 1].countsFrom <= clock.currentRound()) revert NOTHING_PENDING();
@@ -129,12 +121,12 @@ contract Parameters is IParameters {
     // --- views ----------------------------------------------------------
 
     function valuesAt(uint256 group, uint256 round) external view returns (uint256[] memory) {
-        if (group == 0 || group > BUYBACK_VALUES) revert NOT_ADJUSTABLE();
+        if (group == 0 || group > BUYBACK_EXECUTOR) revert NOT_ADJUSTABLE();
         return _at(group, round);
     }
 
     function pending(uint256 group) external view returns (uint256[] memory values, uint256 countsFrom) {
-        if (group == 0 || group > BUYBACK_VALUES) revert NOT_ADJUSTABLE();
+        if (group == 0 || group > BUYBACK_EXECUTOR) revert NOT_ADJUSTABLE();
         Change[] storage list = changes[group];
         uint256 n = list.length;
         if (n > 0 && list[n - 1].countsFrom > clock.currentRound()) {
@@ -180,6 +172,7 @@ contract Parameters is IParameters {
         if (group == SCORE_SOURCE) return _list(uint256(uint160(scoreSource)));
         if (group == UNBONDING) return _list(21);
         if (group == BUYBACK_CUTS) return _list(ONE, 0, 0);
+        if (group == BUYBACK_EXECUTOR) return _list(uint256(uint160(executor)));
         v = new uint256[](4);
         (v[0], v[1], v[2], v[3]) = (uint256(uint160(pool)), 3600, 10_000, 1);
     }
@@ -196,7 +189,7 @@ contract Parameters is IParameters {
         }
         if (group == REWARD_DELAY || group == UNBONDING) return v.length == 1 && v[0] >= 1 && v[0] <= MOST;
         if (group == VALIDATOR_SET_SIZE) return v.length == 1 && v[0] >= inForce[0] && v[0] <= MOST_MEMBERS;
-        if (group == SCORE_SOURCE) {
+        if (group == SCORE_SOURCE || group == BUYBACK_EXECUTOR) {
             return v.length == 1 && v[0] <= type(uint160).max && address(uint160(v[0])).code.length > 0;
         }
         if (group == BUYBACK_CUTS) return v.length == 3 && v[0] == ONE && v[1] == 0 && v[2] == 0;
@@ -210,22 +203,17 @@ contract Parameters is IParameters {
         }
     }
 
-    /// R-16 rule 13's check, at the announce: the pinned code hash, then this
-    /// deployment's two tokens in either order. A pool with the pinned hash
-    /// is a TestPool, whose token views cannot revert; one that does is
-    /// refused all the same.
-    function _checkPool(address p) private view {
-        if (p.code.length == 0 || p.codehash != poolCodeHash) revert POOL_INVALID(p);
-        (address t0, address t1) = (_token(p, ITestPool.token0.selector), _token(p, ITestPool.token1.selector));
-        if (!(t0 == usdc && t1 == lpt) && !(t0 == lpt && t1 == usdc)) revert POOL_INVALID(p);
-    }
-
-    function _token(address p, bytes4 selector) private view returns (address) {
-        (bool ok, bytes memory ret) = p.staticcall(abi.encodeWithSelector(selector));
-        if (!ok || ret.length != 32) revert POOL_INVALID(p);
-        uint256 a = abi.decode(ret, (uint256));
-        if (a > type(uint160).max) revert POOL_INVALID(p);
-        return address(uint160(a));
+    /// R-25's pool check (D-51): the executor of group 10's pending change
+    /// if one is pending, else the one in force in `round`, is asked whether
+    /// it accepts `p`. Only a yes accepts; a no, a failed call or an address
+    /// that cannot answer (address(0) included) is POOL_INVALID.
+    function _checkPool(address p, uint256 round) private view {
+        Change[] storage list = changes[BUYBACK_EXECUTOR];
+        uint256 n = list.length;
+        uint256[] memory e = n > 0 && list[n - 1].countsFrom > round ? list[n - 1].values : _at(BUYBACK_EXECUTOR, round);
+        (bool ok, bytes memory ret) =
+            address(uint160(e[0])).staticcall(abi.encodeCall(IBuybackExecutor.acceptsPool, (p)));
+        if (!ok || ret.length != 32 || abi.decode(ret, (uint256)) != 1) revert POOL_INVALID(p);
     }
 
     function _list(uint256 a) private pure returns (uint256[] memory v) {

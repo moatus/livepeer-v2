@@ -57,22 +57,18 @@ incorrect-equality: Buyback._quote(Buyback.Pool,IBuybackValues.BuybackValues,uin
     q.lptOut is computed one line above from the reserves read and the bound, not a token balance; 0 is exactly the case R-16 rule 11 refuses as SLIPPAGE.
 incorrect-exp: Buyback._div512(uint256,uint256,uint256) has bitwise-xor operator ^ instead of the exponentiation operator **: | - inverse__div512_asm_0 = 3 * d ^ 2
     xor is meant: (3 * d) xor 2 is OpenZeppelin's Math.mulDiv seed, the inverse of any odd d modulo 16, which the six Newton steps below lift to modulo 2^256. (3 * d) ** 2 is that inverse only for some d (9 is one); for 997, the odd part of _maxIn's divisor 997 << 112, it is not, and the long path would return a wrong maxIn.
-low-level-calls: Low level call in Parameters._token(address,bytes4): | - (ok,ret) = p.staticcall(abi.encodeWithSelector(selector))
-    A staticcall so that announce refuses a pool whose token0 or token1 view reverts or returns other than one address word as POOL_INVALID rather than with no reason (R-16 rule 13); a view, it moves nothing.
+low-level-calls: Low level call in Parameters._checkPool(address,uint256): | - (ok,ret) = address(uint160(e[0])).staticcall(abi.encodeCall(IBuybackExecutor.acceptsPool,(p)))
+    R-25 (D-51) asks the executor whether it accepts the pool, and a no, a failed call or an address that cannot answer (no code, address(0)) is POOL_INVALID; a typed call would revert with no reason on the last two. A staticcall, so the executor asked can change no state, and only a word equal to 1 accepts.
 low-level-calls: Low level call in TestPool._balanceOf(address): | - (ok,ret) = token.staticcall(abi.encodeWithSelector(0x70a08231,address(this)))
     Reads balanceOf(this pool) on token0 or token1, immutables set at construction (MockUSDC and TestLPT in every deployment); a staticcall changes no state, and a failed call or a return shorter than one word, as from an address with no code, is refused as TestPool: BALANCE_FAILED.
 low-level-calls: Low level call in TestPool._safeTransfer(address,address,uint256): | - (ok,ret) = token.call(abi.encodeWithSelector(0xa9059cbb,to,value))
     Uniswap v2's _safeTransfer as v2 writes it: accepts a token that returns nothing or true and refuses one that fails or returns false; the token is one of the pool's two, fixed at construction.
-missing-zero-check: Broker.constructor(IMockUSDC,IRegistryV3,IRoundClock,IParameters,address).buyback_ lacks a zero-check on : | - buyback = buyback_
-    address(0) is a deployment with no Buyback (stages 2 and 3), as the comment on buyback says: drawNetwork then refuses every caller, checking buyback != address(0) itself, so the network share stays held.
-missing-zero-check: Parameters.constructor(address,IRoundClock,address,address,bytes32,address,address).lpt_ lacks a zero-check on : | - lpt = lpt_
-    address(0) in a deployment with no TestLPT (stage 2); lpt is read only by group 9's pool check, where no TestPool can hold address(0) (its constructor refuses it), so every pool announce is refused.
-missing-zero-check: Parameters.constructor(address,IRoundClock,address,address,bytes32,address,address).pool_ lacks a zero-check on : | - pool = pool_
+missing-zero-check: Parameters.constructor(address,IRoundClock,address,address,address).pool_ lacks a zero-check on : | - pool = pool_
     address(0) is the deployment's pool where there is no Buyback (stages 2 and 3); a Buyback reading it refuses a pool with no code as POOL_INVALID (R-16 rule 13).
-missing-zero-check: Parameters.constructor(address,IRoundClock,address,address,bytes32,address,address).scoreSource_ lacks a zero-check on : | - scoreSource = scoreSource_
+missing-zero-check: Parameters.constructor(address,IRoundClock,address,address,address).scoreSource_ lacks a zero-check on : | - scoreSource = scoreSource_
     address(0) where the deployment has no Scores (stage 2, the buyback-only tests); Claims' node claim calls scoreOf on it, which reverts on an address with no code, so no node reward is paid without a score.
-missing-zero-check: Parameters.constructor(address,IRoundClock,address,address,bytes32,address,address).usdc_ lacks a zero-check on : | - usdc = usdc_
-    usdc is read only by group 9's pool check; were it address(0), no TestPool could match (its constructor refuses address(0) as a token) and every pool announce would be refused. Every deployment passes its MockUSDC.
+missing-zero-check: Parameters.constructor(address,IRoundClock,address,address,address).executor_ lacks a zero-check on : | - executor = executor_
+    address(0) is group 10's value in a deployment with no Buyback (stages 2 and 3, R-25): the Broker's drawNetwork then refuses every caller, checking for address(0) itself, so the network share stays held, and every pool announce is refused because address(0) cannot answer. There is no setter: only an announcement of an address with code changes it.
 missing-zero-check: TestPool.constructor(address,address).t1 lacks a zero-check on : | - token1 = t1
     token1 is the larger of the two sorted addresses, and token0, the smaller, is refused when it is address(0) the line before, so token1 is never address(0).
 reentrancy-balance: Reentrancy in Buyback.buy(): | External call allowing reentrancy: | - ITestPool(p.at).swap(out0,out1,address(this),) | Balance read before the call: | - before = lpt.balanceOf(address(this)) | Possible stale balance used after the call in a condition: | - lptBought < q.lptOut | - stale variable `lptBought`
@@ -117,7 +113,7 @@ uninitialized-local: Buyback._quote(Buyback.Pool,IBuybackValues.BuybackValues,ui
     Left 0 on purpose when the pool is not the one observed: 0 is below twapSeconds, so the next line refuses with TWAP_NOT_READY(0, twapSeconds) (R-16 rule 3).
 uninitialized-local: Buyback._quote(Buyback.Pool,IBuybackValues.BuybackValues,uint256).from is a local variable never initialized
     Left 0 only when the pool is not the one observed, where elapsed is 0 and TWAP_NOT_READY refuses before from is read; otherwise both are set together.
-uninitialized-state: Parameters.changes is never initialized. It is used in: | - Parameters.announce(uint256,uint256[]) | - Parameters.withdraw(uint256) | - Parameters.pending(uint256) | - Parameters._at(uint256,uint256)
+uninitialized-state: Parameters.changes is never initialized. It is used in: | - Parameters.announce(uint256,uint256[]) | - Parameters.withdraw(uint256) | - Parameters.pending(uint256) | - Parameters._at(uint256,uint256) | - Parameters._checkPool(address,uint256)
     A mapping that starts empty by design: announce writes it through the storage reference list = changes[group] (push, or overwrite of the pending change) and withdraw pops it, which slither does not follow; an empty list reads as the deployment's values.
 weak-prng: Buyback._div512(uint256,uint256,uint256) uses a weak PRNG: "rem__div512_asm_0 = addmod(uint256,uint256,uint256)(mulmod(uint256,uint256,uint256)(hi,addmod(uint256,uint256,uint256)(~ 0 % d,1,d),d),lo % d,d)"
     No randomness: mod(lo, d), mulmod and addmod compute the remainder of the 512-bit division, which is subtracted to make it exact.

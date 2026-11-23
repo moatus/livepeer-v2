@@ -10,7 +10,7 @@ import {IParameters} from "../interfaces/IParameters.sol";
 
 /// Scores on a stage 3 deployment: the real Registry, RoundClock and
 /// StakeLedger, with every stake made by real bonds and unbonds. Runs every
-/// `score` and `validators` case of vectors/october-main-text-v4.json, every
+/// `score` and `validators` case of vectors/october-main-text-v5.json, every
 /// input and expected number read from there.
 ///
 /// test_every_score_and_validators_case_is_run fails on a case left unrun.
@@ -40,7 +40,7 @@ contract ScoresTest is Stage3 {
     uint256 internal nextStep;
 
     function setUp() external {
-        loadVectors("october-main-text-v4");
+        loadVectors("october-main-text-v5");
     }
 
     function world() internal {

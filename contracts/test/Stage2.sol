@@ -25,37 +25,32 @@ abstract contract Stage2 {
     /// Deploys the five contracts at block 100 (round 1 starts there), then
     /// Parameters with the authority G and no token, pool or score source.
     /// The Registry is given the address the Broker will be created at. No
-    /// Buyback: nobody may draw the network share.
+    /// executor: nobody may draw the network share.
     function deploy() internal {
-        deploy(address(0));
-    }
-
-    /// As deploy(), with the Broker given the Buyback that may draw.
-    function deploy(address buyback) internal {
-        deployBase(buyback, vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 5));
-        newParameters(address(0), address(0), bytes32(0), address(0));
+        deployBase(vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 5));
+        newParameters(address(0), address(0), address(0));
     }
 
     /// The five contracts, the Broker given `parameters`, the address the
     /// caller then creates Parameters at with newParameters.
-    function deployBase(address buyback, address parameters) internal {
+    function deployBase(address parameters) internal {
         vm.roll(100);
         clock = new RoundClock();
         usdc = new MockUSDC();
         address next = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1);
         registry = new Registry(clock, next);
-        broker = new Broker(usdc, registry, clock, Parameters(parameters), buyback);
+        broker = new Broker(usdc, registry, clock, Parameters(parameters));
         require(address(broker) == next, "Broker at the address the Registry was given");
         controller = new Controller(address(registry), address(clock), address(broker));
         params = Parameters(parameters);
     }
 
     /// Parameters with the authority G (the shared examples' governance
-    /// address) and the deployment's score source and pool, at the address
-    /// deployBase was given.
-    function newParameters(address scoreSource, address pool, bytes32 poolHash, address lpt_) internal {
+    /// address) and the deployment's score source, pool and executor, at the
+    /// address deployBase was given.
+    function newParameters(address scoreSource, address pool, address executor) internal {
         address at = address(params);
-        params = new Parameters(who("G"), clock, scoreSource, pool, poolHash, address(usdc), lpt_);
+        params = new Parameters(who("G"), clock, scoreSource, pool, executor);
         require(address(params) == at, "Parameters at the address the Broker was given");
     }
 

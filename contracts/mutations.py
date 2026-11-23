@@ -24,8 +24,8 @@ import os, pathlib, re, shutil, signal, subprocess, sys, tempfile, time
 B, R, C = "src/money/Broker.sol", "src/authority/Registry.sol", "src/clock/RoundClock.sol"
 S = "src/scores/Scores.sol"
 CL, RM, SL = "src/money/Claims.sol", "src/math/RewardMath.sol", "src/money/StakeLedger.sol"
-# The Scores tests read rulebook v4's examples.
-V4 = "../vectors/october-main-text-v4.json"
+# The Scores tests read rulebook v5's examples.
+V5 = "../vectors/october-main-text-v5.json"
 P = "src/authority/Parameters.sol"
 TP, PT = "src/money/TestPool.sol", "test/Parameters.t.sol"
 RT = "test/Rotation.t.sol"
@@ -82,7 +82,7 @@ M = [
  ("top-up cancels a pending deposit release", [(B, "        _set(msg.sender, address(0), d, d.amount + deposit_, d.pending, d.readyRound);", "        _set(msg.sender, address(0), d, d.amount + deposit_, 0, 0);")], "qualify:MoneyInvariants", True),
 
  # Scores (spec S-06 phase 2): each rule of R-11 and R-13 a case or test pins.
- ("scores: an example's expected score changed", [(V4, '"expected": {"score": "166666"}', '"expected": {"score": "166667"}')], "test_score_even_floor"),
+ ("scores: an example's expected score changed", [(V5, '"expected": {"score": "166666"}', '"expected": {"score": "166667"}')], "test_score_even_floor"),
  ("scores: abi: extra public function", [(S, "    // --- views", "    function size() external pure returns (uint256) {\n        return N;\n    }\n\n    // --- views")], "check"),
  ("scores: no vote counts as 0", [(S, "v.seated == nodes[m[k]].seated ? v.score : MAX_SCORE", "v.seated == nodes[m[k]].seated ? v.score : 0")], "test_score_none"),
  ("scores: even count takes the upper middle", [(S, "        return (s[k / 2 - 1] + s[k / 2]) / 2;", "        return s[k / 2];")], "test_score_even"),
@@ -161,14 +161,12 @@ M = [
  ("params: drops above 840 accepted (D-49)", [(P, "v.length == 2 && v[0] <= MOST && v[1] != 0", "v.length == 2 && v[1] != 0")], "test_parameters_drop"),
  ("params: a raised half-life accepted", [(P, "values.length == 2 && values[1] > inForce[1]", "values.length == 2 && false")], "test_parameters_half_life"),
  ("params: the new half-life starts a round late", [(P, "RewardMath.position(inForce[0], inForce[1], inForce[2], countsFrom - 1) + values[0];", "RewardMath.position(inForce[0], inForce[1], inForce[2], countsFrom) + values[0];")], "test_parameters_half_life|test_half_life_420"),
- ("params: the pool's tokens not checked", [(P, "        if (!(t0 == usdc && t1 == lpt) && !(t0 == lpt && t1 == usdc)) revert POOL_INVALID(p);\n", "")], "test_the_pool_check_reads_the_tokens|test_parameters_buyback"),
- ("params: the pool's code not checked", [(P, "if (p.code.length == 0 || p.codehash != poolCodeHash) revert POOL_INVALID(p);", "if (p.code.length == 0) revert POOL_INVALID(p);")], "test_parameters_buyback"),
  ("params: pending still shown in the round the change counts from", [(P, "        if (n > 0 && list[n - 1].countsFrom > clock.currentRound()) {", "        if (n > 0 && list[n - 1].countsFrom >= clock.currentRound()) {")], "test_pending_ends_in_the_round_the_change_counts_from"),
  ("params: the emission's count of values not checked", [(P, "if (group == EMISSION) return v.length == 3 && v[0] <= ONE", "if (group == EMISSION) return v.length >= 2 && v[0] <= ONE")], "test_a_wrong_count_of_values_is_out_of_range"),
  ("params: the schedule's count of values not checked", [(P, "return v.length == 2 && v[0] <= MOST && v[1] != 0", "return v.length >= 2 && v[0] <= MOST && v[1] != 0")], "test_a_wrong_count_of_values_is_out_of_range"),
  ("params: a score source word above 160 bits accepted", [(P, "return v.length == 1 && v[0] <= type(uint160).max && address(uint160(v[0])).code.length > 0;", "return v.length == 1 && address(uint160(v[0])).code.length > 0;")], "test_an_address_word_above_160_bits_is_out_of_range"),
  ("params: a pool word above 160 bits accepted", [(P, "return v.length == 4 && v[0] <= type(uint160).max && v[1] >= 1800", "return v.length == 4 && v[1] >= 1800")], "test_an_address_word_above_160_bits_is_out_of_range"),
- ("params: valuesAt answers a number with no group", [(P, "    function valuesAt(uint256 group, uint256 round) external view returns (uint256[] memory) {\n        if (group == 0 || group > BUYBACK_VALUES) revert NOT_ADJUSTABLE();\n", "    function valuesAt(uint256 group, uint256 round) external view returns (uint256[] memory) {\n")], "test_the_views_refuse_a_number_with_no_group"),
+ ("params: valuesAt answers a number with no group", [(P, "    function valuesAt(uint256 group, uint256 round) external view returns (uint256[] memory) {\n        if (group == 0 || group > BUYBACK_EXECUTOR) revert NOT_ADJUSTABLE();\n", "    function valuesAt(uint256 group, uint256 round) external view returns (uint256[] memory) {\n")], "test_the_views_refuse_a_number_with_no_group"),
  # S-10 3.1: the pool's runtime has no SELFDESTRUCT and no DELEGATECALL.
  ("pool: TestPool given a function that delegates", [(TP, "    constructor(address tokenA, address tokenB) {", "    function relay(address t) external returns (bool ok) {\n        (ok,) = t.delegatecall(\"\");\n    }\n\n    constructor(address tokenA, address tokenB) {")], "test_the_pool_runtime_has_no_selfdestruct_or_delegatecall"),
  ("pool: TestPool given a function that destroys it", [(TP, "    constructor(address tokenA, address tokenB) {", "    function close() external {\n        selfdestruct(payable(msg.sender));\n    }\n\n    constructor(address tokenA, address tokenB) {")], "test_the_pool_runtime_has_no_selfdestruct_or_delegatecall"),
@@ -184,6 +182,10 @@ M = [
  ("ledger: the unbonding wait fixed at 21", [(SL, "        return params.valuesAt(UNBONDING, now_)[0];", "        return 21;")], "test_ledger_delays"),
  ("scores: the set size fixed at 3", [(S, "        if (n >= params.valuesAt(VALIDATOR_SET_SIZE, r)[0]) {", "        if (n >= 3) {")], "test_validators_set_size"),
  ("params: a buy reads group 9 now, not for its round", [(P, "        uint256[] memory b = _at(BUYBACK_VALUES, round);", "        uint256[] memory b = _at(BUYBACK_VALUES, clock.currentRound());")], "test_a_buy_reads_the_values_of_its_round"),
+ # The executor is a parameter (D-51): the draw answers to the round's
+ # executor, and a pool is put to the pending executor when one is pending.
+ ("broker: the deployment's executor draws, not the round's", [(B, "params.valuesAt(BUYBACK_EXECUTOR, clock.currentRound())[0]", "params.valuesAt(BUYBACK_EXECUTOR, 0)[0]")], "test_the_draw_follows_the_executor_of_its_round"),
+ ("params: the pool is put to the executor in force while one is pending", [(P, "n > 0 && list[n - 1].countsFrom > round ? list[n - 1].values : _at(BUYBACK_EXECUTOR, round)", "_at(BUYBACK_EXECUTOR, round)")], "test_parameters_executor"),
  ("broker: the node cut fixed at a half", [(B, "        uint256 cut = params.valuesAt(FEE, round)[0];", "        uint256 cut = 500_000;")], "test_ledger_authority|test_ledger_delays|test_parameters_"),
  # Key rotation (R-26): the old key refused everywhere,
  # one proposal slot per node, holder funds only the caller's own, and the

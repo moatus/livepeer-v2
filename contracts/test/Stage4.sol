@@ -7,8 +7,10 @@ import {TestLPT} from "../src/money/TestLPT.sol";
 import {TestPool} from "../src/money/TestPool.sol";
 import {Buyback} from "../src/money/Buyback.sol";
 import {IBuyback} from "../interfaces/IBuyback.sol";
+import {IBuybackExecutor} from "../interfaces/IBuybackExecutor.sol";
 import {IBuybackValues} from "../interfaces/IBuybackValues.sol";
-import {ITicketBroker} from "../interfaces/ITicketBroker.sol";
+import {ITicketBroker, ITicketBrokerV2} from "../interfaces/ITicketBroker.sol";
+import {IRoundClock} from "../interfaces/IRoundClock.sol";
 
 /// A values source a test can change, so a test can name another pool or
 /// another interval from one round to the next.
@@ -26,6 +28,33 @@ contract ValuesStub is IBuybackValues {
     function buybackValuesAt(uint256) external view returns (BuybackValues memory) {
         return v;
     }
+}
+
+/// An executor of another design (R-16 rule 13, D-51), test-only: it
+/// accepts the pools it is told to, whatever their code, and its buy draws
+/// all that is held to its round's pool and buys nothing. No exchange.
+contract OtherExecutor is IBuybackExecutor {
+    ITicketBrokerV2 private immutable broker;
+    IBuybackValues private immutable source;
+    IRoundClock private immutable clock;
+    mapping(address => bool) public acceptsPool;
+
+    constructor(ITicketBrokerV2 broker_, IBuybackValues source_, IRoundClock clock_) {
+        (broker, source, clock) = (broker_, source_, clock_);
+    }
+
+    function accept(address pool) external {
+        acceptsPool[pool] = true;
+    }
+
+    function buy() external returns (uint256 usdcIn, uint256, uint256) {
+        address pool = source.buybackValuesAt(clock.currentRound()).pool;
+        if (!acceptsPool[pool]) revert IBuyback.POOL_INVALID(pool);
+        usdcIn = broker.networkHeld();
+        broker.drawNetwork(usdcIn, pool);
+    }
+
+    function poke() external {}
 }
 
 /// A pool that reports this deployment's two tokens and whatever reserves
@@ -93,9 +122,9 @@ contract OverPool is ShortPool {
     }
 }
 
-/// Stage 2's contracts with the Broker given the Buyback, then the test
-/// LPT, the pool, a values source and the Buyback; and the steps of a
-/// `buyback` case (rulebook v4, R-16).
+/// Stage 2's contracts, then the test LPT, the pool, a values source,
+/// Parameters naming the Buyback as the executor (group 10), and the
+/// Buyback; and the steps of a `buyback` case (rulebook v5, R-16).
 abstract contract Stage4 is Stage2 {
     TestLPT internal lpt;
     TestPool internal pool;
@@ -122,7 +151,7 @@ abstract contract Stage4 is Stage2 {
         uint256 n = vm.getNonce(address(this)) + 7 + (misdelivers ? 1 : 0) + (stub ? 1 : 0);
         address parameters = vm.computeCreateAddress(address(this), n);
         address at = vm.computeCreateAddress(address(this), n + 1);
-        deployBase(at, parameters);
+        deployBase(parameters);
         lpt = newLpt(genesis, opts & LPT_FIRST != 0);
         pool = new TestPool(address(usdc), address(lpt));
         require((pool.token0() == address(lpt)) == (opts & LPT_FIRST != 0), "the pool's token order");
@@ -141,10 +170,10 @@ abstract contract Stage4 is Stage2 {
             param("buyback_every_rounds")
         );
         if (stub) source = IBuybackValues(address(new ValuesStub(v)));
-        newParameters(address(0), round_, round_.codehash, address(lpt));
+        newParameters(address(0), round_, at);
         if (!stub) source = params;
         buyback = new Buyback(source, broker, clock, lpt, usdc, round_.codehash);
-        require(address(buyback) == at, "Buyback at the address the Broker was given");
+        require(address(buyback) == at, "Buyback at the address Parameters was given");
         register("N");
     }
 
@@ -212,11 +241,11 @@ abstract contract Stage4 is Stage2 {
     }
 
     function buy() internal returns (bytes memory) {
-        return callBuyback(abi.encodeCall(IBuyback.buy, ()));
+        return callBuyback(abi.encodeCall(IBuybackExecutor.buy, ()));
     }
 
     function poke() internal returns (bytes memory) {
-        return callBuyback(abi.encodeCall(IBuyback.poke, ()));
+        return callBuyback(abi.encodeCall(IBuybackExecutor.poke, ()));
     }
 
     /// The data of each Bought event the Buyback emitted since recordLogs.

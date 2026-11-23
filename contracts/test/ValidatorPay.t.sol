@@ -39,7 +39,7 @@ contract StakeStub {
     }
 }
 
-/// Every `validator-pay` case of vectors/october-main-text-v4.json through
+/// Every `validator-pay` case of vectors/october-main-text-v5.json through
 /// Claims: the round's share mint, then each holder of each split shown
 /// withdrawing its validator part, once. Every input and expected number is
 /// read from that file.
@@ -65,7 +65,7 @@ contract ValidatorPayTest is LedgerRunnerV2 {
     uint256[2] internal payoutBefore;
 
     function setUp() external {
-        loadVectors("october-main-text-v4");
+        loadVectors("october-main-text-v5");
     }
 
     function test_pay_weighted() external {
@@ -204,12 +204,12 @@ contract ValidatorPayTest is LedgerRunnerV2 {
     function deployWithStubs() internal {
         uint256 n = vm.getNonce(address(this));
         address next = vm.computeCreateAddress(address(this), n + 9);
-        deployBase(address(0), vm.computeCreateAddress(address(this), n + 8));
+        deployBase(vm.computeCreateAddress(address(this), n + 8));
         lpt = new TestLPT(next, GENESIS);
         stakes = new StakeStub();
         scores = new ScoreStub();
         validatorSet = IScores(address(scores));
-        newParameters(address(scores), address(0), bytes32(0), address(lpt));
+        newParameters(address(scores), address(0), address(0));
         claims = new Claims(
             lpt, registry, clock, broker, IStakeLedger(address(stakes)), params, validatorSet, treasuryAddress()
         );

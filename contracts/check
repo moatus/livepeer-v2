@@ -111,7 +111,7 @@ case $? in
     *) exit 2 ;;
 esac
 
-# The ceiling after a change (rulebook v4, R-05 and R-25): the half-life
+# The ceiling after a change (rulebook v5, R-05 and R-25): the half-life
 # of 420 that parameters-half-life announces in round 94 counts from round
 # 101, and from there each round moves two 840ths of a halving, so the
 # positions of rounds 100 to 519 run 99 to 937 by 2 and reach every odd
@@ -128,7 +128,7 @@ def not_run(kind, value, tb):
     sys.exit(2)
 sys.excepthook = not_run
 
-vectors = json.load(open("../vectors/october-main-text-v4.json"))
+vectors = json.load(open("../vectors/october-main-text-v5.json"))
 base = int(vectors["parameters"]["emission_base_wei"])
 run = subprocess.run(["forge", "test", "--match-test", "test_half_life_420_residues", "--json", "-vv"],
                      capture_output=True, text=True)

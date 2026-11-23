@@ -12,7 +12,7 @@ import {ITicketBroker} from "../interfaces/ITicketBroker.sol";
 
 /// Claims (S-05 phase 4, S-06 phase 4): the v2 `ledger` cases with claims,
 /// withdrawals, share mints and validator pots, from
-/// vectors/october-main-text-v4.json, with the after-step checks of the
+/// vectors/october-main-text-v5.json, with the after-step checks of the
 /// shared examples (LedgerRunnerV2); then the refusals and orders no case
 /// reaches, validator pay on the real Scores, and R-23's gas checks.
 contract ClaimsTest is LedgerRunnerV2 {
@@ -22,7 +22,7 @@ contract ClaimsTest is LedgerRunnerV2 {
     uint256 private constant VALIDATOR_SHARE = 10_000;
 
     function setUp() external {
-        loadVectors("october-main-text-v4");
+        loadVectors("october-main-text-v5");
     }
 
     function test_ledger_cycle() external {

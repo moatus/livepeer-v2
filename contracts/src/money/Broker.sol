@@ -11,10 +11,14 @@ import {IParameters} from "../../interfaces/IParameters.sol";
 /// and the network share (rulebook R-03, R-04, R-21, R-22). The node finds
 /// it under the name "TicketBroker" and calls it with the current
 /// protocol's names, shapes and ticket hash. The network share leaves it
-/// only through drawNetwork, to the Buyback fixed at deployment (R-16).
+/// only through drawNetwork, to the executor group 10 of the Parameters
+/// names for the round the draw runs in (R-16, R-25).
 contract Broker is ITicketBrokerV2 {
     /// The fee group (R-25): the node cut over 10^6 is its first value.
     uint256 private constant FEE = 1;
+    /// The executor group (R-25): the one address that may draw the network
+    /// share in a round (R-16 rule 10).
+    uint256 private constant BUYBACK_EXECUTOR = 10;
     uint256 private constant ONE = 1_000_000;
     /// Ticket validity (R-22): the creation round and the 2 rounds after it.
     uint256 private constant TICKET_VALIDITY = 2;
@@ -27,13 +31,9 @@ contract Broker is ITicketBrokerV2 {
     IMockUSDC private immutable usdc;
     IRegistryV3 private immutable registry;
     IRoundClock private immutable clock;
-    /// Where the node cut is read, for the round a fee is redeemed in (R-03,
-    /// R-25).
+    /// Where the node cut is read, for the round a fee is redeemed in, and
+    /// the executor, for the round a draw runs in (R-03, R-16, R-25).
     IParameters private immutable params;
-    /// The one address that may draw the network share (R-16). It is
-    /// deployed after the Broker, so the deployer passes the address it will
-    /// have; address(0), as in a deployment with no Buyback, lets nobody draw.
-    address public immutable buyback;
 
     /// One balance of a payer: its deposit (node address(0)) or its earmark
     /// for one node, with the release pending on it (R-22). A pending
@@ -56,13 +56,12 @@ contract Broker is ITicketBrokerV2 {
     mapping(uint256 => uint256) public totalFees;
     uint256 public networkHeld;
 
-    constructor(IMockUSDC usdc_, IRegistryV3 registry_, IRoundClock clock_, IParameters params_, address buyback_) {
+    constructor(IMockUSDC usdc_, IRegistryV3 registry_, IRoundClock clock_, IParameters params_) {
         require(address(params_) != address(0), "zero address");
         usdc = usdc_;
         registry = registry_;
         clock = clock_;
         params = params_;
-        buyback = buyback_;
     }
 
     // --- payer ---------------------------------------------------------
@@ -180,11 +179,14 @@ contract Broker is ITicketBrokerV2 {
 
     // --- the network share --------------------------------------------
 
-    /// Only the Buyback: pays `amount` of the network share to `to`, the
-    /// pool it buys from (R-16). Refused with NOT_AUTHORIZED from any other
-    /// address, then AMOUNT_TOO_LARGE above networkHeld.
+    /// Only the executor in force for the current round, group 10: pays
+    /// `amount` of the network share to `to`, the address it names (R-16
+    /// rule 10). Refused with NOT_AUTHORIZED from any other caller, and from
+    /// every caller while group 10 is address(0), then AMOUNT_TOO_LARGE
+    /// above networkHeld.
     function drawNetwork(uint256 amount, address to) external {
-        if (msg.sender != buyback || buyback == address(0)) revert NOT_AUTHORIZED();
+        address executor = address(uint160(params.valuesAt(BUYBACK_EXECUTOR, clock.currentRound())[0]));
+        if (msg.sender != executor || executor == address(0)) revert NOT_AUTHORIZED();
         if (amount > networkHeld) revert AMOUNT_TOO_LARGE();
         networkHeld -= amount;
         emit NetworkDrawn(to, amount);
