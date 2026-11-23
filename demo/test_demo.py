@@ -768,16 +768,23 @@ class PublicStage4(unittest.TestCase):
             "http://127.0.0.1:9000", "http://[::1]:9000", "http://[::ffff:127.0.0.1]:9000", "http://[fe80::1]:9000",
             "http://100.64.0.1", "http://192.88.99.1", "http://[2002::1]", "http://[64:ff9b::808:808]",
             "https://inside.example", "https://partly.example", "https://mapped.example", "https://nowhere.example",
-            rpc, rpc + "/", "https://RPC.example./v2/KEY", "https://rpc.example", "http://rpc.example:8443/lp2",
+            # The RPC endpoint, however it is spelled and whatever the path.
+            rpc, rpc + "/", "https://RPC.example./v2/KEY", "https://rpc.example", "https://rpc.example:443/lp2",
+            "HTTPS://Rpc.Example.:443", "https://rpc.example.:443/v2/KEY",
             "ftp://sender.example", "https://user@sender.example", "https://sender.example/?", "https://sender.example/#",
             "https://sender .example", "https://s\u00e9nder.example")
         for url in refused:
             with self.subTest(url=url):
                 self.assertIsNotNone(self.p4.url_problem(url, True, rpc))
         for url in ("https://sender.example", "https://Sender.Example.:8443/lp2", "https://two.example",
-                    "http://8.8.8.8:9000", "http://[2606:4700::1111]:9000"):
+                    "http://8.8.8.8:9000", "http://[2606:4700::1111]:9000",
+                    # The RPC's host at another port or scheme is another endpoint.
+                    "https://rpc.example:8940", "http://rpc.example:8443/lp2", "http://rpc.example/v2/KEY"):
             with self.subTest(url=url):
                 self.assertIsNone(self.p4.url_problem(url, True, rpc))
+        # Review round 3's case: RPC and sender on one public address.
+        self.assertIsNone(self.p4.url_problem("https://8.8.8.8:8940", True, "https://8.8.8.8:8545"))
+        self.assertIsNotNone(self.p4.url_problem("https://8.8.8.8:8545/", True, "https://8.8.8.8:8545"))
         local = "http://127.0.0.1:49200"
         self.assertIsNone(self.p4.url_problem("http://127.0.0.1:49224", False, local))
         self.assertIsNotNone(self.p4.url_problem(local, False, local))
@@ -803,12 +810,37 @@ class PublicStage4(unittest.TestCase):
                 self.assertIn("kept as it was", str(serve.exception))
                 self.assertEqual(path.read_bytes(), before)
                 self.assertEqual(sorted(p.name for p in self.dir.iterdir()), ["deployment.json"])
-        # A file whose sender has come to share the RPC's host is refused
+        # A file whose sender has come to be the RPC endpoint is refused
         # too, with no new URL given.
         with mock.patch.object(common, "RPC", "https://sender.example/rpc"), self.env(), \
                 self.assertRaises(common.NotRun):
             self.p4.publish_sender(self.dir, 421614)
         self.assertEqual(path.read_bytes(), before)
+
+    def test_the_run_and_serve_take_a_sender_on_the_rpcs_host_at_another_port(self):
+        # Review round 3: the services may run on the RPC node's machine. A
+        # sender there at its own port is taken by the run's start check,
+        # written by serve and passes the handover's check of the file; the
+        # RPC endpoint itself, however spelled, is still refused.
+        c, m, b, _ = self.deployed()
+        rpc = "https://rpc.example"
+        path = self.dir / "deployment.json"
+        with c, m, b:
+            path.write_text(json.dumps(self.p4.operator_doc(421614, "https://sender.example"), indent=1) + "\n")
+        for url in ("https://RPC.example.:443/", "https://rpc.example/lp2"):
+            before = path.read_bytes()
+            with self.subTest(url=url), mock.patch.object(common, "RPC", rpc), self.env(LP2_SENDER_URL=url):
+                with self.assertRaises(common.NotRun):
+                    self.p4.sender_url(421614)
+                with self.assertRaises(common.NotRun):
+                    self.p4.publish_sender(self.dir, 421614)
+                self.assertEqual(path.read_bytes(), before)
+        for url in ("https://rpc.example:8940", "http://rpc.example"):
+            with self.subTest(url=url), mock.patch.object(common, "RPC", rpc), self.env(LP2_SENDER_URL=url):
+                self.assertEqual(self.p4.sender_url(421614), url)
+                self.p4.publish_sender(self.dir, 421614)
+                doc = json.loads(path.read_text())
+                self.assertEqual((doc["sender_url"], self.p4.operator_problems(doc, True)), (url, []))
 
     def handed(self, failures):
         import public

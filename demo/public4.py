@@ -563,15 +563,31 @@ def host_name(host: str) -> str:
         return host
 
 
+DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def endpoint(url: str) -> tuple[str, str, int | None]:
+    """A URL's endpoint: its scheme, its host as a name (host_name) and its
+    port, the scheme's default when none is written."""
+    try:
+        u = urllib.parse.urlsplit(url)
+        port = u.port
+    except ValueError:
+        return (url, "", None)
+    scheme = u.scheme.lower()
+    return (scheme, host_name(u.hostname or ""), DEFAULT_PORTS.get(scheme) if port is None else port)
+
+
 def url_problem(url: str, public_chain: bool, rpc: str | None = None) -> str | None:
     """Why `url` cannot be the sender's published URL, or None: the one
     check of it, at the run's start, at the handover and in serve. It is
     published, so it names the sender and nothing else: an http or https
     URL with a host and no user, query or fragment, as lp2-sender takes a
-    node's URL, and not the RPC URL (`rpc`, by default the one in use). On a
-    public chain its host is not the RPC URL's, and it resolves only to
-    addresses public by the policy lp2-sender applies to node URLs, so
-    operators' nodes can reach it."""
+    node's URL, and not the RPC endpoint (`rpc`, by default the one in use):
+    not its scheme, host and port, whatever the path. The sender may share
+    the RPC's host at another port or scheme. On a public chain it resolves
+    only to addresses public by the policy lp2-sender applies to node URLs,
+    so operators' nodes can reach it."""
     if not url or len(url) > 512 or any(c <= " " or c > "~" for c in url) or "?" in url or "#" in url:
         return "is empty, longer than 512 bytes, or holds a space, a character that is not printable ASCII, a query or a fragment"
     try:
@@ -585,12 +601,8 @@ def url_problem(url: str, public_chain: bool, rpc: str | None = None) -> str | N
         return "carries a user or password, and it is published"
     host = host_name(u.hostname)
     rpc = common.RPC if rpc is None else rpc
-    if rpc:
-        r = urllib.parse.urlsplit(rpc)
-        same = (r.scheme, host_name(r.hostname or ""), r.port, r.path.rstrip("/")) == \
-            (u.scheme, host, u.port, u.path.rstrip("/"))
-        if same or (public_chain and host_name(r.hostname or "") == host):
-            return "is the RPC URL or names its host, which is not published"
+    if rpc and endpoint(rpc) == endpoint(url):
+        return "is the RPC endpoint (its scheme, host and port), which is not published"
     if not public_chain:
         return None
     try:
@@ -670,9 +682,13 @@ def operator_problems(doc: dict, public_chain: bool) -> list[str]:
         problem = url_problem(doc["sender_url"], public_chain)
         if problem:
             problems.append(f"sender_url {problem}")
+    # The RPC URL is named where it is followed by a path or the end of a
+    # value: a sender on the RPC's host at another port starts with an RPC
+    # URL that has no path, yet names another endpoint (url_problem).
     text = json.dumps(doc)
-    named = [s for s in (common.RPC, str(public.STATE_DIR) if public.STATE_DIR != Path() else "", "keys/") if s and s in text]
-    if named:
+    state_dir = str(public.STATE_DIR) if public.STATE_DIR != Path() else ""
+    if (common.RPC and re.search(re.escape(common.RPC) + r'(?=[/"])', text)) or \
+            any(s and s in text for s in (state_dir, "keys/")):
         problems.append("it names an RPC URL, path or key file")
     return problems
 

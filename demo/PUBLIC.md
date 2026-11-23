@@ -217,7 +217,7 @@ As for the stage 3 run, and also:
 |---|---|
 | `LP2_AUTHORITY_KEYSTORE` | G's keystore file, outside the repository. G is Parameters' one authority, fixed at deployment. Make it as the deployer's is, for the testnet alone, never a key that has held real funds |
 | `LP2_AUTHORITY_PASSWORD_FILE` | A file that holds its password, outside the repository |
-| `LP2_SENDER_URL` | The sender's public URL, `http://` or `https://`, where operators' nodes join: `deployment.json` names it. It has no user, query or fragment, and is not the RPC URL. Required on a public chain, where its host is not the RPC URL's and must resolve, on the machine that runs the run, only to public addresses, by the rule `lp2-sender` applies to a node's URL. A name is read as it is, in any case and with or without its trailing dot. On a local chain it is by default the sender's loopback address |
+| `LP2_SENDER_URL` | The sender's public URL, `http://` or `https://`, where operators' nodes join: `deployment.json` names it. It has no user, query or fragment, and is not the RPC endpoint: not the RPC URL's scheme, host and port, whatever the path (a port left out is the scheme's default). It may be on the RPC's host at another port or scheme. Required on a public chain, where its host must resolve, on the machine that runs the run, only to public addresses, by the rule `lp2-sender` applies to a node's URL. A name is read as it is, in any case and with or without its trailing dot. On a local chain it is by default the sender's loopback address |
 
 The run refuses to start without the first two, before it makes or sends
 anything. On a public chain it refuses to start without `LP2_SENDER_URL`,
