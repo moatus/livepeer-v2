@@ -217,9 +217,31 @@ func Dial(ctx context.Context, rpcURL string) (*Session, error) {
 // not configure, and nothing such a host writes reaches an output. A
 // WebSocket handshake follows none either.
 func DialRPC(ctx context.Context, rpcURL string) (*rpc.Client, error) {
-	return rpc.DialOptions(ctx, rpcURL, rpc.WithHTTPClient(&http.Client{
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-	}))
+	return rpc.DialOptions(ctx, rpcURL, rpc.WithHTTPClient(&http.Client{Transport: noRedirect{}}))
+}
+
+// noRedirect hands the HTTP client every 3xx answer as its status alone,
+// with no Location and no body. The client reads Location before any
+// redirect policy runs, and fails on one it cannot parse; with none, it
+// returns the answer as it is, whatever the provider wrote there.
+type noRedirect struct{}
+
+func (noRedirect) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := http.DefaultTransport.RoundTrip(req)
+	if err != nil || resp.StatusCode < 300 || resp.StatusCode >= 400 {
+		return resp, err
+	}
+	resp.Body.Close()
+	return &http.Response{
+		Status:     fmt.Sprintf("%d %s", resp.StatusCode, http.StatusText(resp.StatusCode)),
+		StatusCode: resp.StatusCode,
+		Proto:      resp.Proto,
+		ProtoMajor: resp.ProtoMajor,
+		ProtoMinor: resp.ProtoMinor,
+		Header:     http.Header{},
+		Body:       http.NoBody,
+		Request:    req,
+	}, nil
 }
 
 func (s *Session) contract(at common.Address) *bind.BoundContract {

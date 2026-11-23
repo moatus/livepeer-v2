@@ -124,11 +124,14 @@ func TestARedirectIsNotFollowed(t *testing.T) {
 	second := respond(t, asked, "307 Temporary Redirect\r\nLocation: http://[provider-written-marker")
 	first := respond(t, nil, "307 Temporary Redirect\r\nLocation: http://"+second+"/followed")
 	moved := respond(t, nil, "302 Found\r\nLocation: http://"+second+"/followed")
+	unreadable := respond(t, nil, "307 Temporary Redirect\r\nLocation: http://[provider-written-marker")
 	for _, c := range []struct{ rpc, want string }{
 		{"http://synthetic-user:" + encodedPassword + "@" + first + "/v3/synthetic-key",
 			"read bondAt: the RPC provider http://" + first + " redirected the request (HTTP 307)"},
 		{"http://" + moved + "/v3/synthetic-key",
 			"read bondAt: the RPC provider http://" + moved + " redirected the request (HTTP 302)"},
+		{"http://" + unreadable + "/v3/synthetic-key",
+			"read bondAt: the RPC provider http://" + unreadable + " redirected the request (HTTP 307)"},
 		{"ws://synthetic-user:" + encodedPassword + "@" + moved + "/ws/synthetic-key",
 			"read bondAt: the RPC provider ws://" + moved + " redirected the request (HTTP 302)"},
 	} {
