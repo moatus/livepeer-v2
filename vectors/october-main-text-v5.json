@@ -1816,14 +1816,22 @@
           {"step": "14", "round": "11", "action": "observe", "group": "10", "at_round": "11"},
           {"step": "15", "round": "11", "action": "observe", "group": "9", "at_round": "11"},
           {"step": "16", "round": "12", "action": "observe", "group": "10", "at_round": "12"},
-          {"step": "17", "round": "12", "action": "observe", "group": "9", "at_round": "12"}
+          {"step": "17", "round": "12", "action": "observe", "group": "9", "at_round": "12"},
+          {"step": "18", "round": "12", "action": "announce", "caller": "G", "group": "9", "values": ["Pool2", "3600", "10000", "1"]},
+          {"step": "19", "round": "12", "action": "announce", "caller": "G", "group": "9", "values": ["Q", "3600", "10000", "2"]},
+          {"step": "20", "round": "12", "action": "observe_pending", "group": "9"},
+          {"step": "21", "round": "12", "action": "announce", "caller": "G", "group": "10", "values": ["Scores"]},
+          {"step": "22", "round": "12", "action": "announce", "caller": "G", "group": "9", "values": ["Q", "3600", "10000", "1"]},
+          {"step": "23", "round": "12", "action": "observe_pending", "group": "9"}
         ]
       },
       "expected": {
         "announced": [
           {"step": "4", "counts_from": "11"},
           {"step": "5", "counts_from": "11"},
-          {"step": "11", "counts_from": "12"}
+          {"step": "11", "counts_from": "12"},
+          {"step": "19", "counts_from": "19"},
+          {"step": "21", "counts_from": "19"}
         ],
         "observed": [
           {"step": "7", "values": ["Q", "3600", "10000", "1"], "counts_from": "11"},
@@ -1834,13 +1842,17 @@
           {"step": "14", "values": ["Buyback"]},
           {"step": "15", "values": ["Q", "3600", "10000", "1"]},
           {"step": "16", "values": ["X3"]},
-          {"step": "17", "values": ["Q", "3600", "10000", "1"]}
+          {"step": "17", "values": ["Q", "3600", "10000", "1"]},
+          {"step": "20", "values": ["Q", "3600", "10000", "2"], "counts_from": "19"},
+          {"step": "23", "values": ["Q", "3600", "10000", "2"], "counts_from": "19"}
         ],
         "refused": [
           {"step": "1", "code": "NOT_AUTHORIZED"},
           {"step": "2", "code": "VALUE_OUT_OF_RANGE"},
           {"step": "3", "code": "POOL_INVALID"},
-          {"step": "6", "code": "POOL_INVALID"}
+          {"step": "6", "code": "POOL_INVALID"},
+          {"step": "18", "code": "POOL_INVALID"},
+          {"step": "22", "code": "POOL_INVALID"}
         ]
       }
     },

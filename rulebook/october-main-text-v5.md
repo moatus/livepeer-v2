@@ -2083,7 +2083,13 @@ and Q again: X3, pending, is asked and accepts, and Q counts from round
 stays pending. In round 5, G withdraws X3, leaving the Buyback in force
 and Q pending and unchecked, and announces X3 again, counting from round
 12. Round 10 has the Buyback and Pool, round 11 the Buyback and Q, and
-round 12 X3 and Q. In round 11 the executor in force refuses its round's
+round 12 X3 and Q. In round 12, with X3 in force and nothing pending,
+Pool2 is refused with `POOL_INVALID`: X3 is asked, not the Buyback. Q
+with a buy every 2 rounds is accepted, counting from round 19. G then
+announces Scores, an address with code that accepts no pool, for group
+10, counting from round 19, and Q with a buy every round is refused with
+`POOL_INVALID`: Scores, pending, is asked, and the earlier change stays
+pending. In round 11 the executor in force refuses its round's
 pool, so a buy or a poke is refused with `POOL_INVALID` until round 12:
 the cost of never checking a group 10 change against a pool. The case
 names an executor of another design, so it cannot pass while the
