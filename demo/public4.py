@@ -48,6 +48,7 @@ import ipaddress
 import json
 import os
 import re
+import socket
 import subprocess
 import time
 import urllib.parse
@@ -526,27 +527,83 @@ def services_doc(chain_id: int) -> dict:
                          "lp2-faucet, granting each registered node test LPT once, from the deployment's first block"]}
 
 
-def url_problem(url: str, public_chain: bool) -> str | None:
-    """Why `url` cannot be the sender's published URL, or None. It is
-    published, so it names the sender's host and nothing else; on a public
-    chain that host is not a loopback or private one."""
+# The pinned node's destination policy (destination.Public in
+# github.com/livepeer/node, the version programs/go.mod pins), which
+# lp2-sender applies to every node URL: an address is public when it is in
+# none of these IPv4 blocks, or in 2000::/3 and none of these IPv6 blocks,
+# an IPv4-mapped IPv6 address read as its IPv4 address.
+DENIED_V4 = ("0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8",
+             "169.254.0.0/16", "172.16.0.0/12", "192.0.0.0/24", "192.0.2.0/24",
+             "192.88.99.0/24", "192.168.0.0/16", "198.18.0.0/15", "198.51.100.0/24",
+             "203.0.113.0/24", "224.0.0.0/4", "240.0.0.0/4")
+DENIED_V6 = ("::/128", "::1/128", "fc00::/7", "fe80::/10", "ff00::/8", "2001::/23", "2001:db8::/32", "2002::/16")
+PUBLIC_V6 = "2000::/3"
+
+
+def public_address(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    if ip.version == 6 and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    if ip.version == 4:
+        return not any(ip in ipaddress.ip_network(p) for p in DENIED_V4)
+    return ip in ipaddress.ip_network(PUBLIC_V6) and not any(ip in ipaddress.ip_network(p) for p in DENIED_V6)
+
+
+def resolve(host: str) -> list[str]:
+    """Every address `host` resolves to here."""
+    return sorted({a[4][0] for a in socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)})
+
+
+def host_name(host: str) -> str:
+    """A URL's host as the name it is: no case, no root dot, an IP address
+    in its one form."""
+    host = host.lower().removesuffix(".")
+    try:
+        return str(ipaddress.ip_address(host))
+    except ValueError:
+        return host
+
+
+def url_problem(url: str, public_chain: bool, rpc: str | None = None) -> str | None:
+    """Why `url` cannot be the sender's published URL, or None: the one
+    check of it, at the run's start, at the handover and in serve. It is
+    published, so it names the sender and nothing else: an http or https
+    URL with a host and no user, query or fragment, as lp2-sender takes a
+    node's URL, and not the RPC URL (`rpc`, by default the one in use). On a
+    public chain its host is not the RPC URL's, and it resolves only to
+    addresses public by the policy lp2-sender applies to node URLs, so
+    operators' nodes can reach it."""
+    if not url or len(url) > 512 or any(c <= " " or c > "~" for c in url) or "?" in url or "#" in url:
+        return "is empty, longer than 512 bytes, or holds a space, a character that is not printable ASCII, a query or a fragment"
     try:
         u = urllib.parse.urlsplit(url)
-        host = u.hostname
         u.port
     except ValueError:
         return "is not a URL"
-    if u.scheme not in ("http", "https") or not host:
+    if u.scheme not in ("http", "https") or not u.hostname:
         return "is not an http:// or https:// URL"
-    if u.username or u.password or u.query or u.fragment:
-        return "carries a user, password, query or fragment, and it is published"
-    if public_chain:
+    if u.username is not None or u.password is not None:
+        return "carries a user or password, and it is published"
+    host = host_name(u.hostname)
+    rpc = common.RPC if rpc is None else rpc
+    if rpc:
+        r = urllib.parse.urlsplit(rpc)
+        same = (r.scheme, host_name(r.hostname or ""), r.port, r.path.rstrip("/")) == \
+            (u.scheme, host, u.port, u.path.rstrip("/"))
+        if same or (public_chain and host_name(r.hostname or "") == host):
+            return "is the RPC URL or names its host, which is not published"
+    if not public_chain:
+        return None
+    try:
+        addrs = [ipaddress.ip_address(host)]
+    except ValueError:
         try:
-            private = not ipaddress.ip_address(host).is_global
-        except ValueError:
-            private = host == "localhost" or host.endswith((".localhost", ".local", ".internal"))
-        if private:
-            return "names a loopback or private host, which operators cannot reach"
+            addrs = [ipaddress.ip_address(a.split("%")[0]) for a in resolve(host)]
+        except (OSError, ValueError) as e:
+            return f"names {host}, which does not resolve here ({e}), so it cannot be checked as public"
+    private = [str(a) for a in addrs if not public_address(a)]
+    if private or not addrs:
+        return (f"names a loopback or private host, which operators cannot reach ({host} resolves to "
+                f"{', '.join(private) or 'no address'})")
     return None
 
 
@@ -586,8 +643,9 @@ def operator_doc(chain_id: int, url: str) -> dict:
 def operator_problems(doc: dict, public_chain: bool) -> list[str]:
     """What is wrong with an operators' deployment file: a field the
     container reads that is missing or not a string or number, a field it
-    does not read, an address that is not one, or a sender URL that cannot
-    be published."""
+    does not read, an address that is not one, a sender URL that cannot be
+    published (url_problem), or an RPC URL, path or key file anywhere in it.
+    The handover and serve check the whole file with it before writing it."""
     problems = []
 
     def fields(where: str, got: dict, want: tuple[str, ...], objects: tuple[str, ...] = ()) -> None:
@@ -612,6 +670,10 @@ def operator_problems(doc: dict, public_chain: bool) -> list[str]:
         problem = url_problem(doc["sender_url"], public_chain)
         if problem:
             problems.append(f"sender_url {problem}")
+    text = json.dumps(doc)
+    named = [s for s in (common.RPC, str(public.STATE_DIR) if public.STATE_DIR != Path() else "", "keys/") if s and s in text]
+    if named:
+        problems.append("it names an RPC URL, path or key file")
     return problems
 
 
@@ -650,10 +712,8 @@ def handover(chain_id: int) -> None:
     owner = [k for k in (public.STATE["deployer_keystore"], public.STATE["deployer_password_file"], *AUTHORITY)
              if k in text or k in op_text]
     check("services.json and deployment.json name no key of the deployer's or G's", owner, [])
-    check("deployment.json holds the fields the operator container reads, and nothing else",
-          operator_problems(operators, chain_id not in public.LOCAL_CHAINS), [])
-    private = [s for s in (common.RPC, str(public.STATE_DIR), "keys/") if s and s in op_text]
-    check("deployment.json names no RPC URL, path or key file", private, [])
+    check("deployment.json holds the fields the operator container reads, a sender URL it can publish, and no RPC "
+          "URL, path or key file", operator_problems(operators, chain_id not in public.LOCAL_CHAINS), [])
     if common.FAILURES:
         return withdraw_handover()
     done = public.STATE["done"]
@@ -723,17 +783,21 @@ def start_faucet(state_dir: Path, from_block: int) -> None:
 
 def publish_sender(state_dir: Path, chain_id: int) -> None:
     """deployment.json names the sender's URL the services run with: a new
-    LP2_SENDER_URL is written into it, to be published again."""
+    LP2_SENDER_URL is written into it, to be published again. The whole
+    file is checked first, as the handover checks it, and a file that fails
+    is not written: the one in the state directory stays as it was."""
     path = state_dir / OPERATORS
     doc = json.loads(path.read_text())
-    url = sender_url(chain_id) if os.environ.get("LP2_SENDER_URL") else doc.get("sender_url", "")
-    if url != doc.get("sender_url"):
-        doc["sender_url"] = url
-        write_public(path, json.dumps(doc, indent=1) + "\n", 0o644)
-        say(f"  deployment.json now names the sender at {url}: publish it again (demo/PUBLIC.md)")
+    was = doc.get("sender_url")
+    url = os.environ.get("LP2_SENDER_URL") or was
+    doc["sender_url"] = url
     problems = operator_problems(doc, chain_id not in public.LOCAL_CHAINS)
     if problems:
-        raise NotRun(f"{OPERATORS} in the state directory is not one operators can be given: {'; '.join(problems)}")
+        raise NotRun(f"{OPERATORS} {'with LP2_SENDER_URL ' if url != was else ''}is not one operators can be "
+                     f"given: {'; '.join(problems)}. The one in the state directory is kept as it was")
+    if url != was:
+        write_public(path, json.dumps(doc, indent=1) + "\n", 0o644)
+        say(f"  deployment.json now names the sender at {url}: publish it again (demo/PUBLIC.md)")
     say(f"  deployment.json, the file operators are given, names the sender at {url}")
 
 

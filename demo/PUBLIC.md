@@ -189,7 +189,8 @@ The run does the following, in order:
    The run writes the cases into `ledger-case.json` and
    `stage-4-cases.json`, and `./calculator/check` reproduces both files.
 8. The handover, only when every figure is equal. The run writes two
-   files into the state directory, and the same into its manifest:
+   files into the state directory. Its manifest gets neither file: it
+   records the services, the faucet, the change and the first buy:
    - `deployment.json`, the testnet's deployment file, which operators
      give the node container (`programs/container/README.md`, "The
      deployment file"). It holds the deployment's name, the chain id, the
@@ -197,7 +198,7 @@ The run does the following, in order:
      and mock USDC, the node's price and ticket settings, and the sender's
      public URL, `LP2_SENDER_URL`. It names nothing private: no key, key
      file, RPC URL or host but the sender's. The run checks it against
-     the fields the container reads;
+     the fields the container reads, and the sender's URL as below;
    - `services.json`, for `serve`. It holds the chain id, the deployment's
      first block, every contract, the executor in force, G's address and
      the role key files, relative to the state directory. It holds no key
@@ -216,7 +217,7 @@ As for the stage 3 run, and also:
 |---|---|
 | `LP2_AUTHORITY_KEYSTORE` | G's keystore file, outside the repository. G is Parameters' one authority, fixed at deployment. Make it as the deployer's is, for the testnet alone, never a key that has held real funds |
 | `LP2_AUTHORITY_PASSWORD_FILE` | A file that holds its password, outside the repository |
-| `LP2_SENDER_URL` | The sender's public URL, `http://` or `https://`, where operators' nodes join: `deployment.json` names it. Required on a public chain, where it may not name a loopback or private host. On a local chain it is by default the sender's loopback address |
+| `LP2_SENDER_URL` | The sender's public URL, `http://` or `https://`, where operators' nodes join: `deployment.json` names it. It has no user, query or fragment, and is not the RPC URL. Required on a public chain, where its host is not the RPC URL's and must resolve, on the machine that runs the run, only to public addresses, by the rule `lp2-sender` applies to a node's URL. A name is read as it is, in any case and with or without its trailing dot. On a local chain it is by default the sender's loopback address |
 
 The run refuses to start without the first two, before it makes or sends
 anything. On a public chain it refuses to start without `LP2_SENDER_URL`,
@@ -264,6 +265,9 @@ chain. It needs no Docker and no model. It starts these services:
 
 If `LP2_SENDER_URL` is set and differs from the URL `deployment.json`
 names, `serve` writes the new one into it and says to publish it again.
+It first checks the whole file as the run's handover does, the sender's
+URL by the same rule. A file that fails is not written: `serve` refuses to
+start and the file in the state directory stays as it was.
 
 Then N joins the sender as any node does, with a join signed by N's key,
 and is paid a request at once and then one a round. N's URL is

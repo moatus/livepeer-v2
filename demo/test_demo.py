@@ -14,6 +14,7 @@ import ast
 import copy
 import json
 import os
+import re
 import shutil
 import signal
 import socket
@@ -518,6 +519,23 @@ class PublicStage4(unittest.TestCase):
         self.local4 = json.loads((ROOT / "deployments" / "stage-4-local.json").read_text())
         self.dir = Path(tempfile.mkdtemp()).resolve()
         self.addCleanup(shutil.rmtree, self.dir, True)
+        # No test resolves a name on the network: the sender URL check's
+        # resolver is this table, and a name not in it does not resolve. As
+        # a resolver does, it reads a name in any case, with or without the
+        # root's trailing dot.
+        def resolve(host):
+            name = host.lower().removesuffix(".")
+            if name not in self.NAMES:
+                raise OSError(f"{host} is not in the test's names")
+            return self.NAMES[name]
+        p = mock.patch.object(public4, "resolve", resolve)
+        p.start()
+        self.addCleanup(p.stop)
+
+    NAMES = {"sender.example": ["93.184.215.14"], "old.example": ["93.184.215.14"], "rpc.example": ["93.184.215.15"],
+             "two.example": ["93.184.215.14", "2606:4700::1111"], "inside.example": ["10.1.2.3"],
+             "partly.example": ["93.184.215.14", "192.168.1.5"], "mapped.example": ["::ffff:127.0.0.1"],
+             "localhost": ["127.0.0.1", "::1"]}
 
     def test_the_stage_4_template_invents_no_address_and_runs_stage_4(self):
         t = self.t4
@@ -702,6 +720,95 @@ class PublicStage4(unittest.TestCase):
         with self.env(LP2_SENDER_URL="http://127.0.0.1:9000"), self.assertRaises(common.NotRun):
             self.p4.publish_sender(self.dir, 421614)
         self.assertEqual(json.loads((self.dir / "deployment.json").read_text())["sender_url"], "https://sender.example:8443")
+
+    # destination.Public of the node programs/go.mod pins, which lp2-sender
+    # applies to node URLs, printed for each of these addresses by a Go
+    # program built against that module: the edges of each block it denies.
+    NODE_POLICY = {
+        "0.255.255.255": False, "1.0.0.0": True, "8.8.8.8": True, "9.255.255.255": True, "10.0.0.0": False,
+        "11.0.0.0": True, "100.63.255.255": True, "100.64.0.0": False, "100.127.255.255": False, "100.128.0.0": True,
+        "126.255.255.255": True, "127.0.0.1": False, "128.0.0.0": True, "169.254.1.1": False, "172.15.255.255": True,
+        "172.16.0.0": False, "172.31.255.255": False, "172.32.0.0": True, "192.0.0.1": False, "192.0.1.0": True,
+        "192.0.2.1": False, "192.88.99.1": False, "192.167.255.255": True, "192.168.0.1": False, "198.18.0.1": False,
+        "198.20.0.0": True, "198.51.100.1": False, "203.0.113.1": False, "203.0.114.1": True, "223.255.255.255": True,
+        "224.0.0.1": False, "240.0.0.1": False, "255.255.255.255": False, "::": False, "::1": False,
+        "::ffff:127.0.0.1": False, "::ffff:8.8.8.8": True, "64:ff9b::808:808": False, "1fff:ffff::1": False,
+        "2000::1": True, "2001::1": False, "2001:1ff::1": False, "2001:200::1": True, "2001:db8::1": False,
+        "2002::1": False, "2606:4700::1111": True, "3fff:ffff::1": True, "4000::1": False, "fc00::1": False,
+        "fe80::1": False, "ff02::1": False}
+
+    def test_an_address_is_public_as_the_senders_node_policy_says(self):
+        import ipaddress
+        for addr, public in self.NODE_POLICY.items():
+            with self.subTest(addr=addr):
+                self.assertEqual(self.p4.public_address(ipaddress.ip_address(addr)), public)
+
+    def test_the_policys_blocks_are_the_pinned_nodes(self):
+        # The blocks are the pinned module's own, read from its source, so
+        # moving the pin to a node whose policy differs fails here.
+        mod = re.search(r"github\.com/livepeer/node (\S+)", (ROOT / "programs" / "go.mod").read_text()).group(1)
+        try:
+            cache = subprocess.run(["go", "env", "GOMODCACHE"], cwd=ROOT / "programs", capture_output=True,
+                                   text=True, check=True).stdout.strip()
+        except (OSError, subprocess.CalledProcessError):
+            self.skipTest("go is not on PATH: the pinned node's destination policy was not read")
+        src = Path(cache) / f"github.com/livepeer/node@{mod}" / "destination" / "policy.go"
+        if not src.is_file():
+            self.skipTest(f"the pinned node module is not downloaded ({src}): its policy was not read")
+        text = src.read_text()
+        def block(name):
+            return tuple(re.findall(r'"([^"]+)"', re.search(name + r" = [^(]*\(([^)]*)\)", text).group(1)))
+        self.assertEqual((block("deniedV4"), block("deniedV6"), block("publicV6")),
+                         (self.p4.DENIED_V4, self.p4.DENIED_V6, (self.p4.PUBLIC_V6,)))
+
+    def test_the_sender_url_is_one_operators_reach_and_not_the_rpc(self):
+        rpc = "https://rpc.example/v2/KEY"
+        refused = (
+            "http://localhost.:49224", "http://LOCALHOST:49224", "http://LocalHost.:49224", "http://n.localhost.:1",
+            "http://127.0.0.1:9000", "http://[::1]:9000", "http://[::ffff:127.0.0.1]:9000", "http://[fe80::1]:9000",
+            "http://100.64.0.1", "http://192.88.99.1", "http://[2002::1]", "http://[64:ff9b::808:808]",
+            "https://inside.example", "https://partly.example", "https://mapped.example", "https://nowhere.example",
+            rpc, rpc + "/", "https://RPC.example./v2/KEY", "https://rpc.example", "http://rpc.example:8443/lp2",
+            "ftp://sender.example", "https://user@sender.example", "https://sender.example/?", "https://sender.example/#",
+            "https://sender .example", "https://s\u00e9nder.example")
+        for url in refused:
+            with self.subTest(url=url):
+                self.assertIsNotNone(self.p4.url_problem(url, True, rpc))
+        for url in ("https://sender.example", "https://Sender.Example.:8443/lp2", "https://two.example",
+                    "http://8.8.8.8:9000", "http://[2606:4700::1111]:9000"):
+            with self.subTest(url=url):
+                self.assertIsNone(self.p4.url_problem(url, True, rpc))
+        local = "http://127.0.0.1:49200"
+        self.assertIsNone(self.p4.url_problem("http://127.0.0.1:49224", False, local))
+        self.assertIsNotNone(self.p4.url_problem(local, False, local))
+        self.assertIsNotNone(self.p4.url_problem(rpc, False, rpc))
+
+    def test_the_run_and_serve_refuse_the_rpc_url_and_a_loopback_name_and_keep_the_file(self):
+        # The two cases review round 2 reproduced: the RPC URL given as the
+        # sender's, and localhost with the root's trailing dot.
+        c, m, b, _ = self.deployed()
+        rpc = "https://rpc.example/v2/KEY"
+        path = self.dir / "deployment.json"
+        with c, m, b:
+            path.write_text(json.dumps(self.p4.operator_doc(421614, "https://sender.example"), indent=1) + "\n")
+        path.chmod(0o644)
+        before = path.read_bytes()
+        for url in (rpc, "http://localhost.:49224"):
+            with self.subTest(url=url), mock.patch.object(common, "RPC", rpc), self.env(LP2_SENDER_URL=url):
+                with self.assertRaises(common.NotRun) as run:
+                    self.p4.sender_url(421614)
+                with self.assertRaises(common.NotRun) as serve:
+                    self.p4.publish_sender(self.dir, 421614)
+                self.assertIn("LP2_SENDER_URL", str(run.exception))
+                self.assertIn("kept as it was", str(serve.exception))
+                self.assertEqual(path.read_bytes(), before)
+                self.assertEqual(sorted(p.name for p in self.dir.iterdir()), ["deployment.json"])
+        # A file whose sender has come to share the RPC's host is refused
+        # too, with no new URL given.
+        with mock.patch.object(common, "RPC", "https://sender.example/rpc"), self.env(), \
+                self.assertRaises(common.NotRun):
+            self.p4.publish_sender(self.dir, 421614)
+        self.assertEqual(path.read_bytes(), before)
 
     def handed(self, failures):
         import public
