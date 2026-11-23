@@ -30,6 +30,8 @@ import (
 const contractsABI = `[
  {"type":"function","name":"getContract","stateMutability":"view","inputs":[{"name":"id","type":"bytes32"}],"outputs":[{"name":"","type":"address"}]},
  {"type":"function","name":"approve","stateMutability":"nonpayable","inputs":[{"name":"spender","type":"address"},{"name":"amount","type":"uint256"}],"outputs":[{"name":"","type":"bool"}]},
+ {"type":"function","name":"mint","stateMutability":"nonpayable","inputs":[{"name":"to","type":"address"},{"name":"amount","type":"uint256"}],"outputs":[]},
+ {"type":"function","name":"isRegistered","stateMutability":"view","inputs":[{"name":"a","type":"address"}],"outputs":[{"name":"","type":"bool"}]},
  {"type":"function","name":"balanceOf","stateMutability":"view","inputs":[{"name":"account","type":"address"}],"outputs":[{"name":"","type":"uint256"}]},
  {"type":"function","name":"fund","stateMutability":"nonpayable","inputs":[{"name":"deposit","type":"uint256"},{"name":"node","type":"address"},{"name":"earmark","type":"uint256"}],"outputs":[]},
  {"type":"function","name":"getSenderInfo","stateMutability":"view","inputs":[{"name":"payer","type":"address"}],"outputs":[{"name":"sender","type":"tuple","components":[{"name":"deposit","type":"uint256"},{"name":"withdrawRound","type":"uint256"}]},{"name":"reserve","type":"tuple","components":[{"name":"fundsRemaining","type":"uint256"},{"name":"claimedInCurrentRound","type":"uint256"}]}]},

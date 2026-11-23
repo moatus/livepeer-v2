@@ -26,7 +26,7 @@ once. Stage 4 has yet to be deployed on a public test chain.
 | Independent calculator | Computes every shared example from the rulebook alone |
 | Contracts | Stage 2: Controller, Registry, RoundClock, Broker, MockUSDC. Stage 3: TestLPT, StakeLedger, Scores, Claims. Stage 4: Parameters, TestPool, Buyback |
 | Node integration | The unmodified node, configured by flags alone; no fork |
-| One-command demo | `./dev demo` (stage 3); `./dev demo stage-2` still runs stage 2's; `./dev demo stage-4` runs stage 4's; `./dev demo buyback` runs the buyback's walk |
+| One-command demo | `./dev demo` (stage 3); `./dev demo stage-2` still runs stage 2's; `./dev demo stage-4` runs stage 4's; `./dev demo buyback` runs the buyback's walk; `./dev demo light` runs the services that pay each node that joins |
 
 ## Run the demo
 
@@ -155,6 +155,50 @@ running keeper pokes and buys at the second Buyback, whose buy has the
 walk's first buy's figures, and the first Buyback's buy is refused at the
 Broker with nothing moved. Its stand-ins are named in
 `deployments/stage-4-local.json`.
+
+### The standing services: a node joins and is paid
+
+`./dev demo light` runs, on a fresh local chain with stage 3's contracts
+and no model or Docker, the services that keep a testnet's traffic going.
+Each node runs the unmodified node's orchestrator in front of
+`lp2-responder`, a light responder that answers each paid request with a
+small JSON echo. `lp2-sender` holds the payer's key, beside the payer's
+signer on loopback, and answers joins. A registered node joins by posting
+to the sender's `/join`:
+
+```json
+{"node": "0x…", "url": "https://…", "issuedAt": 1795000000, "signature": "0x…"}
+```
+
+`signature` is the node key's EIP-191 personal signature (`cast wallet
+sign`) over the bytes
+`lp2-join:v1:<chainId>:<registry>:<node>:<url>:<issuedAt>`, with the
+Registry's and the node's addresses in lowercase 0x hex and `issuedAt` in
+Unix seconds. The answer is 200 when the node is listed or its URL
+updated; a refusal carries one code: `BAD_SIGNATURE`, `STALE` (more than
+600 s from the sender's clock, or not newer than the node's last join),
+`URL_NOT_ALLOWED` (not http or https, or a loopback, private or
+link-local address), `NOT_REGISTERED`, `UNREACHABLE` (no runner in the
+node's discovery, or no payment challenge from it) or
+`RECIPIENT_MISMATCH` (the node at that URL asks to be paid to another
+address); `FULL`, with `Retry-After`, when the list is full. The header of
+`programs/cmd/lp2-sender/main.go` gives the details. A node operator needs
+an orchestrator reachable at a public URL, its runner, and test ETH for
+gas: one registration, then one redemption for each paid request, about
+one a round, since every ticket wins.
+
+The demo sends each refused join and checks its code, and that it left no
+earmark and no line in the sender's list. Nodes N and M join; each is sent
+a paid request at once (the demo fails if a first relay comes more than
+60 s after the join) and then one a round, with nobody acting. A third
+node, whose runner answers its health check and never a request, joins;
+the demo shows its requests given up at the 10 s bound while N and M are
+still paid within seconds of each round. The sender is stopped and
+restarted within a round and pays nobody twice in it. After four rounds
+the nodes redeem, and the demo reads from the chain one ticket per node
+per round, one for each relay, and each node's payout up by half of each.
+A run takes about three and a half minutes, and uses 25 ports from
+47700.
 
 ### Run results
 

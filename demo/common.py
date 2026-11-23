@@ -175,11 +175,11 @@ PORT = {"chain": BASE, "orch": BASE + 1, "orch_metrics": BASE + 2, "signer_p": B
         "orch_l": BASE + 12, "orch_l_metrics": BASE + 13}
 
 
-def preflight(ports: list[str]) -> None:
-    missing = [t for t in ("git", "go", "forge", "anvil", "cast", "docker") if not shutil.which(t)]
+def preflight(ports: list[str], docker: bool = True) -> None:
+    missing = [t for t in ("git", "go", "forge", "anvil", "cast") + (("docker",) if docker else ()) if not shutil.which(t)]
     if missing:
         raise NotRun(f"missing {', '.join(missing)} (see README: Run the demo)")
-    if subprocess.run(["docker", "info"], capture_output=True).returncode != 0:
+    if docker and subprocess.run(["docker", "info"], capture_output=True).returncode != 0:
         raise NotRun("docker is installed but its daemon is not reachable by this user")
     for name in ports:
         port = PORT[name]
@@ -300,20 +300,23 @@ def start_model(model: Path) -> None:
     raise NotRun("the model server did not become healthy")
 
 
-def start_orchestrator(name: str, node: str, node_bin: Path, keyfile: Path, pw: Path, port: int, metrics: int) -> None:
-    """The unmodified node's orchestrator for `node`, serving the tiny model
-    at the manifest's price."""
+def start_orchestrator(name: str, node: str, node_bin: Path, keyfile: Path, pw: Path, port: int, metrics: int,
+                       runner: tuple[str, str, int] | None = None) -> None:
+    """The unmodified node's orchestrator for `node`, serving at the
+    manifest's price the tiny model, or `runner`: (id, app, port) of a
+    runner on this machine that answers GET /health."""
     price, chain = MANIFEST["price"], MANIFEST["chain"]
+    rid, app, rport = runner or ("llm", "chat", PORT["model"])
     d = RUN / name
     d.mkdir(exist_ok=True)  # a resumed public run keeps the node's redeemer database
     (d / "runners.toml").write_text(f"""[[Runners]]
-ID = "llm"
-RunnerURL = "http://127.0.0.1:{PORT['model']}"
-App = "chat"
+ID = "{rid}"
+RunnerURL = "http://127.0.0.1:{rport}"
+App = "{app}"
 Mode = "single-shot"
 Status = "ready"
 Capacity = 4
-HealthURL = "http://127.0.0.1:{PORT['model']}/health"
+HealthURL = "http://127.0.0.1:{rport}/health"
 HealthCode = 200
 [Runners.PriceInfo]
 Price = {price['job_price_usd']}
@@ -324,7 +327,7 @@ Unit = "{price['unit']}"
                  "--data-dir", str(d), "--listen", f"127.0.0.1:{port}",
                  "--metrics-listen", f"127.0.0.1:{metrics}",
                  "--runner-config", str(d / "runners.toml"), "--runner-grants", "127.0.0.1",
-                 "--health-grants", f"127.0.0.1:{PORT['model']}",
+                 "--health-grants", f"127.0.0.1:{rport}",
                  "--keystore-file", str(keyfile), "--keystore-password-file", str(pw),
                  "--rpc-url-file", str(RPC_FILE), "--chain-id", str(chain["chain_id"]),
                  "--controller-address", C["Controller"], "--redeemer-db", str(d / "payments.sqlite"),
