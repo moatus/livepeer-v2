@@ -33,6 +33,11 @@ func units(n *big.Int, decimals int) string {
 
 const unavailable = "unavailable"
 
+// scorePercent writes a score, out of 10^6, as a percentage: 1000000 is 100%.
+func scorePercent(n *Int) string {
+	return units(new(big.Int).Mul(n.big(), big.NewInt(100)), 6) + "%"
+}
+
 var funcs = template.FuncMap{
 	"usdc": func(n *Int) string {
 		if n == nil {
@@ -52,12 +57,11 @@ var funcs = template.FuncMap{
 		}
 		return units(n.big(), 18) + " ETH"
 	},
-	// score is out of 10^6: 1000000 is 100%.
 	"score": func(n *Int) string {
 		if n == nil {
 			return unavailable
 		}
-		return units(new(big.Int).Mul(n.big(), big.NewInt(100)), 6) + "%"
+		return scorePercent(n)
 	},
 	"addr": func(a *common.Address) string {
 		if a == nil {
@@ -100,6 +104,24 @@ var funcs = template.FuncMap{
 		}
 		return "claimed"
 	},
+	// roundScore is a claimed round's applied score, or for a round still
+	// to be claimed, the score a claim made now would read, marked as such.
+	"roundScore": func(r Round, now *Int) string {
+		switch {
+		case r.Claimed == nil || r.State == nil:
+			return unavailable
+		case *r.Claimed:
+			if r.ClaimScore == nil {
+				return unavailable
+			}
+			return scorePercent(r.ClaimScore)
+		case *r.State == stateExpired:
+			return ""
+		case now == nil:
+			return unavailable + " (now)"
+		}
+		return scorePercent(now) + " (now)"
+	},
 	"low":     func(b *bool) bool { return b != nil && *b },
 	"claimed": func(r Round) bool { return r.Claimed != nil && *r.Claimed },
 	"refresh": func() int { return refreshSeconds },
@@ -132,16 +154,16 @@ td.n { text-align: right; font-variant-numeric: tabular-nums; }
 <tr><th>Payout address</th><td>{{addr .Node.Payout}}</td></tr>
 <tr><th>Own bond this round</th><td class="n">{{lpt .Node.Bond}}</td></tr>
 <tr><th>Stake this round</th><td class="n">{{lpt .Node.Stake}}</td></tr>
-<tr><th>Score a claim made now reads</th><td class="n">{{score .Node.Score}}</td></tr>
+<tr><th>Score a claim made now reads</th><td class="n">{{score .Node.ScoreNow}}</td></tr>
 <tr><th>Test USDC at the payout address</th><td class="n">{{usdc .Node.PayoutUSDC}}</td></tr>
 <tr><th>Node key's ETH, for gas</th><td class="n">{{eth .Node.ETH}}{{if low .Node.LowGas}} <span class="warn">low: under {{eth .Node.LowGasWei}}</span>{{end}}</td></tr>
 </table>
 
 <h3>Recent rounds</h3>
-<p class="dim">Fees are the USDC fees counted for the node in the round, not requests served. Stake is the stake at the round's start. Paid is what the claim minted, the node's cut and the pot together; part is the node's own part of the pot, as a holder of its own bond.</p>
+<p class="dim">Fees are the USDC fees counted for the node in the round, not requests served. Stake is the stake at the round's start. Score is, for a claimed round, the score its claim applied, from its Claimed event; for a round not yet claimed it is the score a claim made now would read, marked "now", which can change before the claim. Paid is what the claim minted, the node's cut and the pot together; part is the node's own part of the pot, as a holder of its own bond.</p>
 <table>
-<tr><th>Round</th><th>Fees</th><th>Stake</th><th>Reward</th><th>Paid</th><th>Pot</th><th>Your part</th><th>Withdrawn</th></tr>
-{{range .Node.Rounds}}<tr><td class="n">{{.Round}}</td><td class="n">{{usdc .Fees}}</td><td class="n">{{lpt .Stake}}</td><td>{{state .}}</td><td class="n">{{if claimed .}}{{lpt .Paid}}{{end}}</td><td class="n">{{if claimed .}}{{lpt .Pot}}{{end}}</td><td class="n">{{if claimed .}}{{lpt .Part}}{{end}}</td><td>{{if claimed .}}{{yes .PartWithdrawn}}{{end}}</td></tr>
+<tr><th>Round</th><th>Fees</th><th>Stake</th><th>Reward</th><th>Score</th><th>Paid</th><th>Pot</th><th>Your part</th><th>Withdrawn</th></tr>
+{{range .Node.Rounds}}<tr><td class="n">{{.Round}}</td><td class="n">{{usdc .Fees}}</td><td class="n">{{lpt .Stake}}</td><td>{{state .}}</td><td class="n">{{roundScore . $.Node.ScoreNow}}</td><td class="n">{{if claimed .}}{{lpt .Paid}}{{end}}</td><td class="n">{{if claimed .}}{{lpt .Pot}}{{end}}</td><td class="n">{{if claimed .}}{{lpt .Part}}{{end}}</td><td>{{if claimed .}}{{yes .PartWithdrawn}}{{end}}</td></tr>
 {{end}}</table>
 
 <h2>The testnet</h2>

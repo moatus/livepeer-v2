@@ -55,7 +55,8 @@ type fakeChain struct {
 	down     bool
 	revert   map[common.Address]bool // calls to these contracts fail
 	failLogs map[uint64]bool         // a getLogs from this block fails
-	asked    [][2]uint64             // each getLogs range, in order
+	asked    [][2]uint64             // each getLogs range of the clock and executor, in order
+	claimsQ  []map[string]any        // each getLogs of Claims, in order
 }
 
 func newFake() *fakeChain {
@@ -95,16 +96,28 @@ func (f *fakeChain) answer(method string, args []any) (any, error) {
 		q := args[0].(map[string]any)
 		from, _ := hexutil.DecodeUint64(q["fromBlock"].(string))
 		to, _ := hexutil.DecodeUint64(q["toBlock"].(string))
-		f.asked = append(f.asked, [2]uint64{from, to})
+		want := q["address"].([]common.Address)
+		if slices.Contains(want, claimsAt) {
+			f.claimsQ = append(f.claimsQ, q)
+		} else {
+			f.asked = append(f.asked, [2]uint64{from, to})
+		}
 		if f.failLogs[from] {
 			return nil, errors.New("rate limited")
 		}
-		want := q["address"].([]common.Address)
+		topics := q["topics"].([][]common.Hash)
 		var out []types.Log
+	logs:
 		for _, l := range f.logs {
-			if l.BlockNumber >= from && l.BlockNumber <= to && slices.Contains(want, l.Address) {
-				out = append(out, l)
+			if l.BlockNumber < from || l.BlockNumber > to || !slices.Contains(want, l.Address) {
+				continue
 			}
+			for i, any := range topics {
+				if len(any) > 0 && (i >= len(l.Topics) || !slices.Contains(any, l.Topics[i])) {
+					continue logs
+				}
+			}
+			out = append(out, l)
 		}
 		return out, nil
 	case "eth_call":
@@ -201,6 +214,21 @@ func bought(at common.Address, r, b uint64, usdcIn int64) types.Log {
 		Topics: []common.Hash{boughtTopic, common.BigToHash(new(big.Int).SetUint64(r))}, Data: data}
 }
 
+// claimedLog is a Claimed event of node's claim of round r at block b, at
+// the given score.
+func claimedLog(node common.Address, r, b uint64, score int64, paid string) types.Log {
+	data, err := views.Events["Claimed"].Inputs.NonIndexed().Pack(payoutAt, n(score), wei(paid), n(0), wei(paid))
+	if err != nil {
+		panic(err)
+	}
+	return types.Log{Address: claimsAt, BlockNumber: b,
+		Topics: []common.Hash{claimedTopic, common.BytesToHash(node.Bytes()), common.BigToHash(new(big.Int).SetUint64(r))}, Data: data}
+}
+
+// claimOf2 is node 0xa1's claim of round 2, in round 9, at score 1,000,000:
+// the score now, 500,000, is not the one the claim applied.
+var claimOf2 = claimedLog(nodeAt, 2, 600, 1_000_000, "300551889676665523465")
+
 // started is a RoundStarted event of round r at block b.
 func started(r, b uint64) types.Log {
 	data, _ := views.Events["RoundStarted"].Inputs.NonIndexed().Pack(n(int64(b)), [32]byte{})
@@ -210,25 +238,28 @@ func started(r, b uint64) types.Log {
 
 func TestReadsTheNodeAndTheTestnet(t *testing.T) {
 	f := newFake()
-	f.logs = []types.Log{started(11, 900), bought(executorAt, 11, 950, 7), started(12, 990)}
+	// Another node's claim of round 2, at another score, is not the node's.
+	f.logs = []types.Log{claimOf2, claimedLog(validatorAt, 2, 610, 250_000, "1"),
+		started(11, 900), bought(executorAt, 11, 950, 7), started(12, 990)}
 	s := newExplorer(testConfig, f).read(context.Background())
 	if len(s.Unavailable) != 0 {
 		t.Fatalf("unavailable: %v", s.Unavailable)
 	}
 	if *s.Block != 1000 || !*s.Node.Registered || *s.Node.Payout != payoutAt || s.Node.Stake.big().String() != "3200000000000000000000" ||
-		s.Node.Score.big().Int64() != 500_000 || s.Node.PayoutUSDC.big().Int64() != 1_500_000 || *s.Node.LowGas {
+		s.Node.ScoreNow.big().Int64() != 500_000 || s.Node.PayoutUSDC.big().Int64() != 1_500_000 || *s.Node.LowGas {
 		t.Errorf("node: %+v", s.Node)
 	}
 	// Rounds 12 down to 1: the current round and the 28 before it, none below 1.
 	if len(s.Node.Rounds) != 12 || s.Node.Rounds[0].Round != 12 || s.Node.Rounds[11].Round != 1 {
 		t.Fatalf("rounds: %d, first %d", len(s.Node.Rounds), s.Node.Rounds[0].Round)
 	}
+	// Round 2's claim applied 1,000,000, which the score now no longer is.
 	r2 := s.Node.Rounds[10]
-	if r2.Round != 2 || *r2.State != stateClaimed || r2.Fees.big().Int64() != 1_000_000 ||
+	if r2.Round != 2 || *r2.State != stateClaimed || r2.ClaimScore.big().Int64() != 1_000_000 || r2.Fees.big().Int64() != 1_000_000 ||
 		r2.Paid.big().String() != "300551889676665523465" || r2.Part.big().String() != "46961232761978988041" || !*r2.PartWithdrawn {
 		t.Errorf("round 2: %+v", r2)
 	}
-	if r5 := s.Node.Rounds[7]; r5.Round != 5 || *r5.State != stateClaimable || *r5.ClaimableUntil != 33 {
+	if r5 := s.Node.Rounds[7]; r5.Round != 5 || *r5.State != stateClaimable || *r5.ClaimableUntil != 33 || r5.ClaimScore != nil {
 		t.Errorf("round 5: %+v", r5)
 	}
 	if r12 := s.Node.Rounds[0]; *r12.State != stateWaiting || *r12.ClaimableFrom != 19 {
@@ -239,13 +270,21 @@ func TestReadsTheNodeAndTheTestnet(t *testing.T) {
 		len(*tn.Validators) != 1 || len(*tn.Buys) != 1 || (*tn.Buys)[0].Burned.big().Int64() != 14 {
 		t.Errorf("testnet: %+v", tn)
 	}
+
+	// A claimed round whose Claimed event the scan has not found has no
+	// claim score, and says so: never the score now.
+	f.logs = []types.Log{started(12, 990)}
+	s = newExplorer(testConfig, f).read(context.Background())
+	if r2 := s.Node.Rounds[10]; r2.ClaimScore != nil || len(s.Unavailable) != 1 || !strings.Contains(s.Unavailable[0], "round 2's claim score") {
+		t.Errorf("round 2 with no Claimed event: score %v, unavailable %v", r2.ClaimScore, s.Unavailable)
+	}
 }
 
 // A read that fails shows its figures as unavailable, null in the JSON and
 // never 0, and the next read after the endpoint answers again shows them.
 func TestFailedReadIsUnavailableAndRecovers(t *testing.T) {
 	f := newFake()
-	f.logs = []types.Log{started(12, 990), bought(executorAt, 12, 995, 7)}
+	f.logs = []types.Log{claimOf2, started(12, 990), bought(executorAt, 12, 995, 7)}
 	srv := httptest.NewServer(handler(newExplorer(testConfig, f)))
 	defer srv.Close()
 	get := func(path string) string {
@@ -282,14 +321,16 @@ func TestFailedReadIsUnavailableAndRecovers(t *testing.T) {
 	m = status()
 	round := node(m)["rounds"].([]any)[0].(map[string]any)
 	if node(m)["stake_wei"] != nil || node(m)["bond_wei"] != nil || round["stake_wei"] != nil || round["claimed"] != nil ||
-		round["paid_wei"] != nil || round["part_wei"] != nil || round["state"] != nil ||
+		round["paid_wei"] != nil || round["part_wei"] != nil || round["state"] != nil || round["claim_score"] != nil ||
 		node(m)["registered"] != true || round["fees_usdc_micro"] != "0" {
 		t.Errorf("with Claims and StakeLedger failing: %v, %v", node(m), round)
 	}
 
 	f.revert = map[common.Address]bool{}
 	m = status()
-	if node(m)["stake_wei"] != "3200000000000000000000" || node(m)["registered"] != true ||
+	r2 := node(m)["rounds"].([]any)[10].(map[string]any)
+	if node(m)["stake_wei"] != "3200000000000000000000" || node(m)["registered"] != true || r2["claim_score"] != "1000000" ||
+		node(m)["score_now"] != "500000" ||
 		len(m["testnet"].(map[string]any)["buys"].([]any)) != 1 || len(m["unavailable"].([]any)) != 0 {
 		t.Errorf("after the endpoint recovered: %v", m)
 	}
@@ -302,16 +343,17 @@ func TestFailedReadIsUnavailableAndRecovers(t *testing.T) {
 func TestPageRendersWithoutJavaScript(t *testing.T) {
 	yes, no := true, false
 	block, at, round, from, until, start := uint64(1000), uint64(1_795_000_000), uint64(12), uint64(9), uint64(30), uint64(990)
-	claimable, claimed := stateClaimable, stateClaimed
+	claimable, claimed, expired := stateClaimable, stateClaimed, stateExpired
 	payout := payoutAt
 	validators := []common.Address{validatorAt}
 	buys := []Buy{{Round: 11, Block: 950, USDCIn: (*Int)(n(1_500_000)), LPTBought: (*Int)(wei("3000000000000000000")), Burned: (*Int)(wei("3000000000000000000"))}}
 	s := &Status{Block: &block, BlockTime: &at,
 		Node: Node{Address: nodeAt, Registered: &yes, Payout: &payout, Stake: (*Int)(wei("4200000000000000000000")),
-			Score: (*Int)(n(500_000)), PayoutUSDC: (*Int)(n(1_500_000)), ETH: (*Int)(n(1)), LowGas: &yes, LowGasWei: (*Int)(lowGasWei),
+			ScoreNow: (*Int)(n(500_000)), PayoutUSDC: (*Int)(n(1_500_000)), ETH: (*Int)(n(1)), LowGas: &yes, LowGasWei: (*Int)(lowGasWei),
 			Rounds: []Round{
+				{Round: 4, State: &expired, ClaimableFrom: &from, ClaimableUntil: &until, Claimed: &no},
 				{Round: 3, Fees: (*Int)(n(1_000_000)), Stake: (*Int)(wei("3200000000000000000000")), State: &claimable, ClaimableFrom: &from, ClaimableUntil: &until, Claimed: &no},
-				{Round: 2, Fees: (*Int)(n(1_000_000)), State: &claimed, Claimed: &yes, Paid: (*Int)(wei("300551889676665523465")), Pot: (*Int)(n(0)), Part: (*Int)(n(0)), PartWithdrawn: &no},
+				{Round: 2, Fees: (*Int)(n(1_000_000)), State: &claimed, Claimed: &yes, ClaimScore: (*Int)(n(1_000_000)), Paid: (*Int)(wei("300551889676665523465")), Pot: (*Int)(n(0)), Part: (*Int)(n(0)), PartWithdrawn: &no},
 			}},
 		Testnet:     Testnet{Round: &round, RoundStartBlock: &start, Validators: &validators, Buys: &buys},
 		Unavailable: []string{"the node's own bond this round: execution reverted"}}
@@ -327,8 +369,11 @@ func TestPageRendersWithoutJavaScript(t *testing.T) {
 		`<meta http-equiv="refresh" content="15">`,
 		"<tr><th>Stake this round</th><td class=\"n\">4200 LPT</td></tr>",
 		"<td class=\"n\">3200 LPT</td>", // round 3's stake
-		"<td class=\"n\">50%</td>",      // score
-		"1.5 USDC",                      // payout USDC and the buy
+		"<tr><th>Score a claim made now reads</th><td class=\"n\">50%</td></tr>",
+		"<td>expired after round 30, never minted</td><td class=\"n\"></td>", // no score for an expired round
+		"<td>claimable now, until round 30</td><td class=\"n\">50% (now)</td>",
+		"<td>claimed</td><td class=\"n\">100%</td>",
+		"1.5 USDC", // payout USDC and the buy
 		"0.000000000000000001 ETH <span class=\"warn\">low: under 0.001 ETH</span>",
 		"claimable now, until round 30",
 		"300.551889676665523465 LPT",
@@ -361,8 +406,9 @@ func TestUnits(t *testing.T) {
 func TestScannerReadsBoundedPagesOnce(t *testing.T) {
 	f := newFake()
 	f.logs = []types.Log{bought(executorAt, 3, 150, 1), started(4, 5200), bought(executorAt, 4, 5300, 2),
-		bought(common.HexToAddress("0xdead"), 4, 5301, 99), bought(executorAt, 5, 12_000, 3)}
-	s := newScanner(100)
+		bought(common.HexToAddress("0xdead"), 4, 5301, 99), bought(executorAt, 5, 12_000, 3),
+		claimedLog(nodeAt, 2, 5400, 1_000_000, "7"), claimedLog(nodeAt, 3, 11_000, 750_000, "8")}
+	s := newScanner(100, claimsAt, nodeAt)
 	ctx := context.Background()
 
 	f.failLogs[5100] = true
@@ -379,6 +425,19 @@ func TestScannerReadsBoundedPagesOnce(t *testing.T) {
 	}
 	if got := s.recent(); len(got) != 3 || got[0].Round != 5 || got[2].Round != 3 || s.start != (roundStart{4, 5200, 1_795_005_200}) {
 		t.Errorf("kept %+v, start %+v", got, s.start)
+	}
+	// Claims is read over the same pages, filtered by the node's topic.
+	var claimPages [][2]uint64
+	for _, q := range f.claimsQ {
+		from, _ := hexutil.DecodeUint64(q["fromBlock"].(string))
+		to, _ := hexutil.DecodeUint64(q["toBlock"].(string))
+		claimPages = append(claimPages, [2]uint64{from, to})
+		if topics := q["topics"].([][]common.Hash); len(topics) != 2 || !slices.Equal(topics[1], []common.Hash{common.BytesToHash(nodeAt.Bytes())}) {
+			t.Errorf("a Claims query not filtered by the node: %v", topics)
+		}
+	}
+	if !slices.Equal(claimPages, want) || len(s.claimed) != 2 || s.claimed[2].Int64() != 1_000_000 || s.claimed[3].Int64() != 750_000 {
+		t.Errorf("Claims pages %v, claims kept %+v", claimPages, s.claimed)
 	}
 
 	f.asked = nil
@@ -404,7 +463,7 @@ func TestScannerCatchesUpOverReads(t *testing.T) {
 	for b := uint64(0); b < 8; b++ {
 		f.logs = append(f.logs, bought(executorAt, b+1, 100+b*pageBlocks*7, int64(b+1)))
 	}
-	s := newScanner(100)
+	s := newScanner(100, claimsAt, nodeAt)
 	head := uint64(100 + (maxPages+10)*pageBlocks)
 	err := s.advance(context.Background(), f, head, clockAt, executorAt)
 	if err == nil || !strings.Contains(err.Error(), "catching up") || len(f.asked) != maxPages {

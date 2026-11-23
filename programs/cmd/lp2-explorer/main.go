@@ -27,9 +27,12 @@
 // settled tickets, not requests answered), its stake at the round's
 // start, and its reward (R-12): claimable from round n + d to n + d + 21,
 // d the reward delay in force for round n (R-25 group 4); claimed or not;
-// what the claim minted and the pot (Claims entitlementOf); and the
-// node's own part of that pot, as a holder of its own bond, and whether
-// it is withdrawn (partOf).
+// for a claimed round, the score its claim applied (its Claimed event:
+// R-12 reads the score when the claim executes, and a later vote can
+// change the score now); what the claim minted and the pot (Claims
+// entitlementOf); and the node's own part of that pot, as a holder of its
+// own bond, and whether it is withdrawn (partOf). A round not yet claimed
+// is shown with the score now, marked as such.
 //
 // The testnet: the current round, and the block and time it started; the
 // total fees counted this round; the validator set this round (membersAt
@@ -41,17 +44,21 @@
 // mock USDC are given as flags; the score source and the executor are
 // read from Parameters for the round.
 //
-// Every figure is a contract view except two, which come from events: the
-// executor's Bought events (the buys and burns) and the round clock's
+// Every figure is a contract view except three, which come from events:
+// the executor's Bought events (the buys and burns), the round clock's
 // RoundStarted (when the round started; on Arbitrum the clock's stored
-// block hash is not a block's, so no view gives it). Both are read by one
-// filtered eth_getLogs on the two addresses, in pages of 5,000 blocks:
-// from --first-block, the deployment's first block, on the first read,
-// and after that only the blocks since the last one read. A read that
-// would take more than 50 pages stops there and goes on at the next load;
-// until it reaches the newest block the buys show as unavailable. A new
-// executor in force starts the scan again from the first block. Nothing
-// is written to disk: a restart reads from the first block again.
+// block hash is not a block's, so no view gives it) and Claims' Claimed
+// events for the node (the score each claim applied; no view keeps it).
+// They are read by two filtered eth_getLogs a page, sent in one batch:
+// one on the executor's and the clock's addresses, one on Claims for the
+// node's indexed topic. Pages are 5,000 blocks: from --first-block, the
+// deployment's first block, on the first read, and after that only the
+// blocks since the last one read. A read that would take more than 50
+// pages stops there and goes on at the next load; until it reaches the
+// newest block the buys and the claims' scores show as unavailable. A new
+// executor in force starts the scan again from the first block. Logs are
+// read up to the newest block, and nothing is written to disk: a restart
+// reads from the first block again.
 package main
 
 import (

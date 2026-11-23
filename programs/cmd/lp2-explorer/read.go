@@ -33,6 +33,7 @@ const viewsABI = `[
  {"type":"function","name":"membersAt","stateMutability":"view","inputs":[{"name":"round","type":"uint256"}],"outputs":[{"name":"","type":"address[]"}]},
  {"type":"function","name":"balanceOf","stateMutability":"view","inputs":[{"name":"account","type":"address"}],"outputs":[{"name":"","type":"uint256"}]},
  {"type":"event","name":"Bought","anonymous":false,"inputs":[{"name":"round","type":"uint256","indexed":true},{"name":"held","type":"uint256","indexed":false},{"name":"usdcIn","type":"uint256","indexed":false},{"name":"lptBought","type":"uint256","indexed":false},{"name":"burned","type":"uint256","indexed":false},{"name":"twapX112","type":"uint256","indexed":false},{"name":"maxIn","type":"uint256","indexed":false}]},
+ {"type":"event","name":"Claimed","anonymous":false,"inputs":[{"name":"node","type":"address","indexed":true},{"name":"round","type":"uint256","indexed":true},{"name":"payout","type":"address","indexed":false},{"name":"score","type":"uint256","indexed":false},{"name":"paid","type":"uint256","indexed":false},{"name":"cut","type":"uint256","indexed":false},{"name":"pot","type":"uint256","indexed":false}]},
  {"type":"event","name":"RoundStarted","anonymous":false,"inputs":[{"name":"round","type":"uint256","indexed":true},{"name":"startBlock","type":"uint256","indexed":false},{"name":"blockHash","type":"bytes32","indexed":false}]}
 ]`
 
@@ -147,7 +148,7 @@ type Node struct {
 	Payout     *common.Address `json:"payout"`
 	Bond       *Int            `json:"bond_wei"`
 	Stake      *Int            `json:"stake_wei"`
-	Score      *Int            `json:"score"`
+	ScoreNow   *Int            `json:"score_now"`
 	PayoutUSDC *Int            `json:"payout_usdc_micro"`
 	ETH        *Int            `json:"eth_wei"`
 	LowGas     *bool           `json:"low_gas"`
@@ -156,7 +157,9 @@ type Node struct {
 }
 
 // Round is one recent round of the node: its fees and stake as the claim
-// reads them, and where its reward stands.
+// reads them, and where its reward stands. A claimed round carries the
+// score its claim applied and what it paid; an unclaimed one has no claim
+// score, and the score a claim made now would read is the node's ScoreNow.
 type Round struct {
 	Round          uint64  `json:"round"`
 	Fees           *Int    `json:"fees_usdc_micro"`
@@ -165,6 +168,7 @@ type Round struct {
 	ClaimableFrom  *uint64 `json:"claimable_from"`
 	ClaimableUntil *uint64 `json:"claimable_until"`
 	Claimed        *bool   `json:"claimed"`
+	ClaimScore     *Int    `json:"claim_score"`
 	Paid           *Int    `json:"paid_wei"`
 	Pot            *Int    `json:"pot_wei"`
 	Part           *Int    `json:"part_wei"`
@@ -223,7 +227,7 @@ type explorer struct {
 }
 
 func newExplorer(cfg config, b batcher) *explorer {
-	return &explorer{cfg: cfg, rpc: b, scan: newScanner(cfg.first)}
+	return &explorer{cfg: cfg, rpc: b, scan: newScanner(cfg.first, cfg.claims, cfg.node)}
 }
 
 // unavailable records why a figure was not read.
@@ -358,10 +362,9 @@ func (e *explorer) read(ctx context.Context) *Status {
 	// What needs the round.
 	executor := &view{what: "the buyback executor in force", to: c.params, method: "valuesAt", args: []any{big.NewInt(groupExecutor), r}}
 	source := &view{what: "the score source in force", to: c.params, method: "valuesAt", args: []any{big.NewInt(groupScoreSource), r}}
-	stake := &view{what: "the node's stake this round", to: c.ledger, method: "stakeAt", args: []any{c.node, r}}
 	bond := &view{what: "the node's own bond this round", to: c.ledger, method: "bondAt", args: []any{c.node, c.node, r}}
 	total := &view{what: "total fees this round", to: broker, method: "totalFees", args: []any{r}}
-	vs := []*view{executor, source, stake, bond, total}
+	vs := []*view{executor, source, bond, total}
 	var usdc, members *view
 	if s.Node.Payout != nil {
 		usdc = &view{what: "test USDC at the payout address", to: c.usdc, method: "balanceOf", args: []any{*s.Node.Payout}}
@@ -389,7 +392,6 @@ func (e *explorer) read(ctx context.Context) *Status {
 	callViews(ctx, e.rpc, at, vs...)
 	s.Testnet.Executor = asAddress(firstValue(executor, s))
 	scoreSource := asAddress(firstValue(source, s))
-	s.Node.Stake = intOut(stake, s)
 	s.Node.Bond = intOut(bond, s)
 	s.Testnet.TotalFees = intOut(total, s)
 	if usdc != nil {
@@ -424,22 +426,39 @@ func (e *explorer) read(ctx context.Context) *Status {
 		}
 		s.Node.Rounds = append(s.Node.Rounds, out)
 	}
+	// The first row is the current round, whose stake is the node's stake
+	// this round. Rounds start at 1, so a round 0 is a clock that is not one.
+	if len(rows) > 0 {
+		s.Node.Stake = s.Node.Rounds[0].Stake
+	} else {
+		s.unavailable("the node's stake this round", fmt.Errorf("the current round is %d", now))
+	}
 
 	// The score a claim made now reads, from the score source in force.
 	if scoreSource != nil {
 		score := &view{what: "the node's score", to: *scoreSource, method: "scoreOf", args: []any{c.node}}
 		callViews(ctx, e.rpc, at, score)
-		s.Node.Score = intOut(score, s)
+		s.Node.ScoreNow = intOut(score, s)
 	}
 
-	// The round's start and the buys, from the executor's and the clock's
-	// events, read up to this block.
+	// The round's start, the buys and the node's claims, from the clock's,
+	// the executor's and Claims' events, read up to this block.
 	if s.Testnet.Executor == nil {
 		return s
 	}
 	if err := e.scan.advance(ctx, e.rpc, block, clock, *s.Testnet.Executor); err != nil {
-		s.unavailable("the buys and the round's start", err)
+		s.unavailable("the buys, the round's start and the scores the node's claims applied", err)
 		return s
+	}
+	for i, row := range s.Node.Rounds {
+		if row.Claimed == nil || !*row.Claimed {
+			continue
+		}
+		if score, ok := e.scan.claimed[row.Round]; ok {
+			s.Node.Rounds[i].ClaimScore = (*Int)(score)
+		} else {
+			s.unavailable(fmt.Sprintf("round %d's claim score", row.Round), fmt.Errorf("no Claimed event for the node from block %d", c.first))
+		}
 	}
 	buys := e.scan.recent()
 	s.Testnet.Buys = &buys

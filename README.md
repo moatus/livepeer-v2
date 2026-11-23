@@ -245,7 +245,8 @@ It shows whether the node is registered, its operator key and payout
 address, its bond and stake, the score a claim made now would read, its
 test USDC and its key's ETH, with a warning under 0.001 ETH; for each
 recent round, the fees counted for it, its stake and where its reward
-stands (claimable from which round, claimed, its part, withdrawn); and
+stands (claimable from which round, claimed, the score the claim applied,
+what it paid, its part, withdrawn); and
 for the testnet, the round and when it started, the fees this round, the
 validator set, the buyback executor in force and its latest buys and
 burns. A figure it could not read is shown as unavailable, never as 0.

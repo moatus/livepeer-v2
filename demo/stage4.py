@@ -156,6 +156,16 @@ def check_explorer(fixture: dict, calc: dict) -> None:
     started = [e for e in c.logs(C["RoundClock"], "RoundStarted(uint256,uint256,bytes32)", block)
                if int(e["topics"][1], 16) == now]
     c.check("explorer: the block the round started in", net["round_start_block"], int(started[-1]["blockNumber"], 16))
+    c.check("explorer: N's score now, which a claim made now would read, as the chain has it",
+            int(node["score_now"]), c.call(C["Scores"], "scoreOf(address)", n, block=block))
+    # Each round N claimed carries the score its claim applied, from its
+    # Claimed event; a round not claimed carries none.
+    applied = {int(e["topics"][2], 16): int(e["data"][2 + 64:2 + 128], 16)
+               for e in c.logs(C["Claims"], "Claimed(address,uint256,address,uint256,uint256,uint256,uint256)", block)
+               if int(e["topics"][1], 16) == int(n, 16)}
+    c.check("explorer: the score each of N's claims applied, as its Claimed event has it",
+            {r["round"]: int(r["claim_score"]) for r in node["rounds"] if r["claim_score"] is not None},
+            {r: sc for r, sc in applied.items() if any(row["round"] == r for row in node["rounds"])})
 
     # Round 2: N earned 1 USDC of fees, and its operator key claimed it in round 9.
     row = next(r for r in node["rounds"] if r["round"] == 2)
@@ -178,8 +188,7 @@ def check_explorer(fixture: dict, calc: dict) -> None:
              c.call(C["Broker"], "feesOf(uint256,address)", 2, n, block=block), int(calc["fees_micro_usdc"]["2"]["N"]), c.money),
             ("Round 2: N's stake", int(row["stake_wei"]),
              c.call(C["StakeLedger"], "stakeAt(address,uint256)", n, 2, block=block), stake, c.lpt),
-            ("N's score, which round 2's claim read", int(node["score"]),
-             c.call(C["Scores"], "scoreOf(address)", n, block=block), int(claimed_at["score"]), str),
+            ("Round 2: the score its claim applied", int(row["claim_score"]), applied[2], int(claimed_at["score"]), str),
             ("Round 2: claim paid (cut and pot)", int(row["paid_wei"]), chain_paid, paid, c.lpt),
             ("Round 2: pot", int(row["pot_wei"]), chain_pot, paid - cut, c.lpt),
             ("Round 2: N's own part", int(row["part_wei"]), chain_part, (paid - cut) * own // stake, c.lpt)):
