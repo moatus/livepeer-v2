@@ -48,7 +48,7 @@ import public
 import stage3
 import buyback as bb
 import ledgercase
-from common import NotRun, Failed, say, check, call, words, money, lpt, C, ADDR, NAMES, MANIFEST
+from common import NotRun, Failed, say, check, call, words, money, lpt, C, ADDR, NAMES, PORT, MANIFEST
 
 TEMPLATE = "public-arbitrum-sepolia-stage-4.json"
 ROLES = ("N", "P", "V", "Keeper", "Faucet")
@@ -150,6 +150,10 @@ def main() -> int:
 
     if all(n in state["done"] for n in ("buy", "change before", "change from")):
         deploy()
+        if len(common.settlements()) > 1:
+            raise NotRun("the standing services have paid nodes since the handover: lp2-sender's funding is not a step "
+                         "of this run, so its figures cannot be read again from the chain. They were reconciled at the "
+                         "handover; see public-run.log in the state directory. Nothing was sent")
         say("\nThis state's last step is done: nothing is sent; every figure is reconciled again from the chain.")
         return reconcile(chain_id, started)
 
@@ -484,8 +488,9 @@ def services_doc(chain_id: int) -> dict:
             "executor": executor_in_force(), "authority": state["authority"],
             "accounts": {k: ADDR[k] for k in ROLES},
             "keys": {who: f"keys/{who}/{who}" for who in ROLES}, "password_file": "pw", "rpc_url_file": "rpc-url",
-            "services": ["N's node, the unmodified orchestrator, with its model", "lp2-keeper, given Parameters' address",
-                         "lp2-validators for V"]}
+            "services": ["N's node, the unmodified orchestrator, serving lp2-responder",
+                         "lp2-keeper, given Parameters' address", "lp2-validators for V",
+                         "lp2-sender, paying as P each node that joins, with P's signer on loopback"]}
 
 
 def handover(chain_id: int) -> None:
@@ -517,6 +522,58 @@ def handover(chain_id: int) -> None:
 
 
 # --- the services -------------------------------------------------------------------
+
+RESPONDER = common.BASE + 20   # N's light responder, under serve
+SENDER = common.BASE + 24      # lp2-sender's joins, by default on loopback
+
+
+def start_sender(listen: str, local: bool) -> None:
+    """lp2-sender, holding P's key beside P's signer on loopback: it pays
+    each node that joins, once a round. Its list is in the state directory.
+    Node URLs on private addresses are allowed on a local chain only."""
+    common.start("sender", [str(public.STATE_DIR / "bin" / "lp2-sender"), "--rpc-url", common.RPC,
+                            "--keystore-file", str(stage3.KEYS["P"]),
+                            "--keystore-password-file", str(public.STATE_DIR / "pw"),
+                            "--controller-address", C["Controller"], "--usdc-address", C["MockUSDC"],
+                            "--signer-url", f"http://127.0.0.1:{PORT['signer_p']}",
+                            "--nodes", str(public.STATE_DIR / "sender-nodes.txt"), "--listen", listen,
+                            *(["--allow-private-urls"] if local else [])])
+    public.note_holders()
+    at = "http://127.0.0.1:" + listen.rsplit(":", 1)[1]
+    end = time.time() + 60
+    while common.post(f"{at}/join", {})[0] != 400:
+        if time.time() > end or common.PROCS["sender"].poll() is not None:
+            raise Failed("lp2-sender did not answer joins; see logs/sender.log in the state directory")
+        time.sleep(1)
+    say(f"  lp2-sender answers joins on {listen}, paying as P{' (private node URLs allowed: a local chain)' if local else ''}")
+
+
+def join_n(listen: str, chain_id: int) -> None:
+    """The team's node joins the sender as any node does: a join signed with
+    N's key. Its URL is LP2_NODE_URL, the URL at which N's orchestrator is
+    reached; on a local chain, by default, its loopback address."""
+    node_url = os.environ.get("LP2_NODE_URL") or (
+        f"http://127.0.0.1:{PORT['orch']}" if chain_id in public.LOCAL_CHAINS else "")
+    if not node_url:
+        say("  N does not join: on a public chain, set LP2_NODE_URL to the public URL of N's orchestrator")
+        return
+    end = time.time() + 60
+    while True:
+        # N's discovery lists its runner after its first health check;
+        # until then the sender answers UNREACHABLE.
+        issued = int(time.time())
+        msg = f"lp2-join:v1:{chain_id}:{C['Registry'].lower()}:{ADDR['N'].lower()}:{node_url}:{issued}"
+        sig = common.sh(["cast", "wallet", "sign", "--keystore", str(stage3.KEYS["N"]),
+                         "--password-file", str(public.STATE_DIR / "pw"), msg])
+        status, text = common.post("http://127.0.0.1:" + listen.rsplit(":", 1)[1] + "/join",
+                                   {"node": ADDR["N"].lower(), "url": node_url, "issuedAt": issued, "signature": sig})
+        if status != 422 or time.time() > end:
+            break
+        time.sleep(2)
+    say(f"  N joins the sender at {node_url}: HTTP {status} {text.strip()[:120]}")
+    if status != 200:
+        raise Failed(f"N's join was refused: HTTP {status} {text.strip()[:200]}")
+
 
 def serve() -> int:
     """The standing services, from services.json and the role keys alone."""
@@ -551,17 +608,21 @@ def serve() -> int:
     public.check_deployment()
     for who, addr in svc["accounts"].items():
         ADDR[who], NAMES[addr.lower()] = addr, who
-    for who in ("N", "V", "Keeper"):
+    for who in ("N", "P", "V", "Keeper"):
         stage3.KEYS[who] = public.private(state_dir / svc["keys"][who])
         if not stage3.KEYS[who].is_file():
             raise NotRun(f"the state directory holds no key file for {who} ({svc['keys'][who]})")
-    say("The standing services of the stage 4 deployment: N's node, the keeper and the scripted validator V")
+    say("The standing services of the stage 4 deployment: N's node with the light responder, the keeper, the "
+        "scripted validator V, and lp2-sender with P's signer")
     say(f"  chain id {chain_id}; Controller {C['Controller']}; executor in force {executor_in_force()}; "
         f"the keeper {ADDR['Keeper']} can pay for about {keeper_gas()} more transactions, two a round")
 
-    common.preflight(["orch", "orch_metrics", "model"])
+    PORT.update({"responder": RESPONDER, "sender": SENDER})
+    listen = os.environ.get("LP2_SENDER_LISTEN", f"127.0.0.1:{SENDER}")
+    common.preflight(["orch", "orch_metrics", "signer_p", "signer_p_metrics", "responder"] +
+                     (["sender"] if listen == f"127.0.0.1:{SENDER}" else []), docker=False)
     node_bin = common.fetch_node()
-    model = common.fetch_model()
+    common.PROGRAMS.update({"lp2-sender": "./cmd/lp2-sender", "lp2-responder": "./cmd/lp2-responder"})
     common.build_ours()
     # V votes the full score for N in the round after the services start,
     # which leaves every score as it was: a validator call each start.
@@ -569,10 +630,13 @@ def serve() -> int:
     script = state_dir / "serve-validators.script"
     script.write_text("# Written by demo/public-run serve: V votes the full score for N in the round after the\n"
                       f"# services started (round {first}), which leaves every score as it was.\n{first + 1} V N 1000000\n")
-    public.start_programs(node_bin, model, keeper=keeper_options(), script=script, payer=False)
+    common.start("responder", [str(state_dir / "bin" / "lp2-responder"), "--listen", f"127.0.0.1:{RESPONDER}"])
+    public.start_programs(node_bin, None, keeper=keeper_options(), script=script, runner=("light", "light", RESPONDER))
+    start_sender(listen, chain_id in public.LOCAL_CHAINS)
+    join_n(listen, chain_id)
     say(f"  {time.strftime('%H:%M:%S')} round {first}; the services run until stopped (Ctrl-C or SIGTERM). "
         "Logs are in logs/ in the state directory")
-    last = first
+    last, seen = first, 0
     try:
         while True:
             for name, p in common.PROCS.items():
@@ -585,6 +649,11 @@ def serve() -> int:
                        "more of the chain's native token" if left < 100 else "")
                 say(f"  {time.strftime('%H:%M:%S')} round {now} started{low}")
                 last = now
+            relays = [ln for ln in (state_dir / "logs" / "sender.log").read_text(errors="replace").splitlines()
+                      if " relay: node " in ln]
+            for line in relays[seen:]:
+                say(f"  lp2-sender: {line.split(' ', 2)[2][:160]}")
+            seen = len(relays)
             time.sleep(5)
     except KeyboardInterrupt:
         say("  the services are stopped")

@@ -344,13 +344,16 @@ def wait_round(target: int, why: str, give_up=None) -> None:
     say(f"  {time.strftime('%H:%M:%S')} round {stage3.current_round()}")
 
 
-def start_programs(node_bin: Path, model: Path, keeper: tuple[str, ...] = (), script: Path = SCRIPT,
-                   payer: bool = True) -> None:
+def start_programs(node_bin: Path, model: Path | None, keeper: tuple[str, ...] = (), script: Path = SCRIPT,
+                   payer: bool = True, runner: tuple[str, str, int] | None = None) -> None:
     """Start the model, the node, P's signer (with `payer`), the keeper with
-    its `keeper` options and V's validator from `script`."""
-    common.start_model(model)
+    its `keeper` options and V's validator from `script`. With `runner`
+    and no model, the node serves that runner instead (demo/public4.py's
+    services)."""
+    if model:
+        common.start_model(model)
     common.start_orchestrator("orchestrator-N", "N", node_bin, stage3.KEYS["N"], STATE_DIR / "pw",
-                              PORT["orch"], PORT["orch_metrics"])
+                              PORT["orch"], PORT["orch_metrics"], runner=runner)
     if payer:
         common.start_signer("P", node_bin, stage3.KEYS["P"], STATE_DIR / "pw", PORT["signer_p"], PORT["signer_p_metrics"],
                             [PORT["orch"]])
@@ -362,8 +365,9 @@ def start_programs(node_bin: Path, model: Path, keeper: tuple[str, ...] = (), sc
                                 "--scores-address", C["Scores"], "--script", str(script), "--names", str(names),
                                 "--poll", "5s", f"--keystore=V={stage3.KEYS['V']}"])
     note_holders()
+    served = "the model server, " if model else "N's runner, "
     signer = "P's signer, " if payer else ""
-    say(f"  the model server, N's orchestrator, {signer}the keeper and V's validator program are running")
+    say(f"  {served}N's orchestrator, {signer}the keeper and V's validator program are running")
 
 
 def fund_p(face: int) -> None:
