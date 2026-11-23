@@ -28,9 +28,7 @@ interface ITestLPT {
 }
 
 /// The test LPT as stage 4 reads it (rulebook october-main-text-v4, R-16):
-/// ITestLPT and a real burn. It is declared beside ITestLPT, not on it,
-/// because the TestLPT built so far implements ITestLPT and has no burn;
-/// spec S-07's contracts phase builds it into TestLPT.
+/// ITestLPT and a real burn.
 interface ITestLPTV2 is ITestLPT {
     /// Anyone burns from its own balance: the balance and totalSupply fall
     /// by amount, with Transfer(caller, address(0), amount). Refused as a

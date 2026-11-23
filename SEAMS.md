@@ -76,20 +76,19 @@ itself is correct.
 
 | Seam | Held by | Strength |
 |---|---|---|
-| rules | Every example in `vectors/` is run by both the calculator and the contract tests. A rule change without an example change shows in the change report. | Checked on every change, once the calculator and contracts exist |
-| interfaces | Each contract's public functions, events and errors are declared in one folder. The change report lists every declaration line added or removed there. Once the contracts exist, `contracts/check` compares the compiler's ABI of each contract against its declared interface, so a public function added to an implementation cannot go unlisted. | Read from the source today; from the compiler once the contracts exist |
-| money | The token accepts mint calls from one address fixed at deployment. One contract holds the USDC. The door rules above. | The chain refuses, once the contracts exist. The door rules run today. |
+| rules | Every example in `vectors/` is run by both the calculator and the contract tests. A rule change without an example change shows in the change report. | Checked on every change |
+| interfaces | Each contract's public functions, events and errors are declared in one folder. The change report lists every declaration line added or removed there. `contracts/check` compares the compiler's ABI of each contract against its declared interface, so a public function added to an implementation cannot go unlisted. | From the compiler, on every change |
+| money | The token accepts mint calls from one address fixed at deployment. One contract holds the USDC. The door rules above. | The chain refuses. The door rules run on every change. |
 | authority | Authority is checked again at the moment of execution, in one place. | Review against the money-path checklist |
 | maths | Reward maths is written as functions the compiler forbids from reading or changing state, so the calculation cannot mint or pay. | The compiler refuses |
 | node | The node reads the chain through one narrow interface. Our changes sit in their own directories of the fork, and every changed upstream file has a ledger entry in `nodefork/`. | A check fails when an upstream file differs without an entry, once the fork exists |
 | deployment | One manifest per testnet version lists the rulebook version, addresses, node commit and every stand-in in use. | A file, read by people |
 | factory | A change to a check, to this map or to a guide is reviewed by an agent, or is one the owner asked for or approved, and is reported to the owner either way, so a check cannot be weakened quietly. | Read from git on every change |
 
-"Once the contracts exist" is literal. Today the repository holds the factory
-and nothing else. The door rules and the coverage rule run now and are shown
-to fail on a seeded violation by `tools/check`. The compiler and chain
-mechanisms arrive with the code they protect, and each one is shown to fail
-once when it does.
+"Once the fork exists" is literal: the node runs unmodified, so `nodefork/`
+does not exist yet. The door rules and the coverage rule are shown to fail
+on a seeded violation by `tools/check`, and the ABI comparison by the seeded
+errors `contracts/qualify` runs.
 
 ## What a seam cannot tell you
 

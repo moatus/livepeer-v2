@@ -2,9 +2,8 @@
 pragma solidity 0.8.30;
 
 /// The values one buyback reads, once, for the round being bought
-/// (rulebook R-16). In stage 4's first deployment FixedBuybackValues answers
-/// with constants checked at construction; Parameters answers from its
-/// groups 8 and 9 (R-25). A Buyback is deployed with one source and keeps it.
+/// (rulebook R-16). Parameters answers from its groups 8 and 9 (R-25). A
+/// Buyback is deployed with one source and keeps it.
 interface IBuybackValues {
     /// pool: the TestPool of this deployment's MockUSDC and TestLPT that the
     /// round buys from. burnPpm: the share of the LPT bought that is burned,

@@ -1,6 +1,6 @@
 {
   "testnet": "stage-4-local",
-  "about": "What the stage 4 testnet contains and every stand-in it uses. It is deployed fresh on a local chain at every run, so no address is fixed here: ./dev demo buyback prints the addresses of its run and writes them to .cache/demo/run/addresses.json. The demo reads the chain, LPT and pool values below from this file, and checks the buyback values below against those Parameters holds at deployment, so what runs is what this file says. Stage 3's testnet, stage-3-local.json, still runs with ./dev demo.",
+  "about": "What the stage 4 testnet contains and every stand-in it uses. It is deployed fresh on a local chain at every run, so no address is fixed here: ./dev demo buyback and ./dev demo stage-4 each print the addresses of their run and write them to .cache/demo/run/addresses.json. Both read the chain, LPT and pool values below from this file, and check the buyback values below against those Parameters holds at deployment, so what runs is what this file says. Stage 3's testnet, stage-3-local.json, still runs with ./dev demo.",
   "spec": "S-07 and S-10",
   "rulebook": "rulebook/october-main-text-v4.md",
   "vectors": "vectors/october-main-text-v4.json",
@@ -172,12 +172,12 @@
     {
       "stand_in": "Tickets signed and redeemed by the demo",
       "for": "Jobs paid through the node",
-      "value": "./dev demo buyback makes the network share by signing and redeeming winning tickets directly (stages 2 and 3 prove the node's path); S-10's stage 4 demo runs the buyback beside real node jobs"
+      "value": "./dev demo buyback makes the network share by signing and redeeming winning tickets directly (stages 2 and 3 prove the node's path); ./dev demo stage-4 runs the buyback beside real node jobs"
     },
     {
       "stand_in": "Moved time",
       "for": "Waiting out each TWAP interval",
-      "value": "The demo sets each block's time with anvil's evm_setNextBlockTimestamp and mines a round's blocks at once, so section 1's walk runs at its own times, offset by the start time it records"
+      "value": "./dev demo buyback sets each block's time with anvil's evm_setNextBlockTimestamp and mines a round's blocks at once, so section 1's walk runs at its own times, offset by the start time it records; ./dev demo stage-4 moves time once, by one TWAP interval, so that the keeper's buy has an observation old enough"
     },
     {
       "stand_in": "Test LPT",
@@ -197,17 +197,17 @@
     {
       "stand_in": "Scripted validators",
       "for": "Validators who judge work (R-11, R-13)",
-      "value": "V1, V2 and V3, registered nodes with 5,000 (1,000 its own and 4,000 from holder H, with a reward cut of 10 %), 3,000 and 2,000 test LPT, and V4 with 6,000, run by programs/validators from demo/validators.script: they opt in and vote what the script says, not what they judged"
+      "value": "V1, V2 and V3, registered nodes that bond 3,000, 2,000 and 1,800 test LPT to themselves, opt in and are seated in ./dev demo stage-4; they cast no vote, so nothing they do judges work"
     },
     {
       "stand_in": "ValidatorSetSize 3",
       "for": "The paper's 33 seats (p. 4; D-35)",
-      "value": "Scores seats at most 3 members, a constant fixed at deployment, so that four validators make a seat change hands: V4 takes the seat of V3, the smallest member"
+      "value": "Scores seats at most 3 members, Parameters' validator set size at deployment, which G may change (R-25); the three validators of ./dev demo stage-4 fill the seats"
     },
     {
       "stand_in": "Keeper",
       "for": "Whoever starts rounds, mints each round's validator and treasury amounts, buys and pokes",
-      "value": "A throwaway key: the demo starts rounds and makes the walk's pokes and buys with it at the walk's times, then runs lp2-keeper --once --buyback-address, which buys or pokes only when its call would succeed; anyone may do any of these (R-10, R-16, R-18), so a stopped keeper delays them and loses nothing"
+      "value": "A throwaway key: ./dev demo buyback starts rounds and makes the walk's pokes and buys with it at the walk's times, then runs lp2-keeper --once --buyback-address, which buys or pokes only when its call would succeed; ./dev demo stage-4 runs lp2-keeper --buyback-address through the run. Anyone may do any of these (R-10, R-16, R-18), so a stopped keeper delays them and loses nothing"
     }
   ]
 }

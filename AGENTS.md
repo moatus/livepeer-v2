@@ -200,7 +200,7 @@ For work that changes code, or a document someone will build from.
 | `./dev review [--base <ref>] [--checks]` | Prints the change report a reviewer reads, generated from git and `SEAMS.md`. Runs the structure checks only; `--checks` adds each component's `check` | 0 printed; 64 usage |
 | `./dev summary [--base <ref>] [--checks] [--written <file>]` | Prints the change summary. Runs the structure checks only; `--checks` adds each component's `check`; `--written` adds the written half | 0 printed; 64 usage |
 | `./dev qualify` | The heavy checks, when a stage closes (and on the host every night): `verify` plus each component's `qualify` | 0 passed; 1 failed; 2 `not_run` |
-| `./dev demo` | The one-command demo | The demo's own; 2 while it is not built |
+| `./dev demo` | The one-command demo | 0 passed; 1 failed; 2 could not run |
 
 ## Commits
 

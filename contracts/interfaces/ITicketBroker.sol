@@ -94,11 +94,8 @@ interface ITicketBroker {
 }
 
 /// The Broker as stage 4 reads it (rulebook october-main-text-v4, R-16):
-/// ITicketBroker and the Buyback's draw of the network share. It is declared
-/// beside ITicketBroker, not on it, because the Broker built so far
-/// implements ITicketBroker and has no draw; spec S-07's contracts phase
-/// builds it into the Broker, whose constructor then takes the Buyback's
-/// predicted address.
+/// ITicketBroker and the Buyback's draw of the network share. The Broker's
+/// constructor takes the Buyback's predicted address.
 interface ITicketBrokerV2 is ITicketBroker {
     /// The Buyback, fixed at deployment.
     function buyback() external view returns (address);
