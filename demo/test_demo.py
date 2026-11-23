@@ -610,5 +610,32 @@ class Startup(unittest.TestCase):
         self.assertIn("still starting", said)
 
 
+class ContainerPayments(unittest.TestCase):
+    """demo/container.py's payment check: the node is paid once in every
+    round it was up for whole. Importing the demo reads stage 4's manifest
+    into common's shared state, so each test puts that state back."""
+
+    def setUp(self):
+        for d in (common.MANIFEST, common.VECTORS, common.CASES, common.PARAMS):
+            p = mock.patch.dict(d)
+            p.start()
+            self.addCleanup(p.stop)
+        import container
+        self.unpaid = container.unpaid
+
+    def test_every_whole_round_paid_once_passes(self):
+        # Joined in 2, killed in 5 and up again in 6, stopped in 11: rounds
+        # 2, 5, 6 and 11 were partial, and need not have been paid.
+        self.assertEqual(self.unpaid([3, 4, 7, 8, 9, 10], 2, (5, 6), 11), ([3, 4, 7, 8, 9, 10], [], []))
+        self.assertEqual(self.unpaid([2, 3, 4, 5, 6, 7, 8, 9, 10, 11], 2, (5, 6), 11)[1:], ([], []))
+
+    def test_a_missed_middle_round_is_found(self):
+        self.assertEqual(self.unpaid([2, 3, 4, 5, 6, 7, 9, 10], 2, (5, 6), 11)[1], [8])
+        self.assertEqual(self.unpaid([2, 4, 10], 2, (5, 6), 11)[1], [3, 7, 8, 9])
+
+    def test_a_round_paid_twice_is_found(self):
+        self.assertEqual(self.unpaid([3, 4, 7, 7, 8, 9, 10], 2, (5, 6), 11)[2], [7])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

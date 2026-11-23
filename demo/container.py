@@ -15,13 +15,18 @@ and from then on only watches, kills and restarts it:
   2. killed between H's approval and H's bond (LP2_TEST_HOLD=approved);
   3. a second container on the same data folder refuses to start;
   4. killed between a claim and its withdrawal (LP2_TEST_HOLD=claimed);
-  5. restarted, it withdraws H's part.
+  5. restarted, it withdraws H's part;
+  6. a container whose RPC provider cannot be reached names the
+     provider's host in its log and not the key in its URL; and started
+     again with public port 9000, its node comes up beside the responder
+     (LP2_TEST_HOLD=started).
 
 Then the chain is read: no second registration, grant, bond or claim; N's
-key sent nothing after the node started but its own redemptions; and the
-run, every step of it as the chain shows it, is written as a ledger case
-the calculator reproduces, against which the container's explorer's
-figures for the claimed round are checked.
+key sent nothing after the node started but its own redemptions; N was
+paid exactly once in every round it was up for whole; and the run, every
+step of it as the chain shows it, is written as a ledger case the
+calculator reproduces, against which the container's explorer's figures
+for the claimed round are checked.
 
 Exit 0 every check passed; 1 one failed; 2 the run could not run.
 """
@@ -51,6 +56,8 @@ PUBLIC = f"http://127.0.0.1:{PORT['orch']}"
 RUN_LIMIT = 20 * 60          # the most the demo waits for the first claim, in seconds
 FUNDED_WEI = 10**18          # what the demo sends N and H each
 STARTED: dict[str, int] = {}  # the block the chain was at when the container said it starts the node
+ROUNDS: dict[str, int] = {}   # the round when N joined, was killed, was up again and was stopped
+SYNTHETIC_KEY = "synthetic-provider-key"
 
 
 def gateway() -> str:
@@ -113,12 +120,13 @@ def write_deployment(first_block: int) -> None:
 RUNS: list[str] = []
 
 
-def container_argv(name: str, hold: str | None, ports: bool) -> list[str]:
+def container_argv(name: str, hold: str | None, ports: bool, public: str = PUBLIC,
+                   rpc: str = f"http://host.docker.internal:{PORT['chain']}", data=DATA) -> list[str]:
     argv = ["docker", "run", "--name", name, "--user", f"{os.getuid()}:{os.getgid()}",
             "--add-host", "host.docker.internal:host-gateway",
-            "-v", f"{DATA}:/data", "-v", f"{DEPLOYMENT}:/deployment.json:ro",
-            "-e", "LP2_DEPLOYMENT=/deployment.json", "-e", f"LP2_RPC_URL=http://host.docker.internal:{PORT['chain']}",
-            "-e", f"LP2_PUBLIC_URL={PUBLIC}", "-e", "LP2_POLL=2"]
+            "-v", f"{data}:/data", "-v", f"{DEPLOYMENT}:/deployment.json:ro",
+            "-e", "LP2_DEPLOYMENT=/deployment.json", "-e", f"LP2_RPC_URL={rpc}",
+            "-e", f"LP2_PUBLIC_URL={public}", "-e", "LP2_POLL=2"]
     if ports:
         argv += ["-p", f"127.0.0.1:{PORT['orch']}:{PORT['orch']}", "-p", f"127.0.0.1:{PORT['explorer']}:8080"]
     if hold:
@@ -126,11 +134,11 @@ def container_argv(name: str, hold: str | None, ports: bool) -> list[str]:
     return argv + [IMAGE]
 
 
-def run_node(hold: str | None = None) -> str:
+def run_node(hold: str | None = None, **how) -> str:
     name = f"lp2-demo-node-{BASE}-{len(RUNS) + 1}"
     subprocess.run(["docker", "rm", "-f", name], capture_output=True)
     common.CONTAINERS.append(name)
-    argv = container_argv(name, hold, ports=True)
+    argv = container_argv(name, hold, ports="public" not in how, **how)
     argv.insert(2, "-d")
     sh(argv)
     RUNS.append(name)
@@ -253,6 +261,15 @@ def steps_from_chain(all_txs: list[dict]) -> list[dict]:
     return out
 
 
+def unpaid(paid: list[int], joined: int, down: tuple[int, int], stopped: int) -> tuple[list[int], list[int], list[int]]:
+    """The rounds the node was up for whole, from the one after its join to
+    the one before it was stopped, less those from its kill to its being up
+    again; of those, the ones it was not paid in; and the rounds it was paid
+    in more than once."""
+    whole = [r for r in range(joined + 1, stopped) if not down[0] <= r <= down[1]]
+    return whole, [r for r in whole if r not in paid], sorted({r for r in paid if paid.count(r) > 1})
+
+
 def explorer_status() -> dict:
     with urllib.request.urlopen(f"http://127.0.0.1:{PORT['explorer']}/status.json", timeout=30) as r:
         return json.loads(r.read())
@@ -352,7 +369,9 @@ def main() -> int:
     wait_log(three, "starting the node", 60)
     STARTED["block"] = block_number()
     say(f"  {wait_log(three, 'joined:', 120).split(' ', 1)[1][:200]}")
+    ROUNDS["joined"] = current_round()
     wait_log(three, "holding after claimed", RUN_LIMIT)
+    ROUNDS["killed"] = current_round()
     kill(three)
     rounds = claimed_rounds()
     n = rounds[0]
@@ -361,6 +380,8 @@ def main() -> int:
 
     say("\n8. Restarted, it withdraws the part and claims nothing again")
     four = run_node()
+    wait_log(four, "the node is up", 120)
+    ROUNDS["up"] = current_round()
     say(f"  {wait_log(four, 'sent: withdraw-parts', 120).split('parts: ', 1)[-1][:200]}")
     got_part, withdrawn = part(n)
     check(f"round {n}: H's part withdrawn, and above zero", (withdrawn, got_part > 0), (1, True))
@@ -368,15 +389,41 @@ def main() -> int:
     page = urllib.request.urlopen(f"http://127.0.0.1:{PORT['explorer']}/", timeout=30).read().decode()
     ports = sh(["docker", "port", four])
     check("the explorer is published on the host's loopback only", f"8080/tcp -> 127.0.0.1:{PORT['explorer']}" in ports, True)
+    ROUNDS["stopped"] = current_round()
     sh(["docker", "stop", "-t", "20", four])
     keep(four)
+    subprocess.run(["docker", "rm", "-f", four], capture_output=True)
+    common.CONTAINERS.remove(four)
     for p in ("sender", "faucet", "keeper", "signer-P"):
         stop(p)
+
+    say("\n9. With an RPC provider that cannot be reached; and started on public port 9000, where the responder listened before")
+    unreachable = common.RUN / "container-unreachable"
+    unreachable.mkdir()
+    name = f"lp2-demo-node-{BASE}-unreachable"
+    argv = container_argv(name, None, False, rpc=f"https://127.0.0.1:1/v3/{SYNTHETIC_KEY}?apikey={SYNTHETIC_KEY}",
+                          data=unreachable)
+    argv.insert(2, "--rm")
+    common.CONTAINERS.append(name)
+    done = subprocess.run(argv, capture_output=True, text=True, timeout=120)
+    common.CONTAINERS.remove(name)
+    said = done.stdout + done.stderr
+    (common.RUN / "logs" / f"{name}.log").write_text(said)
+    failed = next((x for x in said.splitlines() if "lp2-stake state:" in x), "")
+    say(f"  exit {done.returncode}: {failed[:200]}")
+    check("an unreachable provider: the log names the step and the provider's host, and not the key in its URL",
+          (done.returncode, "gave up after 10 tries: read_state" in said, "127.0.0.1:1" in failed, SYNTHETIC_KEY in said),
+          (1, True, True, False))
+    five = run_node(hold="started", public="http://127.0.0.1:9000")
+    say(f"  {wait_log(five, 'starting the node', 60).split(' ', 1)[1]}")
+    wait_log(five, "holding after started", 180)
+    check("on public port 9000, the node comes up and its discovery lists lp2-responder", running(five), True)
+    kill(five)
     s3.wait("N's last transactions to be mined", lambda: rpc("eth_getTransactionCount", [ADDR["N"], "pending"]) ==
             rpc("eth_getTransactionCount", [ADDR["N"], "latest"]), 60)
     time.sleep(3)
 
-    say("\n9. The chain: each step once, and N's key used by the node alone once it started")
+    say("\n10. The chain: each step once, and N's key used by the node alone once it started")
     all_txs = txs()
     for who in ("N", "H"):
         statuses = [x["result"]["status"] for x in rpc_batch([("eth_getTransactionReceipt", [t["hash"]])
@@ -398,11 +445,13 @@ def main() -> int:
     check("the faucet granted N once", [r for r, _ in light.granted_by_faucet()].count("N"), 1)
     check("N registered once", len(registered()), 1)
     relays = sorted(x["round"] for x in light.relays().get("N", []))
-    say(f"  the sender's relays to N, by round: {relays}")
-    check("N was paid in at least three rounds, never twice in one", (len(relays) >= 3, len(relays) == len(set(relays))),
-          (True, True))
+    whole, missed, twice = unpaid(relays, ROUNDS["joined"], (ROUNDS["killed"], ROUNDS["up"]), ROUNDS["stopped"])
+    say(f"  the sender's relays to N, by round: {relays}; joined in round {ROUNDS['joined']}, killed in "
+        f"{ROUNDS['killed']}, up again in {ROUNDS['up']}, stopped in {ROUNDS['stopped']}")
+    check(f"N was paid once in each round it was up for whole ({len(whole)} rounds: {whole})",
+          (len(whole) >= 3, missed, twice), (True, [], []))
 
-    say(f"\n10. The run as a ledger case, and the explorer's figures for round {n}")
+    say(f"\n11. The run as a ledger case, and the explorer's figures for round {n}")
     extra = steps_from_chain(all_txs) + s3.keeper_steps()
     start_block = int(next(x for x in logs(C["RoundClock"], "RoundStarted(uint256,uint256,bytes32)")
                            if int(x["topics"][1], 16) == n)["blockNumber"], 16)

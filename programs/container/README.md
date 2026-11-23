@@ -115,7 +115,13 @@ The testnet's sender must open a connection to `LP2_PUBLIC_URL`: it checks
 the node there when it joins, and sends each paid request there. Inside
 the container the node listens on all interfaces at the port that URL
 names (8935 above, or 80 and 443 for a URL with no port), so publish that
-port (`-p 8935:8935`).
+port (`-p 8935:8935`). Any port works except the explorer's
+(`LP2_EXPLORER_LISTEN`, 8080): the responder and the node's metrics listen
+on loopback inside the container and move off the port the URL names.
+
+The node answers plain HTTP. An `https://` URL needs something in front of
+it, such as a reverse proxy or a tunnel, that holds the certificate, ends
+TLS and forwards plain HTTP to the container's port.
 
 - The URL must resolve to a public address: the sender refuses private,
   loopback and other reserved addresses.
@@ -157,7 +163,9 @@ when the page loads; one that could not be read says "unavailable".
   validator set, and the buyback's latest buys and burns.
 
 The container's own log (`docker logs lp2-node`) says each step it takes,
-and each claim and withdrawal it sends. The node's, the responder's and
+and each claim and withdrawal it sends. When the RPC provider cannot be
+reached, it names the provider's host and not the rest of `LP2_RPC_URL`,
+where a provider puts its key. The node's, the responder's and
 the explorer's logs are in `/data/logs`.
 
 ## The deployment file
@@ -202,7 +210,7 @@ operator.
 | `LP2_PUBLIC_URL` | The node's URL as the sender reaches it, `http://` or `https://`. Required |
 | `LP2_POLL` | Seconds between checks, 30 unless set |
 | `LP2_EXPLORER_LISTEN` | Where the explorer listens inside the container, `0.0.0.0:8080` unless set |
-| `LP2_TEST_HOLD` | For tests only: `approved` or `claimed` stops the run after that step, so a test can kill it there |
+| `LP2_TEST_HOLD` | For tests only: `approved`, `started` or `claimed` stops the run after that step, so a test can kill it there |
 
 ## Try it on a local chain
 
