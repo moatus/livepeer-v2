@@ -8,6 +8,7 @@ name: slither
 
 on:
   push:
+    branches: [main]
     paths:
       - "contracts/**"
       - "tools/versions"
