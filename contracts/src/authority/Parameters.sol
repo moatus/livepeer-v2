@@ -45,6 +45,9 @@ contract Parameters is IParameters {
     /// The largest delay, period, drop and buy interval: 840 rounds or
     /// steps (D-47 (iii), D-49).
     uint256 private constant MOST = 840;
+    /// Gas kept back from the executor asked about a pool, for the
+    /// refusal after its answer (R-25).
+    uint256 private constant ANSWER_RESERVE = 20_000;
     /// The largest validator set (D-47 (ii)).
     uint256 private constant MOST_MEMBERS = 33;
 
@@ -206,14 +209,30 @@ contract Parameters is IParameters {
     /// R-25's pool check (D-51): the executor of group 10's pending change
     /// if one is pending, else the one in force in `round`, is asked whether
     /// it accepts `p`. Only a yes accepts; a no, a failed call or an address
-    /// that cannot answer (address(0) included) is POOL_INVALID.
+    /// that cannot answer (address(0) included) is POOL_INVALID. Group 10
+    /// takes any address with code, so the answer is read with care: at
+    /// most one word of it is copied, however long it is, and the call is
+    /// given all but ANSWER_RESERVE of the gas, so the refusal can always
+    /// be made after it.
     function _checkPool(address p, uint256 round) private view {
         Change[] storage list = changes[BUYBACK_EXECUTOR];
         uint256 n = list.length;
         uint256[] memory e = n > 0 && list[n - 1].countsFrom > round ? list[n - 1].values : _at(BUYBACK_EXECUTOR, round);
-        (bool ok, bytes memory ret) =
-            address(uint160(e[0])).staticcall(abi.encodeCall(IBuybackExecutor.acceptsPool, (p)));
-        if (!ok || ret.length != 32 || abi.decode(ret, (uint256)) != 1) revert POOL_INVALID(p);
+        address asked = address(uint160(e[0]));
+        bytes memory ask = abi.encodeCall(IBuybackExecutor.acceptsPool, (p));
+        uint256 left = gasleft();
+        uint256 give = left > ANSWER_RESERVE ? left - ANSWER_RESERVE : 0;
+        bool ok;
+        uint256 size;
+        uint256 word;
+        assembly ("memory-safe") {
+            // The answer's first word goes to scratch space; the rest is
+            // never copied.
+            ok := staticcall(give, asked, add(ask, 32), mload(ask), 0, 32)
+            size := returndatasize()
+            word := mload(0)
+        }
+        if (!ok || size != 32 || word != 1) revert POOL_INVALID(p);
     }
 
     function _list(uint256 a) private pure returns (uint256[] memory v) {

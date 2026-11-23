@@ -42,6 +42,25 @@ contract Answers {
     }
 }
 
+/// An executor that answers yes and then `size` bytes more, or, with size
+/// 0, spends all the gas it is given and never answers.
+contract LongAnswer {
+    uint256 private immutable size;
+
+    constructor(uint256 size_) {
+        size = size_;
+    }
+
+    fallback() external {
+        uint256 n = size;
+        assembly {
+            if iszero(n) { for {} 1 {} {} }
+            mstore(0, 1)
+            return(0, add(32, n))
+        }
+    }
+}
+
 contract ParametersTest is Stage4 {
     event log_named_uint(string key, uint256 val);
     event log_string(string val);
@@ -386,6 +405,35 @@ contract ParametersTest is Stage4 {
         }
         Parameters yes = new Parameters(who("G"), clock, address(0), address(pool), address(buyback));
         expectEq(announceOn(yes, address(pool)).length, 0, "the Buyback says yes");
+    }
+
+    /// An executor whose answer is a yes followed by a megabyte, or that
+    /// never answers, still leaves the announcement gas to refuse with
+    /// POOL_INVALID(pool) (R-25): the Parameters copy at most one word of
+    /// the answer and keep gas back for the refusal. The change already
+    /// pending is still pending, as it was. The announcement is given 4
+    /// million gas: copying a megabyte answer would take more than the
+    /// executor left.
+    function test_an_executor_whose_answer_is_huge_or_endless_refuses_the_pool() external {
+        deployStage4(1_000_000_000e18, 0);
+        address[2] memory odd = [address(new LongAnswer(1 << 20)), address(new LongAnswer(0))];
+        string[2] memory what = ["a yes and a megabyte", "no answer, all gas spent"];
+        for (uint256 i = 0; i < odd.length; i++) {
+            Parameters q = new Parameters(who("G"), clock, address(0), address(pool), address(buyback));
+            expectEq(announceOn(q, address(pool)).length, 0, "a change pending, put to the Buyback");
+            uint256[] memory e = new uint256[](1);
+            e[0] = uint256(uint160(odd[i]));
+            vm.prank(who("G"));
+            q.announce(10, e);
+            uint256[] memory v = new uint256[](4);
+            (v[0], v[1], v[2], v[3]) = (uint256(uint160(address(pool))), 7200, 10_000, 1);
+            vm.prank(who("G"));
+            (bool ok, bytes memory ret) = address(q).call{gas: 4_000_000}(abi.encodeCall(IParameters.announce, (9, v)));
+            require(!ok, string.concat(what[i], ": accepted"));
+            expectPoolInvalid(ret, address(pool), what[i]);
+            (uint256[] memory still,) = q.pending(9);
+            expectEq(still.length == 4 ? still[1] : 0, 3600, string.concat(what[i], ": the pending change"));
+        }
     }
 
     function announceOn(Parameters q, address poolAddress) internal returns (bytes memory) {
