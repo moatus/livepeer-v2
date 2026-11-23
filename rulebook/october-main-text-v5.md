@@ -1412,9 +1412,7 @@ up. A product that can pass 2^256 is taken at full width, never wrapped.
    bound s and the rounds between buys. At deployment this source holds
    R-25's groups 8, 9 and 10: burn 10^6, TWAP 3,600 s, s 10,000 and a buy
    every round, from the ranges D-47 gives, and the Buyback as the
-   executor. A poke reads the same view for the current round. Rules 2 to
-   9 are the Buyback's, the executor for TestPool; an executor of another
-   design buys by its own, within rules 10 and 13.
+   executor. A poke reads the same view for the current round.
 2. **When.** A buy may run when no buy has succeeded yet, or when the
    round is at least `lastBuyRound` plus the rounds between buys. A
    refused buy does not use the round. Anyone may call it, and it takes no
@@ -1483,9 +1481,9 @@ up. A product that can pass 2^256 is taken at full width, never wrapped.
     `AMOUNT_TOO_LARGE`. There is no limit on a round's draws, and no
     longer notice for a change of executor than R-25's seven rounds. From
     the round a change of executor counts, the executor it replaces can
-    draw nothing: the Buyback's buy reaches its draw after the checks of
-    rule 11 up to `SLIPPAGE`, is refused there with `NOT_AUTHORIZED`, and
-    changes nothing (rule 7). In plain words: the network share held, and
+    draw nothing: a buy of its that reaches the draw is refused there with
+    `NOT_AUTHORIZED` and changes nothing (rule 7), and the earlier checks
+    of rule 11 keep their order. In plain words: the network share held, and
     all that enters it while an executor is in force, is as safe as the
     authority's choice of executor and no safer. An executor in force can
     take all of it, at once, to any address.
