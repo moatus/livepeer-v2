@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math/big"
+	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -68,9 +70,9 @@ var (
 
 // advance reads the pages from the block after the last one read through
 // head, at most maxPages of them. A new executor, or clock, starts the
-// scan again from the first block. A page that fails stops the read with
-// its error; what was read before it is kept, and the next read resumes
-// at that page. It returns an error until the scan has reached head.
+// scan again from the first block. A page that fails, to read or to
+// decode, stops the read with its error and keeps nothing of that page;
+// the pages before it are kept, and the next read resumes at that page. It returns an error until the scan has reached head.
 func (s *scanner) advance(ctx context.Context, b batcher, head uint64, clock, executor common.Address) error {
 	if clock != s.clock || executor != s.executor {
 		*s = scanner{first: s.first, next: s.first, claims: s.claims, node: s.node, clock: clock, executor: executor,
@@ -100,12 +102,18 @@ func (s *scanner) advance(ctx context.Context, b batcher, head uint64, clock, ex
 				return fmt.Errorf("eth_getLogs from block %d: %w", s.next, r.Error)
 			}
 		}
+		// The page is decoded into a copy, kept only when all of it decodes:
+		// a page that fails is read again whole, so nothing of it may stay.
+		page := *s
+		page.buys = slices.Clone(s.buys)
+		page.claimed = maps.Clone(s.claimed)
 		for _, l := range append(events, claims...) {
-			if err := s.take(l); err != nil {
+			if err := page.take(l); err != nil {
 				return err
 			}
 		}
-		s.next = to + 1
+		page.next = to + 1
+		*s = page
 	}
 	if s.start.block != 0 && s.start.time == 0 {
 		var header struct {

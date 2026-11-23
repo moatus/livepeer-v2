@@ -456,6 +456,30 @@ func TestScannerReadsBoundedPagesOnce(t *testing.T) {
 	}
 }
 
+// A page that fails to decode keeps nothing: the buy read before its bad
+// Claimed event is not kept, so the page read again shows it once.
+func TestFailedPageKeepsNothing(t *testing.T) {
+	f := newFake()
+	bad := claimedLog(nodeAt, 2, 160, 1_000_000, "7")
+	bad.Data = bad.Data[:1]
+	f.logs = []types.Log{bought(executorAt, 3, 150, 1), bad}
+	s := newScanner(100, claimsAt, nodeAt)
+	ctx := context.Background()
+	if err := s.advance(ctx, f, 200, clockAt, executorAt); err == nil || !strings.Contains(err.Error(), "Claimed event in block 160") {
+		t.Fatalf("a malformed claim: %v", err)
+	}
+	if len(s.buys) != 0 || len(s.claimed) != 0 || s.next != 100 {
+		t.Errorf("a failed page kept buys %+v, claims %+v, next %d", s.buys, s.claimed, s.next)
+	}
+	f.logs[1] = claimedLog(nodeAt, 2, 160, 1_000_000, "7")
+	if err := s.advance(ctx, f, 200, clockAt, executorAt); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.recent(); len(got) != 1 || got[0].Block != 150 || s.claimed[2].Int64() != 1_000_000 {
+		t.Errorf("the page read again: buys %+v, claims %+v", got, s.claimed)
+	}
+}
+
 // A scan further behind than maxPages catches up over several reads, and
 // says so until it has; the page keeps only the latest keepBuys buys.
 func TestScannerCatchesUpOverReads(t *testing.T) {
