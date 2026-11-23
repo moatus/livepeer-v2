@@ -337,7 +337,7 @@ data fee included, and the same steps use about 19.6 million gas locally.
 | P | 2 | approve and fund | 0.19 million |
 | V | 4 | register; approve and bond; opt in | 0.5 million |
 | Keeper | 2 a round, and the first poke and the buy | `initializeRound` (56,000 gas) and `mintRoundShares` (182,000) each round; a poke (164,000) and the buy (224,000) | about 2.4 million for Arbitrum Sepolia's 8 or 9 rounds; 16.3 million for the local run's 67 |
-| Faucet | 0 | nothing during the run; under `serve`, one token transfer per grant | 0 |
+| Faucet | 0 | nothing during the run; under `serve`, one token transfer per grant, 52,449 gas on the local chain | 0 |
 
 The whole run is about 24 million gas, about 0.0012 to 0.002 Sepolia ETH
 in fees. Most of it is the twelve contract creations. Fund

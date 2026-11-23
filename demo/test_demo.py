@@ -687,6 +687,22 @@ class PublicStage4(unittest.TestCase):
                 self.p4.sender_url(421614)
             self.assertIn(want, str(e.exception))
 
+    def test_serve_writes_the_sender_url_it_runs_with_into_the_operators_file(self):
+        c, m, b, _ = self.deployed()
+        with c, m, b:
+            (self.dir / "deployment.json").write_text(json.dumps(self.p4.operator_doc(421614, "https://old.example")))
+        with self.env():
+            self.p4.publish_sender(self.dir, 421614)   # no new URL: the file is kept as it is
+        self.assertEqual(json.loads((self.dir / "deployment.json").read_text())["sender_url"], "https://old.example")
+        with self.env(LP2_SENDER_URL="https://sender.example:8443"):
+            self.p4.publish_sender(self.dir, 421614)
+        doc = json.loads((self.dir / "deployment.json").read_text())
+        self.assertEqual((doc["sender_url"], self.p4.operator_problems(doc, True)), ("https://sender.example:8443", []))
+        self.assertEqual((self.dir / "deployment.json").stat().st_mode & 0o777, 0o644)
+        with self.env(LP2_SENDER_URL="http://127.0.0.1:9000"), self.assertRaises(common.NotRun):
+            self.p4.publish_sender(self.dir, 421614)
+        self.assertEqual(json.loads((self.dir / "deployment.json").read_text())["sender_url"], "https://sender.example:8443")
+
     def handed(self, failures):
         import public
         c, m, b, contracts = self.deployed()
