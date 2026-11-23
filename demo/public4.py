@@ -41,6 +41,7 @@ import os
 import re
 import subprocess
 import time
+from pathlib import Path
 
 import common
 import public
@@ -207,10 +208,25 @@ def main() -> int:
     say(f"  G announced {pc['name']} {' '.join(pc['values'])} in round {change['round']}: it counts from round "
         f"{change['counts_from']}")
 
-    public.start_programs(node_bin, model, keeper=keeper_options())
+    public.start_programs(node_bin, model, keeper=keeper_options(), script=validator_script())
     public.paid_job()
     wait_both(change)
     return reconcile(chain_id, started)
+
+
+def validator_script() -> Path:
+    """V's script: the public run's, which opts V in in round 2, unless V
+    has opted in already, as when a run is started again. The validator
+    program does a line whose round has passed at once, and the contract
+    takes a second opt-in, so the script would send it again."""
+    opted = [lg for lg in common.logs(C["Scores"], "OptedIn(address,uint256)")
+             if int(lg["topics"][1], 16) == int(ADDR["V"], 16)]
+    if not opted:
+        return public.SCRIPT
+    script = public.STATE_DIR / "validators-resumed.script"
+    script.write_text(f"# Written by demo/public-run stage-4: V opted in at block {int(opted[0]['blockNumber'], 16)}, "
+                      "so it has nothing left to send.\n")
+    return script
 
 
 def announce() -> dict:

@@ -989,7 +989,7 @@ def reconcile(title: str, extra: list[dict] | None = None, members: dict | None 
     chain = ledgercase.expected(ordered, views["need"], views)
     calc = calculator(case_steps, members)
     flat_chain, flat_calc = ledgercase.flatten(chain), ledgercase.flatten(calc)
-    w = 28 if views["need"].get("lpt") else 14
+    w = 30 if views["need"].get("lpt") else 14
     say(f"\n  {title}: {len(case_steps)} steps, chain at block {views['block']}, round {current_round()}")
     say(f"  {'figure (micro-USDC' + ('; LPT' if w > 14 else '') + ')':<46}{'chain':>{w}}{'calculator':>{w}}")
     quiet = 0
