@@ -25,9 +25,9 @@ class BuybackCases(unittest.TestCase):
     def test_block_times_shift_nothing(self):
         # A local chain runs at its own clock: only differences in time
         # count, and NOT_DUE names a time, which moves with the clock.
-        for shift, case in ((shift, case) for shift in (1_763_800_000,)
-                            for case in self.cases.values()):
-            with self.subTest(case=case['id'], shift=shift):
+        shift = 1_763_800_000
+        for case in self.cases.values():
+            with self.subTest(case=case['id']):
                 expected = self.run_case(case['inputs'])
                 for refusal in expected['refused']:
                     if refusal['code'] == 'NOT_DUE':
@@ -89,15 +89,6 @@ class BuybackCases(unittest.TestCase):
         untouched = self.run_case({'lpt_supply_wei': '1', 'steps': steps})
         self.assertEqual(untouched.pop('refused'), [])
         self.assertEqual(refused, untouched)
-
-    def pool_walk(self, buy_time):
-        # Seed 1,000,000 a side, poke at 0, hold a network share, buy later.
-        return {'lpt_supply_wei': str(10 ** 6), 'steps': [
-            dict(step='1', round='1', time='0', action='seed',
-                 usdc_micro_usdc='1000000', lpt_wei='1000000'),
-            dict(step='2', round='1', time='0', action='poke'),
-            dict(step='3', round='1', time='0', action='job', face_micro_usdc='20000'),
-            dict(step='4', round='1', time=str(buy_time), action='buy')]}
 
     def test_job_adds_the_network_share(self):
         # R-03: an odd face leaves the floored node cut's remainder to the

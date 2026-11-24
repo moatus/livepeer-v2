@@ -338,7 +338,7 @@ def calculate(kind: str, inputs: dict, parameters: Parameters,
     """Calculate one case using only inputs; rounds maps IDs to earning inputs.
 
     A ceiling returns both its ceiling and fixed shares. A round returns total
-    minting only when all scores are full: the handling of withheld rewards remains open.
+    minting only when all scores are full, as specified by the round case format.
     A claim is a stateless calculation against the supplied already-paid flag.
     """
     if kind == "validators":

@@ -45,8 +45,8 @@ Future tickets and simultaneous redemption refusals are reported as unsupported
 inputs rather than inventing a stable code or refusal precedence.
 
 This is a calculator, not a settlement or entitlement store.
-It does not decide where withheld rewards go, so rounds with any
-score below one million do not return `minted_wei`. When two refusals apply, they follow the general order in the rulebook's
+The round case format gives `minted_wei` only when every score is one
+million, so the calculator returns it only for those rounds. When two refusals apply, they follow the general order in the rulebook's
 units section.
 
 LPT replay covers bonds, transfers, unbonds, rebonds, round-start stake and
@@ -85,9 +85,7 @@ since these are not rule refusals. No case changes the pool, so
 
 From v5, group 10 holds the executor. Pool announcements ask the pending
 executor when present, otherwise the executor in force. Other executors
-use the case’s accepted-pool list. The checker selects ten groups for v5
-and nine for older profiles; direct callers may pass parameter_groups=9
-to Parameters.from_strings for older rules. The buyback replay is unchanged.
+use the case’s accepted-pool list.
 
 Upgrade cases replay R-27 notices, stops and pause-key succession. Calls on
 other contracts check only their own stop gate, ignoring `meets` as the
