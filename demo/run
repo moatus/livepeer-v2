@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """./dev demo: the one-command demo, on a fresh local chain.
 
-  ./dev demo              stage 3 (S-05 section 1): stake, scores, claims and
+  ./dev demo              rewards: stake, scores, claims and
                           LPT rewards, with the node paid in mock USDC
-  ./dev demo payments      stage 2 (S-09 section 1): the node paid in mock
+  ./dev demo payments     the node paid in mock
                           USDC, with no stake
-  ./dev demo full      announced parameters, key rotation and recovery
-  ./dev demo buyback      the buyback (S-07 section 1): the network share
+  ./dev demo full         announced parameters, key rotation and recovery
+  ./dev demo buyback      the buyback: the network share
                           buys test LPT from a test pool and burns it,
-                          then Parameters (S-10 R-25), then the buyback
+                          then Parameters (R-25), then the buyback
                           moved to a second executor and pool; no node,
                           so no docker
   ./dev demo light        the standing services: lp2-sender refuses bad
@@ -16,7 +16,7 @@
                           lp2-responder, once a round, and lp2-faucet
                           grants each registered node test LPT once,
                           through three kills; no model, no docker
-  ./dev demo container    the operator container on stage 4's system with
+  ./dev demo container    the operator container on the full system with
                           the sender and the faucet: it registers, is
                           granted, bonds, joins, is paid, and claims and
                           withdraws, through three kills; the run as a
@@ -35,18 +35,18 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 parser = argparse.ArgumentParser(prog="./dev demo", description=__doc__.splitlines()[0])
-parser.add_argument("stage", nargs="?", choices=("payments", "rewards", "full", "buyback", "light", "container"), default="rewards",
-                    help="which stage's demo to run (default rewards)")
-stage = parser.parse_args().stage
-if stage == "payments":
+parser.add_argument("demo_name", nargs="?", choices=("payments", "rewards", "full", "buyback", "light", "container"), default="rewards",
+                    help="which demo to run (default rewards)")
+demo_name = parser.parse_args().demo_name
+if demo_name == "payments":
     import payments as demo
-elif stage == "full":
+elif demo_name == "full":
     import full as demo
-elif stage == "buyback":
+elif demo_name == "buyback":
     import buyback as demo
-elif stage == "light":
+elif demo_name == "light":
     import light as demo
-elif stage == "container":
+elif demo_name == "container":
     import container as demo
 else:
     import rewards as demo

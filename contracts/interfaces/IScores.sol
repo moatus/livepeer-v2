@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import {IScoreSource} from "./IScoreSource.sol";
 
-/// The validator set and the median: stage 3's score source (rulebook R-11,
+/// The validator set and the median: the rewards demo’s score source (rulebook R-11,
 /// R-13). A call made for a node takes the node's address and is refused
 /// with NOT_AUTHORIZED unless the Registry's mayActFor(caller, node). Every
 /// change to the members counts from the next round. Opting in again,
@@ -12,7 +12,7 @@ import {IScoreSource} from "./IScoreSource.sol";
 /// opted in change nothing and are not refused.
 interface IScores is IScoreSource {
     /// Refused with NOT_AUTHORIZED unless mayActFor(caller, node), then with
-    /// NOT_REGISTERED when `node` is not a registered node (D-39). Sets the
+    /// NOT_REGISTERED when `node` is not a registered node. Sets the
     /// flag, then seats `node` if it can.
     function optIn(address node) external;
 

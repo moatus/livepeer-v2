@@ -10,7 +10,7 @@ import {MockUSDC} from "../src/money/MockUSDC.sol";
 import {Parameters} from "../src/authority/Parameters.sol";
 import {ITicketBroker} from "../interfaces/ITicketBroker.sol";
 
-/// A fresh stage 2 deployment, the shared examples, and the steps a test
+/// A fresh payments deployment, the shared examples, and the steps a test
 /// takes as a participant: register, fund, sign and redeem a ticket.
 abstract contract PaymentsFixture {
     RoundClock internal clock;

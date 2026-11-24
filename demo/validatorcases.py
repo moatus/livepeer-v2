@@ -65,7 +65,7 @@ def validator_pay_case(case_id: str, round_: int, members: list[tuple[str, int]]
 
 
 def one_earning_round(claims: list[tuple[str, str, int]]) -> int | None:
-    """S-06 section 1's table is four nodes each earning a reward in one
+    """The validator reward example is four nodes each earning a reward in one
     round. `claims` gives each row, the node that claimed and the round its
     claim was for; the answer is that round, or None unless there are four
     rows, four different nodes and one earning round."""

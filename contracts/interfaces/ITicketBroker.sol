@@ -93,7 +93,7 @@ interface ITicketBroker {
     // hash", for a creation round not started, which the node treats as final.
 }
 
-/// The Broker as stage 4 reads it (rulebook october-main-text-v5, R-16):
+/// The broker with network-share withdrawals (rulebook october-main-text-v5, R-16):
 /// ITicketBroker and the draw of the network share by the executor that
 /// group 10 of the Parameters names for the round the draw runs in.
 interface INetworkShareTicketBroker is ITicketBroker {

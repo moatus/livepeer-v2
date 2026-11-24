@@ -40,11 +40,11 @@ contract ScoreStub is IScoreSource {
     }
 }
 
-/// A fresh stage 2 deployment plus test LPT, StakeLedger and Claims, and
+/// A fresh payments deployment plus test LPT, StakeLedger and Claims, and
 /// the steps a holder takes. Claims is created at the address the token
 /// was given at deployment, as the Broker is at the Registry's. Claims
 /// reads scores and members from the stub, or, deployed with
-/// deployRewardsWithScores, from the real Scores, as stage 3 deploys it:
+/// deployRewardsWithScores, from the real Scores, as rewards deploys it:
 /// one contract as both the score source and the validator set.
 abstract contract RewardsFixture is PaymentsFixture {
     /// Test LPT's genesis supply, a test value outside every round's
@@ -73,7 +73,7 @@ abstract contract RewardsFixture is PaymentsFixture {
         deployRewards(GENESIS, true);
     }
 
-    /// Stage 2's five contracts, then the token, StakeLedger, the stub or
+    /// Payments's five contracts, then the token, StakeLedger, the stub or
     /// Scores, Parameters and Claims, in that order: the Broker, StakeLedger
     /// and Scores are given the address Parameters will have, and the token
     /// Claims'.

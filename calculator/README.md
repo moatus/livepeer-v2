@@ -45,9 +45,9 @@ Future tickets and simultaneous redemption refusals are reported as unsupported
 inputs rather than inventing a stable code or refusal precedence.
 
 This is a calculator, not a settlement or entitlement store.
-It does not decide where withheld rewards go (D-21), so rounds with any
+It does not decide where withheld rewards go, so rounds with any
 score below one million do not return `minted_wei`. When two refusals apply, they follow the general order in the rulebook's
-units section (D-26, D-38, D-39, D-40).
+units section.
 
 LPT replay covers bonds, transfers, unbonds, rebonds, round-start stake and
 cut snapshots, claims, share minting and holder withdrawals from per-round,

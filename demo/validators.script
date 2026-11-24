@@ -1,4 +1,4 @@
-# The scripted validators of the stage 3 demo (S-05 and S-06 section 1), run
+# The scripted validators of the rewards demo, run
 # by programs/validators. Each line is one act in one on-chain round:
 #   round validator target score   the validator votes score on target
 #   round validator opt-in         the validator opts itself in

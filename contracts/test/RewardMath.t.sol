@@ -29,14 +29,14 @@ contract RewardMathTest {
 
     /// R-05 under a schedule (p, h, s): the position in round R is
     /// p + (R - s) x 840 / h, a whole number of the deployment's steps. The
-    /// deployment's (0, 840, 1) gives R - 1; D-12's (99, 420, 100) gives 101
+    /// deployment's (0, 840, 1) gives R - 1; (99, 420, 100) gives 101
     /// in round 101.
     function test_position() external pure {
         for (uint256 r = 1; r < 2000; r += 37) {
             expectEq(RewardMath.position(0, 840, 1, r), r - 1, "the deployment's schedule");
         }
-        expectEq(RewardMath.position(99, 420, 100, 100), 99, "D-12, round 100");
-        expectEq(RewardMath.position(99, 420, 100, 101), 101, "D-12, round 101");
+        expectEq(RewardMath.position(99, 420, 100, 100), 99, "Emission schedule, round 100");
+        expectEq(RewardMath.position(99, 420, 100, 101), 101, "Emission schedule, round 101");
         expectEq(RewardMath.position(113, 210, 107, 108), 117, "a quarter half-life, round 108");
         expectEq(RewardMath.position(5, 1, 3, 4), 845, "a half-life of one round");
     }

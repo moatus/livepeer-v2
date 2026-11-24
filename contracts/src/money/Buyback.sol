@@ -12,7 +12,7 @@ import {ITestPool} from "../../interfaces/ITestPool.sol";
 /// Buys LPT with the network share and burns it (rulebook R-16). Anyone may
 /// buy, once every buyEveryRounds rounds, and the buy computes its own
 /// amount: the least of the share held and the most the slippage bound
-/// allows over the pool's two-slot TWAP (D-48). Anyone may poke, which
+/// allows over the pool's two-slot TWAP. Anyone may poke, which
 /// starts the TWAP on a pool and records an observation when one is due.
 /// It is the executor for TestPool (R-16 rule 13): it draws only in a round
 /// whose group 10 names it, which the Broker checks. It has no owner and no setting: every value comes from the values source

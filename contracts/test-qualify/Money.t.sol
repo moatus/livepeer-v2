@@ -6,7 +6,7 @@ import {Handler} from "./Handler.sol";
 import {ITicketBroker} from "../interfaces/ITicketBroker.sol";
 import {MockUSDC} from "../src/money/MockUSDC.sol";
 
-/// The money invariants of stage 2, checked after every step of long
+/// The money invariants of payments, checked after every step of long
 /// random sequences that the Handler drives through the real contracts.
 /// Each names the rule it guards. They run only under the `qualify`
 /// profile (contracts/qualify), never in contracts/check.
@@ -76,7 +76,7 @@ contract MoneyInvariants {
         eqOr(usdc.totalSupply(), h.minted(), "MockUSDC supply vs minted");
     }
 
-    /// R-03 with R-01 and D-28: every node's half went to the payout
+    /// R-03 with R-01: every node's half went to the payout
     /// address in force at its redemption, every release to its payer,
     /// and every address holds exactly what the rules sent it.
     function invariant_R03_R22_usdc_that_left_went_where_the_rules_say() external view {

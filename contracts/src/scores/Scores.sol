@@ -7,7 +7,7 @@ import {IRoundClock} from "../../interfaces/IRoundClock.sol";
 import {IStakeLedger} from "../../interfaces/IStakeLedger.sol";
 import {IParameters} from "../../interfaces/IParameters.sol";
 
-/// The validator set and the median (rulebook R-11, R-13): stage 3's score
+/// The validator set and the median (rulebook R-11, R-13): the rewards demo’s score
 /// source. It holds and moves no token.
 ///
 /// How a round's members are kept. The members are a history of seat lists,
@@ -27,7 +27,7 @@ import {IParameters} from "../../interfaces/IParameters.sol";
 /// that a round has started without is given a new number when it is seated
 /// again, so its earlier votes lapse; a member of the current round whose
 /// exit is undone in the same round keeps its number, and with it its votes
-/// and its seating order (D-36, D-37). The seat lists are kept sorted by the
+/// and its seating order. The seat lists are kept sorted by the
 /// number, so the one seated last is the last in its list.
 ///
 /// No call visits the opted-in nodes: each reads the node it names and the
@@ -87,7 +87,7 @@ contract Scores is IScores {
 
     // --- calls made for a node ------------------------------------------------
 
-    /// Refused, the first that applies (D-39), with NOT_AUTHORIZED, then
+    /// Refused, the first that applies, with NOT_AUTHORIZED, then
     /// NOT_REGISTERED. Seats the node when it can, as seat would, and is not
     /// refused when it cannot.
     function optIn(address node) external {

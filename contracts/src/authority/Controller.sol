@@ -4,7 +4,7 @@ pragma solidity 0.8.30;
 import {IController} from "../../interfaces/IController.sol";
 
 /// The names the node looks up, fixed at deployment. There is no owner and
-/// no way to change a name later (spec S-09, section 3.4).
+/// no way to change a name later .
 contract Controller is IController {
     bytes32 private constant BONDING_MANAGER = keccak256("BondingManager");
     bytes32 private constant ROUNDS_MANAGER = keccak256("RoundsManager");

@@ -20,40 +20,40 @@ contract StakeLedgerTest is RewardLedgerRunner {
         runRewardCase("ledger-stake");
     }
 
-    // v1's ledger cases, unchanged in v2, on a stage 3 deployment.
-    function test_v2_ledger_demo() external {
+    // v1's ledger cases, unchanged in v2, on a rewards deployment.
+    function test_rewards_ledger_demo() external {
         runRewardCase("ledger-demo");
     }
 
-    function test_v2_ledger_reserve() external {
+    function test_rewards_ledger_reserve() external {
         runRewardCase("ledger-reserve");
     }
 
-    function test_v2_ledger_partial() external {
+    function test_rewards_ledger_partial() external {
         runRewardCase("ledger-partial");
     }
 
-    function test_v2_ledger_empty() external {
+    function test_rewards_ledger_empty() external {
         runRewardCase("ledger-empty");
     }
 
-    function test_v2_ledger_replay() external {
+    function test_rewards_ledger_replay() external {
         runRewardCase("ledger-replay");
     }
 
-    function test_v2_ledger_expired() external {
+    function test_rewards_ledger_expired() external {
         runRewardCase("ledger-expired");
     }
 
-    function test_v2_ledger_unregistered() external {
+    function test_rewards_ledger_unregistered() external {
         runRewardCase("ledger-unregistered");
     }
 
-    function test_v2_ledger_release() external {
+    function test_rewards_ledger_release() external {
         runRewardCase("ledger-release");
     }
 
-    function test_v2_ledger_payout() external {
+    function test_rewards_ledger_payout() external {
         runRewardCase("ledger-payout");
     }
 
@@ -83,14 +83,14 @@ contract StakeLedgerTest is RewardLedgerRunner {
         ran[13] = "ledger-round-zero";
         ran[14] = "ledger-same-node";
         ran[15] = "refusal-order";
-        // They name validator members (S-06 phase 4).
+        // They name validator members.
         ran[16] = "ledger-validator-pot";
         ran[17] = "ledger-mid-round";
-        // Parameters (S-10 phase 3).
+        // Parameters.
         ran[18] = "ledger-authority";
         ran[19] = "ledger-delays";
         ran[20] = "ledger-score-source";
-        // Key rotation (S-10 phase 4).
+        // Key rotation.
         ran[21] = "ledger-rotation";
         string memory missing = ledgerCasesNotIn(ran);
         require(bytes(missing).length == 0, string.concat("ledger case not run:", missing));
@@ -110,7 +110,7 @@ contract StakeLedgerTest is RewardLedgerRunner {
             "transfer to X"
         );
         // X to X, with no bond at X: NOT_REGISTERED before SAME_NODE and the
-        // amount (D-38, D-39).
+        // amount.
         expectRefused(
             as_(h, address(ledger), abi.encodeCall(StakeLedger.transferBond, (who("X"), who("X"), 1))),
             "NOT_REGISTERED",
@@ -199,7 +199,7 @@ contract StakeLedgerTest is RewardLedgerRunner {
         register("N");
         expectEq(ledger.cutAt(n, 1), 0, "default cut");
         // A holder may not set N's cut. An unregistered address setting its
-        // own is refused for the node it names, after who (D-39).
+        // own is refused for the node it names, after who.
         expectRefused(
             as_(who("H"), address(ledger), abi.encodeCall(StakeLedger.setRewardCut, (n, 1))), "NOT_AUTHORIZED", "holder"
         );
@@ -256,7 +256,7 @@ contract StakeLedgerTest is RewardLedgerRunner {
         expectEq(lpt.decimals(), 18, "decimals");
     }
 
-    /// S-05 3.2: a mint from the deployer, StakeLedger, a node or a holder
+    /// a mint from the deployer, StakeLedger, a node or a holder
     /// is refused NOT_AUTHORIZED; Claims, fixed at deployment, mints.
     function test_mint_only_from_claims() external {
         deployRewards();

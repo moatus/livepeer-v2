@@ -27,19 +27,18 @@ import {RewardMath} from "../math/RewardMath.sol";
 /// force in the round the claim runs in; who may act for the node and its
 /// payout address from the Registry at execution.
 ///
-/// Two addresses answer for scores (S-06, A3), the same contract in stage
-/// 3: the score source, for scoreOf, which Parameters' group 6 replaces
+/// Two addresses answer for scores , the same contract in the rewards deployment: the score source, for scoreOf, which Parameters' group 6 replaces
 /// (R-20, R-25), and the validator set, for membersAt, which stays.
 ///
 /// There is no round 0 (R-18): every call that names it is refused with
-/// NO_SUCH_ROUND, after who and before anything else (D-39, D-40).
+/// NO_SUCH_ROUND, after who and before anything else.
 contract Claims is IClaims {
     /// Parameters' groups read here (R-25).
     uint256 private constant EMISSION = 2;
     uint256 private constant SCHEDULE = 3;
     uint256 private constant REWARD_DELAY = 4;
     uint256 private constant SCORE_SOURCE = 6;
-    /// ClaimWindow (R-12, D-08): round R with reward delay d is claimable in
+    /// ClaimWindow (R-12): round R with reward delay d is claimable in
     /// R + d to R + d + 21.
     uint256 private constant CLAIM_WINDOW = 21;
     /// A score is 0 to 10^6 (R-11).
@@ -115,7 +114,7 @@ contract Claims is IClaims {
 
     // --- the node's claim (R-12, R-24) --------------------------------------
 
-    /// Refusals in the units section's order (D-26, D-39, D-40): who, then
+    /// Refusals in the units section's order: who, then
     /// the round and the node named, then when, then once, then the score.
     function claim(address node, uint256 round) external {
         if (!registry.mayActFor(msg.sender, node)) revert IClaims.NOT_AUTHORIZED();
@@ -191,7 +190,7 @@ contract Claims is IClaims {
     ///
     /// Each input is the round's own: the members of `round`, fixed when it
     /// started, and each one's stake and cut at its start. Only the payout
-    /// address is read now (D-10 e1). The loop runs over the members, at most
+    /// address is read now . The loop runs over the members, at most
     /// 33 (R-13), never over holders or opted-in nodes (R-23).
     function mintRoundShares(uint256 round) external {
         if (round == 0) revert IClaims.NO_SUCH_ROUND();

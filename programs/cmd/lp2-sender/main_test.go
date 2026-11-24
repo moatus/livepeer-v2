@@ -37,7 +37,7 @@ func TestTheNodeModuleIsThePinnedNode(t *testing.T) {
 	var manifest struct{ Node struct{ Commit string } }
 	data, err := os.ReadFile("../../../deployments/rewards-local.json")
 	if err != nil || json.Unmarshal(data, &manifest) != nil || len(manifest.Node.Commit) < 12 {
-		t.Fatalf("the stage 3 manifest's node commit: %v", err)
+		t.Fatalf("the rewards manifest's node commit: %v", err)
 	}
 	info, ok := debug.ReadBuildInfo()
 	if !ok {

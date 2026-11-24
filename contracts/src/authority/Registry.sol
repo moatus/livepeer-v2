@@ -99,7 +99,7 @@ contract Registry is IRegistry {
 
     /// Whether `caller` may act for `node`: it is the node's operator key
     /// (R-26). It reads nothing else about the node, so the caller that
-    /// checks it gives NOT_REGISTERED itself, after it (D-39). Read at
+    /// checks it gives NOT_REGISTERED itself, after it. Read at
     /// execution by every call that acts for a node, setPayout and
     /// setOperator here included.
     function mayActFor(address caller, address node) public view returns (bool) {

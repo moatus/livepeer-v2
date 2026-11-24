@@ -1,4 +1,4 @@
-"""Stage 4 on a fresh chain, with real jobs and exact calculator checks."""
+"""Full system on a fresh chain, with real jobs and exact calculator checks."""
 import json
 import os
 import signal
@@ -6,7 +6,7 @@ import time
 import urllib.error
 import urllib.request
 
-import rewards as s3
+import rewards as rewards
 import buyback as bb
 import common as c
 
@@ -38,7 +38,7 @@ def recover(start_node, face):
     c.rpc("evm_setAutomine", [False])
     paid_job()
     c.mine(41)
-    s3.wait("N's redemption in the transaction pool", lambda: pooled_from("N"))
+    rewards.wait("N's redemption in the transaction pool", lambda: pooled_from("N"))
     tx, = pooled_from("N")
     pending = tx["hash"]
     if tx["to"].lower() != C["Broker"].lower() or c.rpc("eth_getTransactionReceipt", [pending]) is not None:
@@ -50,7 +50,7 @@ def recover(start_node, face):
     c.check("pending redemption dropped while N is down", c.rpc("eth_getTransactionByHash", [pending]), None)
     start_node()
     c.rpc("evm_setIntervalMining", [1])
-    s3.wait("redemption recovered after restart", lambda: len(c.settlements()) > count, 420)
+    rewards.wait("redemption recovered after restart", lambda: len(c.settlements()) > count, 420)
     time.sleep(12)  # Let two more redeemer passes run.
     settled = c.settlements()
     c.check("the recovered transaction settled once", [s["tx"] for s in settled[count:]], [pending])
@@ -63,7 +63,7 @@ def recover(start_node, face):
     expected = (int(calc["deposits_micro_usdc"]["P"]) - funded,
                 int(calc["paid_micro_usdc"]["W"]), int(calc["network_micro_usdc"]))
     for label, old, new, want in zip(("payer deposit (micro-USDC)", "W payout (micro-USDC)", "network share (micro-USDC)"), before, balances(), expected):
-        s3.side(f"Restart: {label}", new - old, want, c.money)
+        rewards.side(f"Restart: {label}", new - old, want, c.money)
 
 
 def check_buys(seed):
@@ -96,7 +96,7 @@ def check_buys(seed):
             issued = sum(int(log["data"], 16) for log in minted)
             c.check("Bought: fall in LPT supply after accounting for same-block mints (wei)",
                     supply[0] + issued - supply[1], int(result["burned_wei"]))
-    calc = s3.calculate("buyback", {"lpt_supply_wei": c.MANIFEST["lpt"]["genesis_supply_wei"], "steps": steps})
+    calc = rewards.calculate("buyback", {"lpt_supply_wei": c.MANIFEST["lpt"]["genesis_supply_wei"], "steps": steps})
     c.check("Bought amounts agree with the calculator", observed, calc["bought"])
 
 
@@ -124,7 +124,7 @@ def start_explorer(first_block: int) -> None:
                          "--stake-ledger-address", C["StakeLedger"], "--claims-address", C["Claims"],
                          "--usdc-address", C["MockUSDC"], "--first-block", str(first_block),
                          "--node", ADDR["N"], "--listen", f"127.0.0.1:{c.PORT['explorer']}"])
-    s3.wait("lp2-explorer to answer", lambda: explorer_get("/status.json") is not None, 30)
+    rewards.wait("lp2-explorer to answer", lambda: explorer_get("/status.json") is not None, 30)
     status = explorer_status()
     c.check("explorer, first read: N registered, every figure read, no buy yet",
             (status["node"]["registered"], status["unavailable"], status["testnet"]["buys"]), (True, [], []))
@@ -141,7 +141,7 @@ def check_explorer(fixture: dict, calc: dict) -> None:
     now = c.current_round(block)
     c.check("explorer: round, executor in force, validator set, as the chain has them",
             (net["round"], net["executor"].lower(), sorted(c.name(v) for v in net["validators"])),
-            (now, C["Buyback"].lower(), s3.members_at(now, block)))
+            (now, C["Buyback"].lower(), rewards.members_at(now, block)))
     c.check("explorer: registered, operator key, payout address",
             (node["registered"], node["operator"].lower(), node["payout"].lower()),
             (True, ADDR["K2"].lower(), ADDR["W"].lower()))
@@ -192,7 +192,7 @@ def check_explorer(fixture: dict, calc: dict) -> None:
             ("Round 2: claim paid (cut and pot)", int(row["paid_wei"]), chain_paid, paid, c.lpt),
             ("Round 2: pot", int(row["pot_wei"]), chain_pot, paid - cut, c.lpt),
             ("Round 2: N's own part", int(row["part_wei"]), chain_part, (paid - cut) * own // stake, c.lpt)):
-        s3.side(f"Explorer: {label}", page, calculator, fmt)
+        rewards.side(f"Explorer: {label}", page, calculator, fmt)
         c.check(f"explorer: {label} as the chain has it", page, chain)
     c.check("explorer: round 2 part not withdrawn, as the chain has it", row["part_withdrawn"], bool(chain_withdrawn))
 
@@ -211,7 +211,7 @@ def check_explorer(fixture: dict, calc: dict) -> None:
 def main():
     started = time.time()
     c.open_log()
-    c.say("Stage 4: announced parameters, operator rotation and settlement recovery")
+    c.say("Full system: announced parameters, operator rotation and settlement recovery")
     c.say("The unmodified node earns in mock USDC, and the keeper buys and burns test LPT.")
     c.preflight(["chain", "orch", "orch_metrics", "signer_p", "signer_p_metrics", "model", "explorer"])
     node_bin, model = c.fetch_node(), c.fetch_model()
@@ -226,14 +226,14 @@ def main():
     for who in ("deployer", "N", "H", "W", "P", "G", "Keeper", "K1", "K2", "V1", "V2", "V3"):
         c.new_key(who)
     for who in ("N", "H", "P", "G", "Keeper", "K1", "K2", "V1", "V2", "V3"):
-        s3.KEYS[who] = c.keystore(who, pw)
+        rewards.KEYS[who] = c.keystore(who, pw)
     treasury = "0x" + os.urandom(20).hex()
     ADDR["Treasury"], NAMES[treasury.lower()] = treasury, "Treasury"
     first_block = c.block_number()
     bb.deploy_full()
     vector = c.CASES["ledger-authority"]
     fixture = vector["inputs"]
-    calc = s3.calculate("ledger", fixture)
+    calc = rewards.calculate("ledger", fixture)
     for who in ("N", "V1", "V2", "V3"):
         c.send(KEY[who], C["Registry"], "register()")
     start_explorer(first_block)
@@ -251,7 +251,7 @@ def main():
         if step["action"] == "bond":
             h, amount = step["holder"], step["amount_wei"]
             c.send(KEY["deployer"], C["TestLPT"], "transfer(address,uint256)", ADDR[h], amount)
-            s3.bond(h, step["node"], int(amount))
+            rewards.bond(h, step["node"], int(amount))
             if h != "H":
                 c.send(KEY[h], C["Scores"], "optIn(address)", ADDR[h])
     face = c.ticket_face()
@@ -262,22 +262,22 @@ def main():
     seeded = bb.seed(int(pool["seed_usdc_micro_usdc"]), int(pool["seed_lpt_wei"]), 0)
 
     def start_node():
-        c.start_orchestrator("orchestrator-N", "N", node_bin, s3.KEYS["N"], pw, c.PORT["orch"], c.PORT["orch_metrics"])
+        c.start_orchestrator("orchestrator-N", "N", node_bin, rewards.KEYS["N"], pw, c.PORT["orch"], c.PORT["orch_metrics"])
 
     c.start_model(model)
     start_node()
-    c.start_signer("P", node_bin, s3.KEYS["P"], pw, c.PORT["signer_p"], c.PORT["signer_p_metrics"], [c.PORT["orch"]])
+    c.start_signer("P", node_bin, rewards.KEYS["P"], pw, c.PORT["signer_p"], c.PORT["signer_p_metrics"], [c.PORT["orch"]])
     stake("N", "set-operator", n, ADDR["K1"])
     stake("K1", "accept-operator", n)
     c.rpc("anvil_setBlockTimestampInterval", [1])
     c.rpc("evm_setAutomine", [False])
     c.rpc("evm_setIntervalMining", [1])
-    s3.start_keeper("--parameters-address", C["Parameters"])
+    rewards.start_keeper("--parameters-address", C["Parameters"])
 
     def earn(round_, before_job=None):
-        s3.to_round(round_)
+        rewards.to_round(round_)
         count = len(c.settlements()) + 1
-        c.check(f"round {round_}: validators seated", s3.members_at(round_),
+        c.check(f"round {round_}: validators seated", rewards.members_at(round_),
                 [] if round_ == 2 else ["V1", "V2", "V3"])
         stake_inputs = [step for step in fixture["steps"] if step["action"] == "bond"]
         for step in stake_inputs:
@@ -291,7 +291,7 @@ def main():
         c.rpc("evm_setIntervalMining", [0])
         paid_job()
         c.mine(41)
-        s3.wait(f"round {round_}'s redemption in the pool", lambda: pooled_from("N"))
+        rewards.wait(f"round {round_}'s redemption in the pool", lambda: pooled_from("N"))
         c.rpc("evm_mine", [])
         c.rpc("evm_setIntervalMining", [1])
         settled = c.settlements()
@@ -324,13 +324,13 @@ def main():
                                                  "data": c.calldata(signature, *args)}, "latest"])])
             c.check(f"{old}'s simulated {signature} call refused: NOT_AUTHORIZED",
                     result.get("error", {}).get("data", "")[:10], c.sel("NOT_AUTHORIZED()"))
-    s3.to_round(4)
+    rewards.to_round(4)
     emission = next(s["values"] for s in fixture["steps"] if s.get("group") == "2")
     code, out = bb.lp2_params("G", pw, "announce", "emission", *emission)
     c.check("G announced in round 4", c.current_round(), 4)
     c.check("announcement counts from round 11", (code, "counts from round 11" in out), (0, True))
     earn(5)
-    s3.to_round(6)
+    rewards.to_round(6)
     for args in (("announce", "unbonding", "42"), ("withdraw", "unbonding")):
         code, _ = bb.lp2_params("G", pw, *args)
         c.check(" ".join(args), code, 0)
@@ -341,11 +341,11 @@ def main():
     c.check("round length refused: NOT_ADJUSTABLE", (code, "NOT_ADJUSTABLE" in out), (3, True))
 
     def claim(earned, expected):
-        s3.to_round(earned + int(c.PARAMS["reward_delay_rounds"]))
+        rewards.to_round(earned + int(c.PARAMS["reward_delay_rounds"]))
         before = c.call(C["TestLPT"], "balanceOf(address)", w)
         stake("K2", "claim", n, str(earned))
         paid = c.call(C["TestLPT"], "balanceOf(address)", w) - before
-        s3.side(f"Round {earned}: W receives LPT", paid, expected, c.lpt)
+        rewards.side(f"Round {earned}: W receives LPT", paid, expected, c.lpt)
 
     claim(2, int(calc["lpt_wei"]["W"]))
     round3 = [dict(s) for s in fixture["steps"] if int(s["step"]) <= 17]
@@ -357,27 +357,27 @@ def main():
     now = int(c.rpc("eth_getBlockByNumber", ["latest", False])["timestamp"], 16)
     c.rpc("evm_setNextBlockTimestamp", [now + int(c.MANIFEST["buyback"]["twap_seconds"])])
     earn(11)
-    s3.wait("keeper buys from the pool", lambda: c.logs(C["Buyback"], bb.BOUGHT))
+    rewards.wait("keeper buys from the pool", lambda: c.logs(C["Buyback"], bb.BOUGHT))
     claim(5, int(calc["lpt_wei"]["W5"]))
 
     # Keep the buyback from drawing down the network share in the recovery view.
     c.stop("keeper")
     # A buy sent just before the stop is still in the pool. Let it be mined
     # before the recovery view reads its starting balances.
-    s3.wait("the keeper's last transaction mined", lambda: not pooled_from("Keeper"))
+    rewards.wait("the keeper's last transaction mined", lambda: not pooled_from("Keeper"))
     check_buys(seeded)
     recover(start_node, face)
-    s3.start_keeper()
+    rewards.start_keeper()
     claim(11, int(calc["lpt_wei"]["W11"]))
     check_share_mints(fixture)
     check_explorer(fixture, calc)
-    return c.finish(started, "Stage 4: parameter change, key rotation, recovery and buyback")
+    return c.finish(started, "Full system: parameter change, key rotation, recovery and buyback")
 
 
 def check_share_mints(fixture):
     steps = fixture["steps"]
     mint_steps = [step for step in steps if step["action"] == "mint_shares"]
-    members = {step["earned_round"]: s3.members_at(int(step["earned_round"]))
+    members = {step["earned_round"]: rewards.members_at(int(step["earned_round"]))
                for step in mint_steps}
     # Use the announcement event only to locate each share-mint transaction.
     transactions = {str(int(event["topics"][1], 16)): event["transactionHash"]
@@ -389,8 +389,8 @@ def check_share_mints(fixture):
         earned = step["earned_round"]
         prior = steps[:steps.index(step)]
         inputs = {**fixture, "steps": prior, "members": members}
-        before = s3.calculate("ledger", inputs)["lpt_wei"]
-        after = s3.calculate("ledger", {**inputs, "steps": [*prior, step]})
+        before = rewards.calculate("ledger", inputs)["lpt_wei"]
+        after = rewards.calculate("ledger", {**inputs, "steps": [*prior, step]})
         expected = {recipient: int(balance) - int(before.get(recipient, 0))
                     for recipient, balance in after["lpt_wei"].items()
                     if int(balance) != int(before.get(recipient, 0))}
@@ -405,8 +405,8 @@ def check_share_mints(fixture):
                     recipient = recipients.get(address, address)
                     minted[recipient] = minted.get(recipient, 0) + int(log["data"], 16)
         treasury = minted.pop("Treasury", 0)
-        s3.side(f"Round {earned}: treasury receives LPT",
+        rewards.side(f"Round {earned}: treasury receives LPT",
                 treasury, expected.pop("Treasury", 0), c.lpt)
-        s3.side(f"Round {earned}: validators receive LPT",
+        rewards.side(f"Round {earned}: validators receive LPT",
                 sum(minted.values()), sum(expected.values()), c.lpt)
         c.check(f"Round {earned}: validator mints by recipient (wei)", minted, expected)

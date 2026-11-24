@@ -1,19 +1,19 @@
-"""./dev demo buyback: S-07 section 1 on a fresh local chain.
+"""./dev demo buyback: on a fresh local chain.
 
-Starts a local chain and deploys stage 4's contracts: stage 3's, then the
+Starts a local chain and deploys the full system’s contracts: the rewards demo’s, then the
 test pool, Parameters, which holds the buyback values and names the
 Buyback as the executor (group 10), and the Buyback. Checks the
 deployment: group 10's executor, the Buyback's Broker and the pool code
-hash it pins. Sends LPT to the Buyback, which it must never count or burn. Then runs section 1's walk at the walk's own
+hash it pins. Sends LPT to the Buyback, which it must never count or burn. Then runs the buyback-walk case at the walk's own
 times, offset by the start time it records: jobs paid by tickets signed
 and redeemed directly, the pool seeded, a trader's swap, and every buy and
-poke, refused or not. Then Parameters as G (S-10 R-25). Then the move
-(S-07's note of 2026-11-23): with a keeper running, G moves the buyback
+poke, refused or not. Then Parameters as G (R-25). Then the move
+(the owner’s instruction of 2026-11-23): with a keeper running, G moves the buyback
 to a second Buyback and a second pool by two announcements, and seven
 rounds later the new executor buys and burns while the old one is
 refused at the Broker.
 
-Each buy and refusal is printed beside section 1's. The run is written as
+Each buy and refusal is printed beside the expected result. The run is written as
 a `buyback` case into a copy of the shared examples, and
 `./calculator/check` reproduces it from the rules alone.
 
@@ -125,10 +125,10 @@ def keeper_once(keystore_file: Path, password_file: Path) -> tuple[int, str]:
 # --- deployment -------------------------------------------------------------------
 
 def deploy_full() -> None:
-    """Stage 3's contracts with the pool, and Parameters naming the Buyback's
+    """Rewards's contracts with the pool, and Parameters naming the Buyback's
     predicted address as the executor (group 10), then the Buyback, which
     reads its values from Parameters and is pinned to the pool's code."""
-    # Stage 2 creates five contracts and stage 3 with the pool six more
+    # Payments creates five contracts and rewards with the pool six more
     # (the token, StakeLedger, Scores, the pool, Parameters and Claims).
     # The Buyback is the twelfth.
     buyback_at = next_address(11)
@@ -286,7 +286,7 @@ def case_of(case_id: str, supply: int, run: list[dict], final: dict) -> dict:
 
 def shifted(entry: dict, t0: int) -> dict:
     """A refusal the chain gave, with a time argument (NOT_DUE's) told from
-    the walk's start, as section 1 tells it."""
+    the walk's start, as the shared case specifies."""
     if entry["code"] != "NOT_DUE":
         return entry
     return {**entry, "args": [str(int(entry["args"][0]) - t0)]}
@@ -301,7 +301,7 @@ def usdc(v) -> str:
 
 def price(num: int, den: int) -> str:
     """USDC per LPT, from micro-USDC over wei, to the nearest millionth, as
-    section 1 gives it."""
+    the shared case specifies it."""
     v = (2 * num * 10**18 + den) // (2 * den)
     return f"{v // 10**6:,}.{v % 10**6:06d}"
 
@@ -324,7 +324,7 @@ def main() -> int:
     global T0
     open_log()
     started = time.time()
-    say("Buyback demo (S-07 section 1): the network share buys test LPT from a test pool and burns it, on a fresh local chain")
+    say("Buyback demo: the network share buys test LPT from a test pool and burns it, on a fresh local chain")
     say(f"Stand-ins, from deployments/full-local.json: {'; '.join(s['stand_in'] for s in MANIFEST['stand_ins'])}.")
 
     say("\n1. Setting up")
@@ -392,10 +392,10 @@ def main() -> int:
         if s["step"] == "20" and "refused" in done:
             note = " (expected: spot is above TWAP + 1% until the average follows; the 26,378.676029 USDC rolls over)"
         say(f"  step {s['step']:>2}  round {done['round']}  t {int(done['time']) - T0:>6}  {action:<4}  "
-            f"{outcome(done)}{note}  {'as section 1' if same else 'NOT AS SECTION 1'}")
+            f"{outcome(done)}{note}  {'matches the shared case' if same else 'DIFFERS FROM THE SHARED CASE'}")
         if not same:
             FAILURES.append(f"step {s['step']}: chain {got} at round {done['round']}, time {int(done['time']) - T0}; "
-                            f"section 1 {want} at round {s['round']}, time {t}")
+                            f"expected {want} at round {s['round']}, time {t}")
 
     say("\n4. After the walk")
     ru, rl = reserves()
@@ -408,7 +408,7 @@ def main() -> int:
     check("the LPT sent to the Buyback beforehand is there, unburned", call(C["TestLPT"], "balanceOf(address)", C["Buyback"]),
           DONATION)
     for k, v in final.items():
-        check(f"{k} as section 1", str(v), WALK["expected"][k])
+        check(f"{k} matches the shared case", str(v), WALK["expected"][k])
 
     say("\n5. The calculator")
     the_case = case_of("buyback-demo-run", supply_before, run, final)
@@ -453,7 +453,7 @@ def main() -> int:
 
     parameters(password)
     move(password)
-    return finish(started, "section 1's walk ran on the chain, every figure equal to the calculator's, "
+    return finish(started, "the buyback-walk case ran on the chain, every figure equal to the calculator's, "
                            "and the buyback moved to a second executor and pool by two announcements")
 
 
@@ -472,18 +472,19 @@ def lp2_params(who: str, password: Path, *words: str) -> tuple[int, str]:
 
 
 def parameters(password: Path) -> None:
-    """S-10 R-25 on the chain: G, the governance stand-in and Parameters'
+    """R-25 on the chain: G, the governance stand-in and Parameters'
     authority, announces and withdraws through lp2-params; every other
-    caller and every value outside D-47's ranges is refused. The Buyback
+    caller and every value outside R-25’s ranges is refused. The Buyback
     reads group 9 from Parameters, so a change to it is what a later
     buy would read from the round it counts from."""
     now = current_round()
-    say(f"\n7. Parameters, as G (S-10 R-25), in round {now}")
+    say(f"\n7. Parameters, as G (R-25), in round {now}")
     keystore("G", password)
     pool = C["TestPool"]
-    code, out = lp2_params("G", password, "announce", "emission", "900000", "10000", "90000")
+    emission_shares = ("900000", "10000", "90000")
+    code, out = lp2_params("G", password, "announce", "emission", *emission_shares)
     check("G's emission change counts from the current round + 7",
-          (code, out.split(" (block")[0]), (0, f"announced: emission 900000/10000/90000, counts from round {now + 7}"))
+          (code, out.split(" (block")[0]), (0, f"announced: emission {'/'.join(emission_shares)}, counts from round {now + 7}"))
     code, out = lp2_params("G", password, "announce", "buyback-values", pool, "7200", "50000", "2")
     check("G's buyback values change counts from the current round + 7",
           (code, f"counts from round {now + 7}" in out), (0, True))
@@ -519,7 +520,7 @@ def parameters(password: Path) -> None:
     lp2_params(None, password, "show", "emission", str(now + 7))
 
 
-# --- the move: the executor is a parameter (S-07, note of 2026-11-23) ----------
+# --- the move: the executor is a parameter (owner’s instruction of 2026-11-23) ----------
 
 def would(to: str, signature: str) -> bool:
     """Whether a call of `signature`, with no arguments, would take effect
@@ -585,7 +586,7 @@ def money_now(*pools: str) -> list[int]:
 
 
 def move(password: Path) -> None:
-    """S-07's note of 2026-11-23 on the chain. X, the deployment's Buyback,
+    """The owner’s instruction of 2026-11-23 on the chain. X, the deployment's Buyback,
     buys from P. G moves the buyback to X2, a second Buyback, and P2, a
     second TestPool seeded as P was, by two announcements while a keeper is
     running. In the round before they count, X2's buy is refused at the
@@ -596,7 +597,7 @@ def move(password: Path) -> None:
     seed_step = next(s for s in WALK["inputs"]["steps"] if s["action"] == "seed")
     face = int(next(s for s in WALK["inputs"]["steps"] if s["action"] == "job")["face_micro_usdc"])
     first = {k: v for k, v in WALK["expected"]["bought"][0].items() if k != "step"}
-    say(f"\n8. The move (S-07, note of 2026-11-23): the buyback executor is a parameter")
+    say(f"\n8. The move (owner’s instruction of 2026-11-23): the buyback executor is a parameter")
     pinned = f"0x{call(C['Buyback'], 'poolCodeHash()'):064x}"
     C["TestPool2"] = forge_create("src/money/TestPool.sol:TestPool", C["MockUSDC"], C["TestLPT"])
     C["Buyback2"] = forge_create("src/money/Buyback.sol:Buyback", C["Parameters"], C["Broker"], C["RoundClock"],

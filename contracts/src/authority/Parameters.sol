@@ -25,7 +25,7 @@ import {RewardMath} from "../math/RewardMath.sol";
 /// The deployment's values are the rulebook's (R-25's table, the units
 /// section): three of them, the score source, the pool and the executor, are
 /// addresses given at construction. It holds no pool design: an announced
-/// pool is put to an executor, which accepts it or not (D-51).
+/// pool is put to an executor, which accepts it or not.
 contract Parameters is IParameters {
     uint256 private constant FEE = 1;
     uint256 private constant EMISSION = 2;
@@ -38,17 +38,17 @@ contract Parameters is IParameters {
     uint256 private constant BUYBACK_VALUES = 9;
     uint256 private constant BUYBACK_EXECUTOR = 10;
 
-    /// A change counts from the round of its announcement + 7 (D-42).
+    /// A change counts from the round of its announcement + 7.
     uint256 private constant NOTICE = 7;
     /// A whole, in millionths.
     uint256 private constant ONE = 1_000_000;
     /// The largest delay, period, drop and buy interval: 840 rounds or
-    /// steps (D-47 (iii), D-49).
+    /// steps.
     uint256 private constant MOST = 840;
     /// Gas kept back from the executor asked about a pool, for the
     /// refusal after its answer (R-25).
     uint256 private constant ANSWER_RESERVE = 20_000;
-    /// The largest validator set (D-47 (ii)).
+    /// The largest validator set.
     uint256 private constant MOST_MEMBERS = 33;
 
     address public immutable authority;
@@ -181,7 +181,7 @@ contract Parameters is IParameters {
     }
 
     /// Each value within its group's range and the group's count of values
-    /// (D-47, D-49). `inForce` is the group's values in the announcing round.
+    ///. `inForce` is the group's values in the announcing round.
     function _inRange(uint256 group, uint256[] calldata v, uint256[] memory inForce) private view returns (bool) {
         if (group == FEE) return v.length == 2 && v[0] <= ONE && v[1] <= ONE;
         if (group == EMISSION) return v.length == 3 && v[0] <= ONE && v[1] <= ONE && v[2] <= ONE;
@@ -206,7 +206,7 @@ contract Parameters is IParameters {
         }
     }
 
-    /// R-25's pool check (D-51): the executor of group 10's pending change
+    /// R-25's pool check: the executor of group 10's pending change
     /// if one is pending, else the one in force in `round`, is asked whether
     /// it accepts `p`. Only a yes accepts; a no, a failed call or an address
     /// that cannot answer (address(0) included) is POOL_INVALID. Group 10

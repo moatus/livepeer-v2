@@ -7,7 +7,7 @@ import {Registry} from "../src/authority/Registry.sol";
 import {Broker} from "../src/money/Broker.sol";
 import {ITicketBroker} from "../interfaces/ITicketBroker.sol";
 
-/// Drives a fresh stage 2 deployment through random sequences of what its
+/// Drives a fresh payments deployment through random sequences of what its
 /// participants can do, and keeps, beside it, what the rulebook says each
 /// step must do (R-01, R-03, R-04, R-21, R-22). The invariant runs compare
 /// the two after every step. The parameters are read from the shared

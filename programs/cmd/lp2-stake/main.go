@@ -1,4 +1,4 @@
-// lp2-stake sends one stage 3 action as the holder or node whose keystore
+// lp2-stake sends one staking or rewards action as the holder or node whose keystore
 // it is given: bonds and the moves after them (rulebook R-15), a node's
 // reward cut and its claim (R-24, R-12), a holder's withdrawal of its parts
 // (R-24), a round's validator and treasury mint (R-10), and a node's payout

@@ -1,6 +1,6 @@
 # Rulebook `october-main-text-v5`
 
-The rules stage 4 is built and tested against: stage 3's rules, and the
+The rules the full system is built and tested against: the rewards demo’s rules, and the
 rules of changing the parameters after deployment, of rotating the key
 that acts for a node, and of buying LPT with the network share and
 burning it, by the executor the parameters name. The
@@ -9,7 +9,7 @@ wherever the main text and the appendix or a diagram disagree. Pages are
 PDF pages of that paper. It is paraphrased here, never quoted.
 
 This profile is `october-main-text-v4` with the buyback executor made a
-parameter (spec S-07): R-25 gains group 10, `BUYBACK_EXECUTOR`, the one
+parameter: R-25 gains group 10, `BUYBACK_EXECUTOR`, the one
 address that may draw the network share in a round; the Parameters hold no
 pool design and ask an executor whether it accepts an announced pool; and
 each executor checks its own pool at every use. It changes the units
@@ -17,14 +17,14 @@ table, the `NOT_ADJUSTABLE`, `NOT_AUTHORIZED` and `POOL_INVALID` codes,
 R-16 and R-25, and adds the case `parameters-executor`. That the executor
 can be changed at all is the owner's instruction of 2026-11-23, that the
 buyback be movable to wherever liquidity is by a parameter change, without
-redeploying; it is not a council ruling. D-51 ruled on what guards a
+redeploying; it is not a council ruling. A council ruling settled what guards a
 change of executor and where a pool is checked. Every other entry is
 unchanged, and so is every case of v4 but one step, which names group 11
 where v4 named group 10. v4 was `october-main-text-v3` with R-16 added and
-R-25's groups 8 and 9 pointed at it (spec S-07). v3 was
+R-25's groups 8 and 9 pointed at it. v3 was
 `october-main-text-v2` with R-25 and R-26 added, R-05 rewritten, and
 R-01, R-03, R-07, R-08, R-09, R-10, R-12, R-13, R-14, R-15, R-20 and R-24
-amended (spec S-10).
+amended.
 
 The worked numbers live in `vectors/october-main-text-v5.json`, the shared
 examples file. Each entry below names the cases that show it. The
@@ -33,14 +33,8 @@ this text and a case disagree, the disagreement is a defect to be decided
 against this text.
 
 Where the paper is silent or unclear, the choice is ours and is labelled
-"Ours". Each entry names what it rests on. The council rulings it names
-(D-03, D-04, D-05, D-07, D-08, D-09, D-10, D-11, D-12, D-18, D-21, D-22,
-D-23, D-24, D-25, D-26, D-27, D-28, D-29, D-30, D-31, D-32, D-35, D-36,
-D-37, D-38, D-39, D-40, D-41, D-42, D-43, D-47, D-48, D-51) were made in the
-owner's absence, and the owner keeps or changes each later. A council
-ruling is not an owner decision. D-13 and D-16 are proposed answers in the
-decision register, not rulings. D-49, the largest drop one schedule change
-may make, was decided in the review of spec S-10, not by the council, and
+"Ours". Each entry names what it rests on. The council rulings were made in the owner's absence, and the owner keeps or changes each later. A council
+ruling is not an owner decision. The buyback and round-length choices were proposed answers. The largest drop one schedule change may make was settled during review, not by the council, and
 R-26 rests on no ruling.
 
 ## How to read an entry
@@ -53,7 +47,7 @@ and the decisions it rests on.
   reading of an unclear or contradictory passage. `Placeholder`: our
   invention, standing in until something better exists.
 - **Delivery.** `Decide now`: fixed before code is written. `Substitute`:
-  a declared temporary stand-in. `Decide before stage 3`: only the paper's
+  a declared temporary stand-in. `Decide before the reward cycle`: only the paper's
   literal part is frozen here; the rest is an open decision.
 
 ## Units, parameters and codes
@@ -102,7 +96,7 @@ seconds; a price is µUSDC per wei of LPT as UQ112x112, an integer over
 2^112 (R-16).
 
 A refusal is an outcome with a stable code. These are rule outcomes. The
-stage 2 contracts name their errors after the codes they produce; their
+payments contracts name their errors after the codes they produce; their
 ticket checks add `TICKET_INVALID` and one kept revert text, which belong
 to the contracts' public shape, not to a rule.
 
@@ -149,7 +143,7 @@ who, `NOT_AUTHORIZED`; then the node or round named, `NO_SUCH_ROUND`,
 `NOT_REGISTERED`, `SAME_NODE`, `NOT_OPTED_IN`, `NOT_VALIDATOR`, and for a
 claim its `CLAIM_TOO_EARLY`, `CLAIM_EXPIRED` and `ALREADY_CLAIMED`; then
 the amount, `AMOUNT_TOO_LARGE`, `CUT_OUT_OF_RANGE`, `STAKE_TOO_LOW`,
-`SCORE_OUT_OF_RANGE` (D-26, D-38, D-39, D-40). `refusal-order` and
+`SCORE_OUT_OF_RANGE`. `refusal-order` and
 `refusal-order-validators` combine two. An operator proposal follows it:
 `NOT_AUTHORIZED`, `NOT_REGISTERED`, `OPERATOR_INVALID` (R-26). An
 announcement has its own order: `NOT_AUTHORIZED`, `NOT_ADJUSTABLE`,
@@ -228,8 +222,7 @@ accepts none. The address zero is named `zero`.
   at that score, and `validators_wei` and `treasury_wei` are R-10's two
   amounts. `minted_wei` is everything the round mints: the nodes' rewards
   plus the validator and treasury amounts. It is given only where every
-  score is 10^6. A score below 10^6 withholds a part that is never minted
-  (D-21).
+  score is 10^6. A score below 10^6 withholds a part that is never minted.
 - A **claim** case claims one node's reward from a round case
   (`earned_in`), at a claim round, with the score read at claim and
   whether that entitlement has already paid. It states `paid_wei`, or a
@@ -413,7 +406,7 @@ accepts none. The address zero is named `zero`.
 ## R-01 Registration
 
 Origin: `Paper`; ours for "only registered", for permanence and for the
-payout. Delivery: `Decide now`. Rests on: D-08 (b2), D-23, D-28; R-26
+payout. Delivery: `Decide now`. Rests on: R-26
 for who sets the payout.
 
 **The paper says.** Any address can register as a node at any time, and
@@ -456,15 +449,14 @@ is N's operator key, K1's payout for N and N's own are refused with
 paid W.
 
 **Would change it.** A gateway design that must settle to an address that
-is not a node (D-23). A discovery run where dead listings measurably hurt
-gateways, which would reopen a way to leave the registry at stage 5; the
+is not a node. A discovery run where dead listings measurably hurt
+gateways, which would reopen a way to leave the registry at public testnet deployment; the
 owner preferring to pay the ticket's recipient directly, or a run showing
-the payout breaks the unmodified node (D-28).
+the payout breaks the unmodified node.
 
 ## R-02 Currency
 
-Origin: `Paper`. Delivery: `Substitute` for the token. Rests on: D-03,
-D-07.
+Origin: `Paper`. Delivery: `Substitute` for the token.
 
 **The paper says.** Nodes price in USD and are paid in USDC, in place of
 ETH (pp. 6, 12).
@@ -478,12 +470,11 @@ emission is in LPT and depends on no price (R-05).
 
 **Example.** `settle-even`: 2.50 USDC is 2,500,000 micro-USDC.
 
-**Would change it.** A payment rail that settles in another unit (D-06).
+**Would change it.** A payment rail that settles in another unit.
 
 ## R-03 Fee split
 
 Origin: `Paper`, rounding and the address ours. Delivery: `Decide now`.
-Rests on: D-07, D-23, D-28, D-41, D-42.
 
 **The paper says.** Of the USDC fees a node earns, half goes to the node
 and half to the network, which buys LPT and burns it (p. 6). The node cut
@@ -512,13 +503,12 @@ network 5,001 each, 30,000 and 30,006 in all. `ledger-payout`: the node's
 announced in round 4, counts from round 11; round 10's ticket of
 1,000,000 pays N 500,000 and round 11's 600,000.
 
-**Would change it.** A tiny-payment pattern where the odd unit matters
-(D-23). The owner preferring to pay the ticket's recipient directly, or a
-run showing the payout breaks the unmodified node (D-28).
+**Would change it.** A tiny-payment pattern where the odd unit matters. The owner preferring to pay the ticket's recipient directly, or a
+run showing the payout breaks the unmodified node.
 
 ## R-04 Recognized fee
 
-Origin: `Interpretation`. Delivery: `Decide now`. Rests on: D-05, D-28.
+Origin: `Interpretation`. Delivery: `Decide now`.
 
 **The paper says.** Nothing defines the fee that a node's fee share is
 counted in. It speaks of fees only as USDC paid to nodes and split (pp. 6,
@@ -561,14 +551,13 @@ in round 8 and redeemed in round 10 counts its 10,001 in round 10.
 
 **Would change it.** Paper text defining the fee share by signed or
 expected value; a run where nodes gain materially by timing redemptions
-into thin rounds (D-05). A run where a node paid less than face
-mis-accounts and stops serving a payer that still has funds (D-28).
+into thin rounds. A run where a node paid less than face
+mis-accounts and stops serving a payer that still has funds.
 
 ## R-05 Emission ceiling
 
 Origin: `Interpretation`; ours for the schedule's integer form after a
-change. Delivery: `Decide now`. Rests on: D-03, D-12, D-23, D-47 (iv);
-D-49.
+change. Delivery: `Decide now`.
 
 **The paper says.** Emission follows a fixed schedule in LPT, halving
 every two years as a smooth per-round decay: EmissionBase x
@@ -598,15 +587,14 @@ deployment's triple is (0, 840, 1), so until a change counts C(r) = E(r):
 r is counted from the deployment's first round, which emits the full
 EmissionBase, and every ceiling, round and claim case reads E(r).
 
-Ours: a schedule change names a drop d and a half-life H (D-12, D-47
-(iv), D-49). A change counting from round E records (q + d, H, E - 1),
+Ours: a schedule change names a drop d and a half-life H. A change counting from round E records (q + d, H, E - 1),
 where q is the position the schedule in force reaches in round E - 1. So
 round E - 1 keeps its ceiling, and from round E the new half-life runs on
 from the ceiling already reached, d whole steps of 2^(-1/840) lower. The
 base never changes. H must divide 840 and be no higher than the half-life
 in force when the change is announced: a higher one is refused with
 `SCHEDULE_RAISED`, and one that does not divide 840, 0 included, with
-`VALUE_OUT_OF_RANGE`. d is 0 to 840 (D-49); more is refused with
+`VALUE_OUT_OF_RANGE`. d is 0 to 840; more is refused with
 `VALUE_OUT_OF_RANGE`. Since H divides 840, every position is a whole
 number and every ceiling is some E(n); the position never falls, so the
 ceiling never rises.
@@ -619,7 +607,7 @@ ceiling never rises.
 499,587,582,574,244,553,633, which is floor(C(1) / 2). `ceiling-1680`:
 250,000,000,000,000,000,000.
 
-`parameters-half-life`, D-12's example: with no change, round 101's
+`parameters-half-life`, with no change, round 101's
 ceiling is 920,795,304,004,931,970,727 wei. A half-life of 420, drop 0,
 announced in round 94, counts from round 101 and records (99, 420, 100):
 round 100 keeps 921,555,435,045,356,663,643 at position 99, round 101 is
@@ -639,42 +627,41 @@ replaces it, records (270, 840, 99) and gives round 100
 799,616,946,185,380,540,803 at position 271 and round 101
 798,957,394,260,308,128,939; round 99 keeps 922,316,193,585,939,213,611.
 Drops of 841, of 17,200 typed for 172, and of 1,720 are refused with
-`VALUE_OUT_OF_RANGE`. `parameters-drop-840`: D-49's largest drop halves
+`VALUE_OUT_OF_RANGE`. `parameters-drop-840`: the largest drop halves
 the ceiling, 460,777,717,522,678,331,821 wei in round 100 and
 460,397,652,002,465,985,363 in round 101. `ledger-delays`: a drop of 84
 counting from round 11 mints round 11 at position 94.
 
 **Would change it.** A later paper or author statement that the diagram
-is the current design (D-03). A contract at the real EmissionBase that
+is the current design. A contract at the real EmissionBase that
 cannot reproduce all 840 residues within acceptable gas, which would make
 a table derived from the exact floor the rule; a stage that must continue
-a schedule across deployments (D-23). A need for a base or half-life the
-840ths grid cannot reach (D-47). A cut the authority means that 840 steps
+a schedule across deployments. A need for a base or half-life the
+840ths grid cannot reach. A cut the authority means that 840 steps
 an announcement cannot make in time, or a slip within 840 steps that does
-lasting harm (D-49).
+lasting harm.
 
 ## R-06 Emission base
 
-Origin: `Placeholder`. Delivery: `Substitute`. Rests on: no ruling; D-20
-is untouched.
+Origin: `Placeholder`. Delivery: `Substitute`. The question of using real issuance remains open.
 
 **The paper says.** EmissionBase is a launch snapshot of the existing
 protocol's annualized issuance, converted to LPT a round (pp. 7, 13). The
 half-life starts at 840 rounds, about two years (pp. 7, 13).
 
 **Unclear.** How many rounds make a year when annual issuance becomes a
-per-round amount (D-20).
+per-round amount.
 
 **We build.** EmissionBase is 1,000 LPT a round, a test value. The
 half-life stays 840 rounds.
 
 **Example.** `ceiling-0`: 1,000,000,000,000,000,000,000 wei.
 
-**Would change it.** D-20, when EmissionBase is taken from real issuance.
+**Would change it.** Taking EmissionBase from real issuance.
 
 ## R-07 Emission shares
 
-Origin: `Paper`. Delivery: `Decide now`. Rests on: D-41, D-42; the paper
+Origin: `Paper`. Delivery: `Decide now`. The paper
 states the values.
 
 **The paper says.** Each round's emission divides 94 % to nodes, 1 % to
@@ -696,7 +683,7 @@ amount first.
 `round-roadmap`, at r = 0: validators 10,000,000,000,000,000,000 wei and
 treasury 50,000,000,000,000,000,000 wei.
 
-`ledger-authority`, the result of spec S-10: N's stake share is 0.32 and
+`ledger-authority`: N's stake share is 0.32 and
 its fee share 1, so its stake share binds, and its cut is 10^6, so its
 payout receives the whole entitlement; N sets a new payout before each
 claim, so each amount stands alone. Shares of 900,000, 10,000 and 90,000,
@@ -714,8 +701,7 @@ the identity.
 
 ## R-08 Node reward
 
-Origin: `Interpretation`. Delivery: `Decide now`. Rests on: D-04, D-07,
-D-11, D-22, D-23, D-42.
+Origin: `Interpretation`. Delivery: `Decide now`.
 
 **The paper says.** A node's reward share is the smaller of its share of
 network fees and its share of network stake (pp. 3, 12), so stake sets a
@@ -725,11 +711,11 @@ capped reward the node receives (p. 4). The capped part is not minted
 (p. 8). The parameter table on p. 13 instead describes the node share as
 divided by share of work, weighted by score, with no stake term.
 
-**Unclear.** p. 13 against pp. 3, 4, 8 and 12 (D-04). Whether a node
-later scored at zero still counts in the network total (D-22). The
-integer form and where it rounds (D-07). What a share is when a total is
-zero (D-23). At what moment a round's stake is read, when bonds move
-during the round (D-11). The rejected forms on the cases below: flooring
+**Unclear.** p. 13 against pp. 3, 4, 8 and 12. Whether a node
+later scored at zero still counts in the network total. The
+integer form and where it rounds. What a share is when a total is
+zero. At what moment a round's stake is read, when bonds move
+during the round. The rejected forms on the cases below: flooring
 the 94 % pool before the share would pay D in `round-chained` one wei
 less, 704,418,491,429,684,820,622; flooring the share before the score
 would pay each node in `round-one-division` 234.999999999999999999 LPT;
@@ -790,19 +776,18 @@ so N is eligible for 300,551,889,676,665,523,465 wei; M and K, each with
 fee share. `ledger-mint-order`: the bonds made in round 1 count from round
 2, so round 1 has fees and zero total stake and pays its nodes 0.
 
-**Would change it.** Paper text that drops the stake cap (D-04); paper
+**Would change it.** Paper text that drops the stake cap; paper
 text defining the network total as score-weighted or excluding zero-scored
 nodes, or a run showing self-paid dilution driving honest nodes off at a
-scale the stake cap does not bound (D-22); an authoritative arithmetic
+scale the stake cap does not bound; an authoritative arithmetic
 requirement, or implementation limits that make exact arithmetic
-impractical (D-07); paper text reading stake other than at the start of
-the round (D-11).
+impractical; paper text reading stake other than at the start of
+the round.
 
 ## R-09 Unminted
 
 Origin: `Paper`; ours for zero totals and for issuance; interpretation for
-the withheld part. Delivery: `Decide now`. Rests on: D-04, D-07, D-08,
-D-21, D-23, D-29.
+the withheld part. Delivery: `Decide now`.
 
 **The paper says.** The part of a round's node emission that nodes cannot
 claim because their stake share is below their fee share is not minted;
@@ -815,11 +800,11 @@ When a round's issuance is final, and who mints it.
 
 **We build.** What the stake cap, a score below 10^6 and the rounding of
 R-08's one division leave of the node share is never minted, carried
-forward or shared out among other nodes (D-21). The dust of a holder
+forward or shared out among other nodes. The dust of a holder
 split is not among them: it is minted to Claims with the pot and never
-paid (R-24, D-29). Ours: so is the whole node share in a round with zero
+paid (R-24). Ours: so is the whole node share in a round with zero
 total fees or zero total stake. An entitlement not claimed in its claim
-window is never minted (R-12, D-08). A round's never-minted amount is
+window is never minted (R-12). A round's never-minted amount is
 C(r) minus everything minted for it. A round's never-minted amount is
 final when its claim window closes.
 
@@ -849,15 +834,14 @@ is minted for round 1 and 294,756,673,718,804,286,642 for round 2, where M
 lets its 469,612,327,619,789,880,415 expire; the 1 wei of N's split that
 stays in Claims is minted.
 
-**Would change it.** Paper text that redistributes the capped part
-(D-04), or that sends the withheld part somewhere (D-21). A run where
+**Would change it.** Paper text that redistributes the capped part, or that sends the withheld part somewhere. A run where
 most of the pool stays unminted and stake does not move is evidence about
 the design for the owner, not about what the paper says.
 
 ## R-10 Validators and treasury
 
 Origin: `Paper`; ours for the trigger, the treasury address and the
-remainder. Delivery: `Decide now`. Rests on: D-10, D-29, D-40; no ruling
+remainder. Delivery: `Decide now`. There is no ruling
 for the trigger and the address.
 
 **The paper says.** The validator and treasury shares of each round's
@@ -913,12 +897,11 @@ own round's ceiling.
 
 **Would change it.** Paper text that ties these shares to fees or to the
 node share. Paper text naming who mints them, or a treasury contract to
-send to. Paper text sending what the division leaves elsewhere (D-10).
+send to. Paper text sending what the division leaves elsewhere.
 
 ## R-11 Score
 
 Origin: `Interpretation`; ours for the refusal. Delivery: `Decide now`.
-Rests on: D-09, D-21, D-23, D-36.
 
 **The paper says.** Each active validator scores each node from 0.0 to
 1.0; the median across active validators sets the fraction of the capped
@@ -926,7 +909,7 @@ reward the node receives, 1.0 meaning all of it and 0.0 none (p. 4). The
 score applied is the median current when the claim is made (p. 6). The
 contract that produces scores can be swapped by governance (pp. 5, 12).
 
-**Unclear.** Missing votes, quorum and even counts (D-09). What a claim
+**Unclear.** Missing votes, quorum and even counts. What a claim
 does with a score outside the range, since the scorer can be swapped.
 
 **We build.** A score is an integer from 0 to 10^6. It is the median over
@@ -947,7 +930,7 @@ A claim applies the score inside R-08's one division. Ours: a claim that
 reads a score above 10^6 is refused with `SCORE_OUT_OF_RANGE`; the
 entitlement stays intact and no other node is affected. A score of
 exactly 10^6 pays in full. The part a score below 10^6 withholds is never
-minted (R-09, D-21).
+minted (R-09).
 
 **Example.** `claim-open` at score 1,000,000 pays 188,000,000,000,000,000,000
 wei. `claim-rescored` at score 500,000 pays 94,000,000,000,000,000,000 wei.
@@ -976,17 +959,16 @@ score 0 in round 9.
 `ledger-cycle`: M's claim at 500,000 is paid 93,922,465,523,957,976,083 of
 its 187,844,931,047,915,952,166, and K's at 0 is paid 0.
 
-**Would change it.** S-06 enforcing the score range where scores are
-produced, at the same seam as the swap (D-23). Paper text requiring votes
+**Would change it.** Enforcing the score range where scores are
+produced, at the same seam as the swap. Paper text requiring votes
 or fixing a quorum; a run where two-member rounds are common and one lone
-zero halving a score looks arbitrary to operators (D-09). Paper text
-sending the withheld part somewhere (D-21).
+zero halving a score looks arbitrary to operators. Paper text
+sending the withheld part somewhere.
 
 ## R-12 Claim
 
 Origin: `Paper`; ours for who, where, expiry, order and a claim by an
-unregistered address. Delivery: `Decide now`. Rests on: roadmap section
-7.2 for paying once; D-08, D-23, D-26, D-27, D-39, D-40, D-42; R-26.
+unregistered address. Delivery: `Decide now`. Pays each entitlement once. See R-26 for the operator key.
 
 **The paper says.** A round's rewards are not claimable at once: round n
 becomes claimable at round n + 7, and the score applied is the median
@@ -1020,8 +1002,7 @@ again is refused with `ALREADY_CLAIMED` and nothing more is paid. A score
 of 0 pays 0 and closes the entitlement; a score above 10^6 is refused
 (R-11) and leaves it open. When two refusals apply, the first of
 `NOT_AUTHORIZED`, `NO_SUCH_ROUND`, `NOT_REGISTERED`, `CLAIM_TOO_EARLY`,
-`CLAIM_EXPIRED`, `ALREADY_CLAIMED`, `SCORE_OUT_OF_RANGE` is given (D-26,
-D-39, D-40), the general order of the units section; `claim-order`
+`CLAIM_EXPIRED`, `ALREADY_CLAIMED`, `SCORE_OUT_OF_RANGE` is given, following the general order in the units section. `claim-order`
 combines two.
 
 **Example.** Every `claim` case is a claim by node A of its
@@ -1075,17 +1056,17 @@ K1 and then K2, K1's and N's own claims for N are refused with
 
 **Would change it.** Paper text fixing the score per round or naming an
 unbounded claim window; a run where honest nodes lose rewards to mistaken
-zeros corrected only after the window (D-08). A run where honest nodes
-measurably fail to claim and their delegators lose at scale (D-27). A
-batched claim that must name the bad round first (D-26). A replaced
+zeros corrected only after the window. A run where honest nodes
+measurably fail to claim and their delegators lose at scale. A
+batched claim that must name the bad round first. A replaced
 score source that zeroes or fully pays honest claims before validators
-populate it (D-42).
+populate it.
 
 ## R-13 Validator set
 
 Origin: `Paper`; ours for the seat and unseat rules and the timing.
 Delivery: `Decide now`; `Substitute` for N, 3 for the paper's 33.
-Rests on: D-11, D-35, D-36, D-37, D-39, D-42, D-47 (ii); R-23, R-26.
+Rests on: R-23, R-26.
 
 **The paper says.** Node operators and validators are one set (p. 3).
 Among nodes, the top N by total stake, their own and delegated, may
@@ -1112,7 +1093,7 @@ at these calls, so the members need not be the N largest opted-in nodes:
 one with more stake enters only when someone seats it. N is the
 `VALIDATOR_SET_SIZE` in force in the round the call runs in (R-25), never
 a size still pending, which could be withdrawn: 3 at deployment, for the
-paper's 33. It only rises, to at most 33 (D-47), so the size a call reads
+paper's 33. It only rises, to at most 33, so the size a call reads
 is never more than that of the round it seats for, and a withdrawal never
 leaves a round over its size. A rise counting from round E adds a seat in
 E: round E has its new size and a free seat, and a call in E or later
@@ -1168,7 +1149,7 @@ C, the smallest, leaves; A opts out, and seating C again puts it in A's
 freed seat, so the members of round 9 are B, C and D.
 `validators-return-seat-taken`: in round 8 B opts out, D opts in and takes
 the freed seat, and B's opt-in, a fresh one, displaces C, since 3,000 is
-above 2,000; the members of round 9 are A, B and D. Under D-36 (a) a free
+above 2,000; the members of round 9 are A, B and D. Under the seat replacement rule, a free
 seat goes to the first call, so a node that means to return should opt
 back in at once. `validators-return-order`: A and B have 2,000 LPT, C
 3,000 and E 2,001; A, B and C opt in in round 5, in that order. In round 6
@@ -1205,14 +1186,14 @@ lapsed, X's score is 1,000,000.
 **Would change it.** Paper text that a declined slot stays empty. A run
 where seats stay empty because no one calls seat, which would add a
 keeper. The owner wanting 33 on the testnet. A run where equal-stake
-churn is exploited, which would add a minimum margin (D-35). A run where
+churn is exploited, which would add a minimum margin. A run where
 a rise lets dust-staked nodes hold the median, or a claim at 33 members
-costs too much gas (D-47).
+costs too much gas.
 
 ## R-14 Validator pay
 
 Origin: `Paper`; ours for the integer form and the timing.
-Delivery: `Decide now`. Rests on: D-07, D-10, D-29, D-42.
+Delivery: `Decide now`.
 
 **The paper says.** Active validators share the validator part of each
 round's mint (p. 4). The table on p. 13 distributes it to the validator
@@ -1263,12 +1244,11 @@ round 2's one member, is paid the whole validator amount.
 
 **Would change it.** Paper text that sends the split's dust elsewhere.
 The owner choosing to simulate p. 10's open question, or a participation
-measure that is costly to fake (D-10).
+measure that is costly to fake.
 
 ## R-15 Stake
 
 Origin: `Interpretation`; ours for which record. Delivery: `Decide now`.
-Rests on: D-11, D-30, D-31, D-32, D-38, D-39, D-42, D-47 (iii).
 
 **The paper says.** Delegators stake toward node operators with today's
 bonding, unbonding and reward-cut mechanics (p. 3). Unbonding takes 21
@@ -1333,10 +1313,10 @@ registered, is refused with `NOT_REGISTERED`.
 | Q counts, LPT | 0 | 0 | 0 | 0 | 0 | 60 |
 
 StakeLedger holds 300 LPT until H's withdrawal and 280 after it. In
-D-30's own figures, 100 LPT transferred from P to Q in round 10 and
+100 LPT transferred from P to Q in round 10 and
 unbonded in round 12 counts for P through round 12, never for Q, and is
 withdrawable in round 33; unbonding 40 of it instead, 60 arrives at Q in
-round 31. In D-32's, 100 LPT rebonded in round 14 counts for P from round
+round 31. In the rebonding example, 100 LPT rebonded in round 14 counts for P from round
 15.
 
 `ledger-cycle`: F transfers 100 of its 250 LPT from K to M in round 9,
@@ -1371,11 +1351,11 @@ bond at N, so its unbond of 1 LPT from N is refused with
 **Would change it.** Paper text eliminating the transfer, or making one
 irrevocable; a run showing stake in transfer exploited, such as holding
 validator rank at a node its operator has left, or showing the 21-round
-transfer still freezes the delegation market (D-11, D-30). Paper text
+transfer still freezes the delegation market. Paper text
 stating one node per delegator, or a run where split bonds game validator
-rank or the median (D-31). Paper text saying unbonding is final, or a run
+rank or the median. Paper text saying unbonding is final, or a run
 where unbond and rebond swing validator rank at a cost below a fresh
-bond's (D-32).
+bond's.
 
 ## R-16 Buyback
 
@@ -1383,7 +1363,7 @@ Origin: `Paper` for buying LPT with the network share and burning it, and
 for the four values; ours for the price, the bound, the amount, the pool
 check and the refusals; interpretation for a share larger than the bound
 allows. Delivery: `Decide now`; the pool is a `Substitute`, a test pool
-seeded at deployment. Rests on: D-13 (proposed), D-47, D-48, D-51.
+seeded at deployment.
 
 **The paper says.** The network's half of every fee buys LPT from the
 market, and the LPT bought is burned in full (pp. 6, 7, 12). The burn
@@ -1411,7 +1391,7 @@ up. A product that can pass 2^256 is taken at full width, never wrapped.
    deployment: the pool, the burn share, the TWAP interval, the slippage
    bound s and the rounds between buys. At deployment this source holds
    R-25's groups 8, 9 and 10: burn 10^6, TWAP 3,600 s, s 10,000 and a buy
-   every round, from the ranges D-47 gives, and the Buyback as the
+   every round, from the announced parameter ranges, and the Buyback as the
    executor. A poke reads the same view for the current round.
 2. **When.** A buy may run when no buy has succeeded yet, or when the
    round is at least `lastBuyRound` plus the rounds between buys. A
@@ -1437,10 +1417,10 @@ up. A product that can pass 2^256 is taken at full width, never wrapped.
 4. **The bound.** With ru and rl the pool's USDC and LPT reserves:
    p = twapX112 x (10^6 + s) / 10^6; lim = p x 997 x rl;
    base = (1000 x ru) << 112; maxIn = (lim - base) / (997 << 112) when
-   lim > base, else 0. maxIn is the most the bound allows (D-48): the
+   lim > base, else 0. maxIn is the most the bound allows: the
    largest input whose average price, before the pool floors its output,
    stays within TWAP + s after the pool's 0.3% fee.
-5. **The amount** (D-48). cap = min(held, maxIn), and the buy is refused
+5. **The amount**. cap = min(held, maxIn), and the buy is refused
    with `SLIPPAGE(held, maxIn)` when cap is 0. It quotes lptOut = out(cap)
    = cap x 997 x rl / (1000 x ru + 997 x cap), v2's `getAmountOut`, and is
    refused with `SLIPPAGE(held, maxIn)` when lptOut is 0: nothing can be
@@ -1474,7 +1454,7 @@ up. A product that can pass 2^256 is taken at full width, never wrapped.
    transfer from the caller to address 0. Above the caller's balance it is
    refused as a transfer is. A transfer to any address, 0x…dEaD included,
    leaves the supply unchanged.
-10. **Draw** (D-51). Only the executor in force for the round the draw
+10. **Draw**. Only the executor in force for the round the draw
     runs in, R-25's group 10, may draw the network share: any amount up to
     what is held, to the address it names. Any other caller is refused
     with `NOT_AUTHORIZED`, then a draw above what is held with
@@ -1498,16 +1478,16 @@ up. A product that can pass 2^256 is taken at full width, never wrapped.
     share in one go at a 1% bound holds at least 143 times it in USDC; a
     shallower pool buys it over several rounds (rule 5). The fee alone
     costs 3,009.03 ppm, which is why the least s is 5,000.
-13. **The executor authenticates its pool** (D-51). Each executor, at
+13. **The executor authenticates its pool**. Each executor, at
     every buy and poke, accepts only an authenticated, immutable pair of
     this deployment's two tokens of its design, and refuses any other
-    round's pool with `POOL_INVALID(pool)`; D-47 (v) is the executor's
+    round's pool with `POOL_INVALID(pool)`; the pool check is the executor's
     check, not the Parameters'. The Buyback holds `poolCodeHash`, fixed at
     its deployment: the runtime code hash of TestPool, which keeps its two
     tokens as immutables set at construction. It accepts a pool whose code
     hash is that one and whose two tokens are this deployment's MockUSDC
     and TestLPT, in either order. TestPool has no owner, proxy, upgrade or
-    self-destruct, so a pool that passes is immutable (D-47). What remains
+    self-destruct, so a pool that passes is immutable. What remains
     trusted is the market: a thin authentic pool can still be moved, and
     the bound limits a buy to TWAP + s within rule 6's allowance.
 
@@ -1521,7 +1501,7 @@ Ours: the treasury and validator cuts of what is bought are 0 while the
 burn share is 10^6 (R-25), and the buy reads neither. The network share
 is R-03's, taken at redemption; the buy takes no second cut.
 
-**Example.** `buyback-walk`, the result of spec S-07: a pool seeded with
+**Example.** `buyback-walk`: a pool seeded with
 500,000 USDC and 100,000 LPT and a network share of 1,500 USDC. The
 first buy, before the seed, is refused with `NO_LIQUIDITY`, and the one
 after the seed and a poke at the same time with `TWAP_NOT_READY(0,
@@ -1554,19 +1534,19 @@ wei allowed (0.116% here).
 cases.
 
 **Would change it.** The owner keeping the paper's revert of the whole
-buy over D-48's capped buy, or a run where buying up to the bound each
+buy over the capped buy, or a run where buying up to the bound each
 interval is exploited. Manipulation and recovery runs that establish a
-better window, bound or cadence (D-47). A real pool of another
+better window, bound or cadence. A real pool of another
 implementation, which needs an executor of its design, announced as group
 10 (R-25). The owner choosing a longer notice for a change of executor, or
-a limit on what one round may draw, over D-51's seven rounds and no limit.
+a limit on what one round may draw, over the seven-round window and no limit.
 A version that pays the treasury or validator cuts, which needs the burn
 share to move.
 
 ## R-18 Round clock
 
 Origin: `Placeholder`. Delivery: `Substitute` for the length, `Decide now`
-for the count. Rests on: D-11 (b1), D-16 (proposed), D-23, D-28, D-40.
+for the count.
 
 **The paper says.** Every delay is a number of rounds: rewards are
 claimable 7 rounds later and unbonding takes 21 rounds (pp. 5, 12). It
@@ -1585,7 +1565,7 @@ once round R has lasted RoundLength blocks, 50, of the block number the
 node reads; a start before that is refused with `ROUND_NOT_OVER`. Until
 someone starts it, a round just lasts longer, and no round number is ever
 skipped. The emission index of round R is r = R - 1, so a deployment's
-first round emits C(0) (R-05). RoundLength is a test value (D-16).
+first round emits C(0) (R-05). RoundLength is a test value.
 
 There is no round 0. A call that names round 0 is refused with
 `NO_SUCH_ROUND`: a mint of its shares (R-10), a claim of it (R-12), and a
@@ -1610,13 +1590,12 @@ it by an address that may not act for the node, which is
 holding 0.
 
 **Would change it.** Paper text fixing the schedule in calendar time, or a
-stage 3 run where a stalled clock lets a node hold its claim window open
-against validators (D-28). The settled testnet round length (D-16).
+rewards run where a stalled clock lets a node hold its claim window open
+against validators. The settled testnet round length.
 
 ## R-19 Rounding
 
-Origin: `Interpretation`. Delivery: `Decide now`. Rests on: D-07, D-23,
-D-29.
+Origin: `Interpretation`. Delivery: `Decide now`.
 
 **The paper says.** Nothing about units or rounding. The reward is a plain
 ratio (pp. 3, 12), emission is a ceiling (p. 8), and the simple, secure
@@ -1644,13 +1623,12 @@ take 451,199,999,999,999,999,999, and 1 wei stays in Claims, never paid.
 a cut of 1, a pot of 9 and parts of 3 and 6, with nothing left.
 
 **Would change it.** Paper text giving a rounding rule; a demonstrated
-need to store a fixed-precision share for another consumer (D-07). A
-tiny-bond pattern where the split rounds a holder above its exact share
-(D-29).
+need to store a fixed-precision share for another consumer. A
+tiny-bond pattern where the split rounds a holder above its exact share.
 
 ## R-20 Scoring contract
 
-Origin: `Paper`. Delivery: `Decide now`. Rests on: D-23, D-41, D-42.
+Origin: `Paper`. Delivery: `Decide now`.
 
 **The paper says.** The contract address that governs the scores should
 be a parameter governance can swap, so the community can later give that
@@ -1665,10 +1643,10 @@ and what stays when it is.
 force when the claim runs: the `SCORE_SOURCE` group (R-25), Scores at
 deployment. A change counts from its announce round + 7, like any other,
 and every claim run from then reads the new source, whatever round it
-claims (D-42 s1). Any address with code may be named, and one without is
+claims. Any address with code may be named, and one without is
 refused with `VALUE_OUT_OF_RANGE`. Any contract that answers may stand
 there, and the claim still refuses a score above 10^6 (R-11). The validator set
-and its pay stay when the score source is replaced. Ours: in stage 3 one
+and its pay stay when the score source is replaced. Ours: in the rewards deployment one
 contract holds the validator set (R-13) and answers as the score source;
 Claims holds the two addresses apart, the score source for scores and the
 validator set for a round's members (R-14), and only the first is the
@@ -1683,11 +1661,11 @@ claim run in round 12 reads Scores and the one run in round 13 Scores2
 Claims against a stand-in score source, and it passes the `claim` cases.
 
 **Would change it.** A run where a replaced score source zeroes or fully
-pays honest claims before validators populate it (D-42).
+pays honest claims before validators populate it.
 
 ## R-21 Payer account
 
-Origin: `Interpretation`. Delivery: `Decide now`. Rests on: D-24.
+Origin: `Interpretation`. Delivery: `Decide now`.
 
 **The paper says.** Securing the ticket payment mechanism with an
 unlimited number of nodes is an open question (p. 10). Nothing else on
@@ -1707,9 +1685,8 @@ address that is not a registered node is refused with `NOT_REGISTERED`
 (R-01) and nothing moves.
 
 A node is shown the deposit less its pending release, and its own
-earmark less its pending release (R-22), each never below 0. As D-24
-rules, a node refuses a payer that has set nothing aside for it. That is
-the node's own check: it accepts a ticket only when the deposit and its
+earmark less its pending release (R-22), each never below 0. A node refuses a payer that has set nothing aside for
+it. That is the node's own check: it accepts a ticket only when the deposit and its
 earmark, as shown, each cover the face. The contract pays a ticket
 redeemed anyway, from the deposit (R-04).
 
@@ -1726,14 +1703,14 @@ deposit and every earmark end at 0. `ledger-empty`: N2's earmark of
 1,000,000 does not pay N1's ticket. `ledger-release`: before any request
 the node is shown a deposit of 4,000,000 and an earmark of 5,000,000.
 
-**Would change it.** A stage 3 run where earmarking before first use
+**Would change it.** A rewards run where earmarking before first use
 measurably delays or blocks first jobs on nodes chosen by discovery, with
 no gateway-side fix, or where a gateway using many small nodes must lock
-far more than it spends; paper text choosing a reserve rule (D-24).
+far more than it spends; paper text choosing a reserve rule.
 
 ## R-22 Release and ticket life
 
-Origin: `Placeholder`. Delivery: `Decide now`. Rests on: D-24, D-28.
+Origin: `Placeholder`. Delivery: `Decide now`.
 
 **The paper says.** Nothing on how long a ticket stays valid or on how a
 payer takes money out.
@@ -1783,11 +1760,11 @@ remain. Had the request taken effect at once, the ticket would have moved
 
 **Would change it.** A run where a release takes money a node accepted a
 ticket against; a funding program repeatedly tripped by a request being
-refused rather than clamped (D-28).
+refused rather than clamped.
 
 ## R-23 No count
 
-Origin: `Interpretation`, ours. Delivery: `Decide now`. Rests on: D-25.
+Origin: `Interpretation`, ours. Delivery: `Decide now`.
 
 **The paper says.** Any address may register as a node at any time, with
 no cap on their number (pp. 3, 12), and there is no reason to split stake
@@ -1808,13 +1785,12 @@ registrations; the contract tests check that.
 **Would change it.** A run where thousands of junk registrations
 measurably degrade discovery for a gateway despite bounded reads, which
 would reopen a discovery filter rather than a fee; paper text adding a
-registration cost (D-25).
+registration cost.
 
 ## R-24 Delegation
 
 Origin: `Interpretation`; ours for the integer form and the timing.
-Delivery: `Decide now`. Rests on: D-10, D-18, D-27, D-29, D-39, D-40;
-R-26.
+Delivery: `Decide now`. Rests on: R-26.
 
 **The paper says.** Delegators stake toward node operators with today's
 bonding, unbonding and reward-cut mechanics, and an operator may stake to
@@ -1871,10 +1847,9 @@ minted, less the parts of each withdrawn; a part is paid only from its
 own pot, and the LPT Claims holds is never less than that. LPT that
 reaches Claims any other way is never paid out. A round with zero total
 fees or zero total stake pays its nodes 0 (R-08), and their claims close
-at 0. The node's USDC half is not shared with its holders in this profile
-(D-18).
+at 0. The node's USDC half is not shared with its holders in this profile.
 
-**Example.** `split-d18`, D-18's own example: P = 564 LPT, cut 200,000,
+**Example.** `split-d18`, P = 564 LPT, cut 200,000,
 bonds of 13 and 80 LPT. The claim mints the cut,
 112,800,000,000,000,000,000 wei, to the payout and the pot,
 451,200,000,000,000,000,000, to Claims; the operator's part is
@@ -1930,22 +1905,20 @@ cut of 1,000,001 for itself, X never having registered, with
 `NOT_REGISTERED`. `ledger-rotation`: once K2 is N's operator key, K1's
 cut for N and N's own are refused with `NOT_AUTHORIZED`.
 
-**Would change it.** The owner placing USDC distribution in stage 3's
+**Would change it.** The owner placing USDC distribution in the rewards demo’s
 exit, or finding that the fee cut cannot be added later without changing
-the claim path (D-18). A run where a cut raised for the next round
+the claim path. A run where a cut raised for the next round
 measurably strips delegators who cannot leave in time; a tiny-bond
 pattern where the split rounds a holder above its exact share; a finding
 that Claims holding undrawn LPT is an exposure today's minter does not
-already carry (D-29). A run where honest nodes measurably fail to claim
+already carry. A run where honest nodes measurably fail to claim
 and their delegators lose at scale, or the owner wanting today's
-compounding into the bond (D-27).
+compounding into the bond.
 
 ## R-25 Parameters
 
 Origin: `Paper` for which values may change; ours for the announcement,
-the notice, the ranges and the refusals. Delivery: `Decide now`. Rests
-on: D-12, D-41, D-42, D-43, D-47, D-51; D-49, decided in the review of
-spec S-10.
+the notice, the ranges and the refusals. Delivery: `Decide now`. The drop limit was settled during review.
 
 **The paper says.** The design should leave room for governance to
 adjust it (p. 2). The parameter table marks which values may change: the
@@ -1963,16 +1936,16 @@ the round earned and the round paid. What ranges hold a value the paper
 gives no range for. Whether any change may be stopped or undone.
 
 **We build.** One authority, named at deployment and never changed,
-alone announces and withdraws changes (D-41); any other address is
+alone announces and withdraws changes; any other address is
 refused with `NOT_AUTHORIZED`. Another authority is another deployment.
-There is no stop and no other way to change a value (D-43).
+There is no stop and no other way to change a value.
 
 A change names one group by its number and gives all of its values, in
 the group's order: a group is changed whole. A number that is not one of
 the ten groups is refused with `NOT_ADJUSTABLE`; the values with no
 group in the units section's table can never be named.
 
-| Group | Values, in order | Accepted (D-47, D-49) | Read for |
+| Group | Values, in order | Accepted | Read for |
 |---|---|---|---|
 | 1 `FEE` | node cut, network | each 0 to 10^6, summing to 10^6 | the round a fee is redeemed in (R-03) |
 | 2 `EMISSION` | node, validators, treasury | each 0 to 10^6, summing to 10^6 | the earning round (R-07, R-10) |
@@ -1986,7 +1959,7 @@ group in the units section's table can never be named.
 | 10 `BUYBACK_EXECUTOR` | executor | an address with code | the round a draw runs in (R-16) |
 
 "In force" in a check means in force in the round of the announcement.
-The Parameters hold no pool design (D-51). Once group 9's numbers pass
+The Parameters hold no pool design. Once group 9's numbers pass
 their ranges, they ask one executor whether it accepts the pool: the
 pending change of group 10 if one is pending, otherwise the executor in
 force. Only a yes accepts. A no, a failed call or an address that cannot
@@ -2011,13 +1984,13 @@ Groups 8 to 10 are held and checked here; what they mean is R-16's.
 
 When two refusals apply, the first of `NOT_AUTHORIZED`, `NOT_ADJUSTABLE`,
 `SCHEDULE_RAISED`, `VALUE_OUT_OF_RANGE`, `IDENTITY_NOT_WHOLE`,
-`POOL_INVALID` is given: a raised half-life is what D-12 forbids, so it
+`POOL_INVALID` is given: a raised half-life is forbidden, so it
 is named first, and the pool, the one value another contract is asked
 about, last. `VALUE_OUT_OF_RANGE` also covers a wrong number of values;
 `SCHEDULE_RAISED` is given only to a schedule change of two values.
 `IDENTITY_NOT_WHOLE` is given only when every value is in range.
 
-Ours: a change announced in round A counts from round A + 7 (D-42). It
+Ours: a change announced in round A counts from round A + 7. It
 replaces any change of the same group still pending, so a group has at
 most one pending change. In any round before it counts, the authority may
 withdraw it; a withdrawal with none pending, including in the round the
@@ -2033,7 +2006,7 @@ round keeps the values in force when it started, whenever it is paid. A
 schedule change records the triple R-05 gives, and its pending values are
 that triple.
 
-**Example.** `parameters-emission`, the result of spec S-10: G, the
+**Example.** `parameters-emission`: G, the
 authority, announces shares of 900,000, 10,000 and 90,000 in round 4; they
 count from round 11, so round 10 has 940,000, 10,000 and 50,000 and round
 11 the new ones, and round 5 keeps the old after round 11. An unbonding
@@ -2112,17 +2085,15 @@ with none pending, with `NOTHING_PENDING`. Fee cuts of 600,000 and
 **Would change it.** A run where outside operators need a constant, such
 as the round length, changed live, or where one announced change does
 damage a limit on its size would have caught and the seven-round notice
-did not (D-41). Evidence that seven rounds is too short for nodes to
-reprice (D-42). A run where a rise of the set size lets dust-staked nodes
+did not. Evidence that seven rounds is too short for nodes to
+reprice. A run where a rise of the set size lets dust-staked nodes
 hold the median; a need for a base or half-life the grid cannot reach; a
 version that replaces emissions with fees and needs the burn cut to move;
-manipulation and recovery runs that establish better buyback bounds
-(D-47). The owner choosing a vote by stake or an authority stake can stop
-(D-41), or an emergency stop (D-43).
+manipulation and recovery runs that establish better buyback bounds. The owner choosing a vote by stake or an authority stake can stop, or an emergency stop.
 
 ## R-26 Operator key
 
-Origin: ours. Delivery: `Decide now`. Rests on: no ruling; D-39 for who
+Origin: ours. Delivery: `Decide now`. Rests on no ruling. The authority conventions cover who
 acts for a node; R-01 for the node's permanent identity.
 
 **The paper says.** Nothing on the key that acts for a node, or on

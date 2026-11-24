@@ -190,7 +190,7 @@ def validators_records(case):
 
 
 class ValidatorCaseWriter(unittest.TestCase):
-    """S-06 phase 5: the demo writes its run as `validators` and
+    """the demo writes its run as `validators` and
     `validator-pay` cases. Fed each frozen case's own steps and figures as
     the chain's, the writers must give the frozen case back exactly."""
 
@@ -225,13 +225,13 @@ class ValidatorCaseWriter(unittest.TestCase):
                                {"from_round": "5", "stake_wei": {"V2": "3", "V4": "6"}}])
 
     def test_section_one_claims_share_one_earning_round(self):
-        """S-06 section 1's four claims are four nodes' rewards earned in one
+        """the validator example’s four claims are four nodes' rewards earned in one
         round. The demo's table rows, and the rule the run checks them by."""
         tree = ast.parse((Path(common.__file__).parent / "rewards.py").read_text())
         rows = next(ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign)
                     and any(getattr(t, "id", None) == "CLAIM_ROWS" for t in n.targets))
         self.assertEqual(validatorcases.one_earning_round(list(rows)), 4)
-        # Phase 5's first build: N, M and K from round 2, L from round 4.
+        # The demo starts the nodes in different rounds: N, M and K from round 2, L from round 4.
         self.assertIsNone(validatorcases.one_earning_round([("A", "N", 2), ("B", "M", 2), ("C", "L", 4), ("D", "K", 2)]))
         self.assertIsNone(validatorcases.one_earning_round([("A", "N", 4), ("B", "M", 4), ("C", "N", 4), ("D", "K", 4)]))
         self.assertIsNone(validatorcases.one_earning_round([("A", "N", 4), ("B", "M", 4), ("C", "L", 4)]))
@@ -239,11 +239,11 @@ class ValidatorCaseWriter(unittest.TestCase):
 
 PAYMENTS_STAND_INS = (["local chain"], ["mockusdc"], ["--wei-per-usd 1000000"], ["2^256 - 2", "price + 1"],
                     ["--max-ticket-ev", "--max-batch-ev", "micro-usdc"], ["50-block rounds"], ["tiny model"],
-                    # S-10 phase 3: governance is Parameters whose authority's
+                    # governance is Parameters whose authority's
                     # key nobody holds, so every value is the deployment's.
                     ["parameters with no key", "nobody holds", "every value is the deployment's"], ["no buyback"])
 
-# S-05 phase 6: the stand-ins stage 3 adds. Each is its own entry, found by
+# the stand-ins rewards adds. Each is its own entry, found by
 # the start of its name, with the words its value must hold. They are
 # checked entry by entry because the names overlap ("test LPT" is also in
 # the genesis supply's name).
@@ -251,7 +251,7 @@ REWARDS_STAND_INS = {"test lpt": ["testlpt.sol", "only claims"],
                     "genesis supply of 10,000,000 test lpt": ["outside every round's issuance"],
                     "treasury address": ["nobody holds"],
                     "scripted validators": ["programs/validators", "v1, v2 and v3", "and v4 with 6,000", "holder h"],
-                    # S-06 phase 5: N = 3 is named as its own stand-in.
+                    # N = 3 is named as its own stand-in.
                     "validatorsetsize 3": ["at most 3"]}
 
 
@@ -272,8 +272,8 @@ class CaseDocuments(unittest.TestCase):
 
 class Manifest(unittest.TestCase):
     def test_every_stand_in_is_named(self):
-        # S-09 section 6, phase 5: the stand-ins the manifest must name, in
-        # stage 2's manifest and, as stage 3 keeps them, in stage 3's.
+        # the stand-ins the manifest must name, in
+        # the payments demo’s manifest and, as rewards keeps them, in the rewards demo’s.
         for manifest in (MANIFEST, MANIFEST3):
             text = " ".join(f"{s['stand_in']} {s['value']}" for s in manifest["stand_ins"]).lower()
             for words in PAYMENTS_STAND_INS:
@@ -308,7 +308,7 @@ class Manifest(unittest.TestCase):
 
     def test_the_public_template_invents_no_address_and_runs_rewards(self):
         # The public testnet's template names no address before a
-        # run fills it, runs what stage 3 runs, and names its stand-ins.
+        # run fills it, runs what rewards runs, and names its stand-ins.
         public = json.loads((ROOT / "deployments" / "public-arbitrum-sepolia.json").read_text())
         self.assertEqual([c["address"] for c in public["contracts"]], [None] * len(MANIFEST3["contracts"]))
         self.assertFalse(public["deployment"]["deployed"])
@@ -327,8 +327,8 @@ class Manifest(unittest.TestCase):
 
 
 class BuybackCase(unittest.TestCase):
-    """demo/buyback.py's case writer and stage 4's manifest. Importing the
-    demo reads stage 4's manifest into common's shared state, so each test
+    """demo/buyback.py's case writer and the full system’s manifest. Importing the
+    demo reads the full system’s manifest into common's shared state, so each test
     puts that state back afterwards."""
 
     def setUp(self):
@@ -504,8 +504,8 @@ class PublicSteps(unittest.TestCase):
 
 class PublicFull(unittest.TestCase):
     """demo/public-run full and serve, with no chain: the template they
-    read, mission 11's manifest beside it, and the refusals that come before
-    anything is made or sent. Importing them reads stage 4's shared examples
+    read, the dated deployment’s manifest beside it, and the refusals that come before
+    anything is made or sent. Importing them reads the full system’s shared examples
     into common's shared state, so each test puts that state back."""
 
     def setUp(self):
@@ -514,7 +514,7 @@ class PublicFull(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
         import public_full
-        self.p4 = public_full
+        self.full_run = public_full
         self.t4 = json.loads((ROOT / "deployments" / public_full.TEMPLATE).read_text())
         self.local4 = json.loads((ROOT / "deployments" / "full-local.json").read_text())
         self.dir = Path(tempfile.mkdtemp()).resolve()
@@ -562,7 +562,7 @@ class PublicFull(unittest.TestCase):
         spare = int(t["lpt"]["genesis_supply_wei"]) - int(t["pool"]["seed_lpt_wei"]) - public.N_BOND - public.V_BOND
         self.assertTrue(0 < faucet <= spare)
         self.assertIn(f"{faucet // 10**decimals:,} test LPT", t["faucet"]["note"])
-        # Unbonding, group 7: D-47's range is 1 to 840 rounds, and a change
+        # Unbonding, group 7: R-25’s range is 1 to 840 rounds, and a change
         # must differ from the deployment's value to show anything.
         change = t["parameter_change"]
         self.assertEqual((change["group"], change["name"]), (7, "unbonding"))
@@ -571,9 +571,9 @@ class PublicFull(unittest.TestCase):
 
     def test_dated_manifest_reads_as_the_rewards_template_filled_in(self):
         # A dry read of the dated manifest of the first public deployment,
-        # which the stage 4 template stands beside and does not replace: what
-        # the stage 3 path reads from a template is the same in it, and its
-        # contracts are the stage 3 template's, each with its address, but
+        # which the full system template stands beside and does not replace: what
+        # the rewards path reads from a template is the same in it, and its
+        # contracts are the rewards template's, each with its address, but
         # Parameters, which that deployment predates.
         dated = json.loads((ROOT / "deployments" / "public-arbitrum-sepolia-2026-11-21.json").read_text())
         rewards = json.loads((ROOT / "deployments" / "public-arbitrum-sepolia.json").read_text())
@@ -605,27 +605,27 @@ class PublicFull(unittest.TestCase):
                             ({"LP2_AUTHORITY_KEYSTORE": str(key)}, "LP2_AUTHORITY_PASSWORD_FILE is not set")):
             with self.subTest(want=want), self.env(**given, **extra):
                 with self.assertRaises(common.NotRun) as e:
-                    self.p4.main()
+                    self.full_run.main()
                 self.assertIn(want, str(e.exception))
                 self.assertFalse(state.exists(), "nothing is made before the authority's keystore is checked")
 
     def test_serve_refuses_a_state_directory_no_run_handed_over(self):
         with self.env(LP2_STATE_DIR=str(self.dir)):
             with self.assertRaises(common.NotRun) as e:
-                self.p4.serve()
+                self.full_run.serve()
         self.assertIn("holds no services.json", str(e.exception))
 
     def test_the_handover_names_the_role_keys_and_no_key_of_the_owners(self):
         import public
         owner = {"deployer_keystore": "/owner/deployer.json", "deployer_password_file": "/owner/deployer.pw",
                  "authority": "0x" + "a1" * 20}
-        accounts = {w: "0x" + f"{i:02x}" * 20 for i, w in enumerate(self.p4.ROLES, 1)}
+        accounts = {w: "0x" + f"{i:02x}" * 20 for i, w in enumerate(self.full_run.ROLES, 1)}
         with mock.patch.dict(public.STATE, owner, clear=True), mock.patch.dict(common.ADDR, accounts), \
                 mock.patch.dict(common.C, {"Controller": "0x" + "cc" * 20}), \
-                mock.patch.object(self.p4, "executor_in_force", lambda: "0x" + "bb" * 20), \
-                mock.patch.object(self.p4, "AUTHORITY", ["--keystore-file", "/owner/authority.json"]):
-            svc = self.p4.services_doc(31337)
-        self.assertEqual(svc["keys"], {w: f"keys/{w}/{w}" for w in self.p4.ROLES})
+                mock.patch.object(self.full_run, "executor_in_force", lambda: "0x" + "bb" * 20), \
+                mock.patch.object(self.full_run, "AUTHORITY", ["--keystore-file", "/owner/authority.json"]):
+            svc = self.full_run.services_doc(31337)
+        self.assertEqual(svc["keys"], {w: f"keys/{w}/{w}" for w in self.full_run.ROLES})
         self.assertNotIn("deployer", svc["keys"])
         text = json.dumps(svc)
         for secret in ("/owner/deployer.json", "/owner/deployer.pw", "/owner/authority.json"):
@@ -634,14 +634,14 @@ class PublicFull(unittest.TestCase):
 
     # The fields the operator container's entrypoint reads from the
     # deployment file, each with `jq -er '<field> | strings, numbers'`
-    # (programs/container, mission 10).
+    # (programs/container).
     CONTAINER_READS = (".testnet", ".chain_id", ".first_block", ".contracts.Controller", ".contracts.Parameters",
                        ".contracts.StakeLedger", ".contracts.Claims", ".contracts.TestLPT", ".contracts.MockUSDC",
                        ".node.job_price_usd", ".node.price_unit", ".node.wei_per_usd", ".node.ticket_face_value",
                        ".node.ticket_win_prob", ".sender_url")
 
     def deployed(self):
-        """A stage 4 deployment's contracts and the template's price, with no chain."""
+        """A full system deployment's contracts and the template's price, with no chain."""
         contracts = {c["contract"]: "0x" + f"{i:02x}" * 20 for i, c in enumerate(self.t4["contracts"], 1)}
         return mock.patch.dict(common.C, contracts), mock.patch.dict(common.MANIFEST, {"price": self.t4["price"]}), \
             mock.patch.object(common, "FROM_BLOCK", 331292296), contracts
@@ -649,8 +649,8 @@ class PublicFull(unittest.TestCase):
     def test_the_operators_file_holds_what_the_container_reads_and_nothing_private(self):
         c, m, b, contracts = self.deployed()
         with c, m, b, mock.patch.object(common, "RPC", "https://rpc.example/v1/SECRET"):
-            doc = self.p4.operator_doc(421614, "https://sender.example")
-        self.assertEqual(self.p4.operator_problems(doc, True), [])
+            doc = self.full_run.operator_doc(421614, "https://sender.example")
+        self.assertEqual(self.full_run.operator_problems(doc, True), [])
         self.assertEqual(set(doc), {"testnet", "chain_id", "first_block", "contracts", "node", "sender_url"})
         self.assertEqual(doc["contracts"], {k: contracts[k] for k in ("Controller", "Parameters", "StakeLedger",
                                                                       "Claims", "TestLPT", "MockUSDC")})
@@ -673,8 +673,8 @@ class PublicFull(unittest.TestCase):
     def test_an_operators_file_the_container_cannot_use_is_named(self):
         c, m, b, _ = self.deployed()
         with c, m, b:
-            good = self.p4.operator_doc(421614, "https://sender.example:8443")
-        self.assertEqual(self.p4.operator_problems(good, True), [])
+            good = self.full_run.operator_doc(421614, "https://sender.example:8443")
+        self.assertEqual(self.full_run.operator_problems(good, True), [])
         for name, change, public_chain in (
                 ("no sender", lambda d: d.pop("sender_url"), True),
                 ("a key file", lambda d: d.update(keys={"N": "keys/N/N"}), True),
@@ -692,42 +692,42 @@ class PublicFull(unittest.TestCase):
             with self.subTest(name=name):
                 doc = copy.deepcopy(good)
                 change(doc)
-                self.assertNotEqual(self.p4.operator_problems(doc, public_chain), [])
+                self.assertNotEqual(self.full_run.operator_problems(doc, public_chain), [])
         local = dict(copy.deepcopy(good), sender_url="http://127.0.0.1:49224")
-        self.assertEqual(self.p4.operator_problems(local, False), [])
+        self.assertEqual(self.full_run.operator_problems(local, False), [])
         # The RPC URL is still looked for in the fields that are not the
         # sender's, which may hold any text.
         rpc = "https://rpc.example/v2/KEY"
         with mock.patch.object(common, "RPC", rpc):
-            self.assertEqual(self.p4.operator_problems(good, True), [])
-            self.assertEqual(self.p4.operator_problems(dict(copy.deepcopy(good), testnet=rpc + "x"), True),
+            self.assertEqual(self.full_run.operator_problems(good, True), [])
+            self.assertEqual(self.full_run.operator_problems(dict(copy.deepcopy(good), testnet=rpc + "x"), True),
                              ["it names an RPC URL, path or key file"])
 
     def test_the_sender_url_is_the_setting_the_services_run_with(self):
         with self.env(LP2_SENDER_URL="https://sender.example"):
-            self.assertEqual(self.p4.sender_url(421614), "https://sender.example")
+            self.assertEqual(self.full_run.sender_url(421614), "https://sender.example")
         with self.env(LP2_SENDER_LISTEN="0.0.0.0:49299"):
-            self.assertEqual(self.p4.sender_url(31337), "http://127.0.0.1:49299")
+            self.assertEqual(self.full_run.sender_url(31337), "http://127.0.0.1:49299")
         for given, want in (({}, "LP2_SENDER_URL is not set"),
                             ({"LP2_SENDER_URL": "http://192.168.1.5:9000"}, "loopback or private host")):
             with self.subTest(given=given), self.env(**given), self.assertRaises(common.NotRun) as e:
-                self.p4.sender_url(421614)
+                self.full_run.sender_url(421614)
             self.assertIn(want, str(e.exception))
 
     def test_serve_writes_the_sender_url_it_runs_with_into_the_operators_file(self):
         c, m, b, _ = self.deployed()
         with c, m, b:
-            (self.dir / "deployment.json").write_text(json.dumps(self.p4.operator_doc(421614, "https://old.example")))
+            (self.dir / "deployment.json").write_text(json.dumps(self.full_run.operator_doc(421614, "https://old.example")))
         with self.env():
-            self.p4.publish_sender(self.dir, 421614)   # no new URL: the file is kept as it is
+            self.full_run.publish_sender(self.dir, 421614)   # no new URL: the file is kept as it is
         self.assertEqual(json.loads((self.dir / "deployment.json").read_text())["sender_url"], "https://old.example")
         with self.env(LP2_SENDER_URL="https://sender.example:8443"):
-            self.p4.publish_sender(self.dir, 421614)
+            self.full_run.publish_sender(self.dir, 421614)
         doc = json.loads((self.dir / "deployment.json").read_text())
-        self.assertEqual((doc["sender_url"], self.p4.operator_problems(doc, True)), ("https://sender.example:8443", []))
+        self.assertEqual((doc["sender_url"], self.full_run.operator_problems(doc, True)), ("https://sender.example:8443", []))
         self.assertEqual((self.dir / "deployment.json").stat().st_mode & 0o777, 0o644)
         with self.env(LP2_SENDER_URL="http://127.0.0.1:9000"), self.assertRaises(common.NotRun):
-            self.p4.publish_sender(self.dir, 421614)
+            self.full_run.publish_sender(self.dir, 421614)
         self.assertEqual(json.loads((self.dir / "deployment.json").read_text())["sender_url"], "https://sender.example:8443")
 
     # destination.Public of the node programs/go.mod pins, which lp2-sender
@@ -750,7 +750,7 @@ class PublicFull(unittest.TestCase):
         import ipaddress
         for addr, public in self.NODE_POLICY.items():
             with self.subTest(addr=addr):
-                self.assertEqual(self.p4.public_address(ipaddress.ip_address(addr)), public)
+                self.assertEqual(self.full_run.public_address(ipaddress.ip_address(addr)), public)
 
     def test_the_policys_blocks_are_the_pinned_nodes(self):
         # The blocks are the pinned module's own, read from its source, so
@@ -768,7 +768,7 @@ class PublicFull(unittest.TestCase):
         def block(name):
             return tuple(re.findall(r'"([^"]+)"', re.search(name + r" = [^(]*\(([^)]*)\)", text).group(1)))
         self.assertEqual((block("deniedV4"), block("deniedV6"), block("publicV6")),
-                         (self.p4.DENIED_V4, self.p4.DENIED_V6, (self.p4.PUBLIC_V6,)))
+                         (self.full_run.DENIED_V4, self.full_run.DENIED_V6, (self.full_run.PUBLIC_V6,)))
 
     def test_the_sender_url_is_one_operators_reach_and_not_the_rpc(self):
         rpc = "https://rpc.example/v2/KEY"
@@ -790,29 +790,29 @@ class PublicFull(unittest.TestCase):
             "https://sender.example;KEY", "https://sender.example\\x", "https://sender.example%2Fx")
         for url in refused:
             with self.subTest(url=url):
-                self.assertIsNotNone(self.p4.url_problem(url, True, rpc))
+                self.assertIsNotNone(self.full_run.url_problem(url, True, rpc))
         for url in ("https://sender.example", "https://sender.example/", "https://Sender.Example.:8443",
                     "https://two.example", "http://8.8.8.8:9000", "http://[2606:4700::1111]:9000/",
                     # The RPC's host at another port or scheme is another endpoint.
                     "https://rpc.example:8940", "http://rpc.example:8443", "http://rpc.example", "http://rpc.example/"):
             with self.subTest(url=url):
-                self.assertIsNone(self.p4.url_problem(url, True, rpc))
-        # Review round 3's case: RPC and sender on one public address.
-        self.assertIsNone(self.p4.url_problem("https://8.8.8.8:8940", True, "https://8.8.8.8:8545"))
-        self.assertIsNotNone(self.p4.url_problem("https://8.8.8.8:8545/", True, "https://8.8.8.8:8545"))
+                self.assertIsNone(self.full_run.url_problem(url, True, rpc))
+        # RPC and sender can share a public address.
+        self.assertIsNone(self.full_run.url_problem("https://8.8.8.8:8940", True, "https://8.8.8.8:8545"))
+        self.assertIsNotNone(self.full_run.url_problem("https://8.8.8.8:8545/", True, "https://8.8.8.8:8545"))
         local = "http://127.0.0.1:49200"
-        self.assertIsNone(self.p4.url_problem("http://127.0.0.1:49224", False, local))
-        self.assertIsNotNone(self.p4.url_problem(local, False, local))
-        self.assertIsNotNone(self.p4.url_problem(rpc, False, rpc))
+        self.assertIsNone(self.full_run.url_problem("http://127.0.0.1:49224", False, local))
+        self.assertIsNotNone(self.full_run.url_problem(local, False, local))
+        self.assertIsNotNone(self.full_run.url_problem(rpc, False, rpc))
         # On a local chain no name is resolved, yet the sender is still an
         # origin: no path, and a host that is a name or an address.
         for url in ("http://127.0.0.1:49224/lp2", "http://host.example;KEY:49224", "http://host.example\\x",
                     "http://host.example%2Fx", "http://host.example,KEY"):
             with self.subTest(url=url):
-                self.assertIsNotNone(self.p4.url_problem(url, False, local))
+                self.assertIsNotNone(self.full_run.url_problem(url, False, local))
         for url in ("http://host.example:49224", "http://host_1.example", "http://[::1]:49224/"):
             with self.subTest(url=url):
-                self.assertIsNone(self.p4.url_problem(url, False, local))
+                self.assertIsNone(self.full_run.url_problem(url, False, local))
 
     # The spellings review rounds named, each with whether the sender check
     # takes it on a local chain, where only the URL's form is checked (a
@@ -845,7 +845,7 @@ class PublicFull(unittest.TestCase):
     def test_the_sender_check_takes_the_spellings_it_should(self):
         for url, taken in self.SPELLINGS.items():
             with self.subTest(url=url):
-                self.assertEqual(self.p4.url_problem(url, False, "https://rpc.example/v2/KEY") is None, taken)
+                self.assertEqual(self.full_run.url_problem(url, False, "https://rpc.example/v2/KEY") is None, taken)
 
     def test_a_sender_url_taken_is_read_alike_by_python_and_go(self):
         # Review C4's C5: an IPv6 zone passed Python's reading and broke
@@ -890,7 +890,7 @@ class PublicFull(unittest.TestCase):
         self.assertEqual(set(go), set(self.SPELLINGS))
         self.assertIn("error", go["http://[2606:4700::1111%KEY]:8443"])
         for url in self.SPELLINGS:
-            if self.p4.url_problem(url, False, "https://rpc.example/v2/KEY") is not None:
+            if self.full_run.url_problem(url, False, "https://rpc.example/v2/KEY") is not None:
                 continue
             with self.subTest(url=url):
                 u = urllib.parse.urlsplit(url)
@@ -899,21 +899,21 @@ class PublicFull(unittest.TestCase):
                                  (u.scheme, u.hostname, "" if u.port is None else str(u.port)))
 
     def test_the_run_and_serve_refuse_the_rpc_url_and_a_loopback_name_and_keep_the_file(self):
-        # The two cases review round 2 reproduced: the RPC URL given as the
+        # Two startup cases: the RPC URL given as the
         # sender's, and localhost with the root's trailing dot.
         c, m, b, _ = self.deployed()
         rpc = "https://rpc.example/v2/KEY"
         path = self.dir / "deployment.json"
         with c, m, b:
-            path.write_text(json.dumps(self.p4.operator_doc(421614, "https://sender.example"), indent=1) + "\n")
+            path.write_text(json.dumps(self.full_run.operator_doc(421614, "https://sender.example"), indent=1) + "\n")
         path.chmod(0o644)
         before = path.read_bytes()
         for url in (rpc, "http://localhost.:49224"):
             with self.subTest(url=url), mock.patch.object(common, "RPC", rpc), self.env(LP2_SENDER_URL=url):
                 with self.assertRaises(common.NotRun) as run:
-                    self.p4.sender_url(421614)
+                    self.full_run.sender_url(421614)
                 with self.assertRaises(common.NotRun) as serve:
-                    self.p4.publish_sender(self.dir, 421614)
+                    self.full_run.publish_sender(self.dir, 421614)
                 self.assertIn("LP2_SENDER_URL", str(run.exception))
                 self.assertIn("kept as it was", str(serve.exception))
                 self.assertEqual(path.read_bytes(), before)
@@ -922,11 +922,11 @@ class PublicFull(unittest.TestCase):
         # too, with no new URL given.
         with mock.patch.object(common, "RPC", "https://sender.example/rpc"), self.env(), \
                 self.assertRaises(common.NotRun):
-            self.p4.publish_sender(self.dir, 421614)
+            self.full_run.publish_sender(self.dir, 421614)
         self.assertEqual(path.read_bytes(), before)
 
     def test_the_run_and_serve_take_a_sender_on_the_rpcs_host_at_another_port(self):
-        # Review round 3: the services may run on the RPC node's machine. A
+        # The services may run on the RPC node's machine. A
         # sender there at its own port is taken by the run's start check,
         # written by serve and passes the handover's check of the file; the
         # RPC endpoint itself, however spelled, is still refused.
@@ -934,21 +934,21 @@ class PublicFull(unittest.TestCase):
         rpc = "https://rpc.example"
         path = self.dir / "deployment.json"
         with c, m, b:
-            path.write_text(json.dumps(self.p4.operator_doc(421614, "https://sender.example"), indent=1) + "\n")
+            path.write_text(json.dumps(self.full_run.operator_doc(421614, "https://sender.example"), indent=1) + "\n")
         for url in ("https://RPC.example.:443/", "https://rpc.example/lp2"):
             before = path.read_bytes()
             with self.subTest(url=url), mock.patch.object(common, "RPC", rpc), self.env(LP2_SENDER_URL=url):
                 with self.assertRaises(common.NotRun):
-                    self.p4.sender_url(421614)
+                    self.full_run.sender_url(421614)
                 with self.assertRaises(common.NotRun):
-                    self.p4.publish_sender(self.dir, 421614)
+                    self.full_run.publish_sender(self.dir, 421614)
                 self.assertEqual(path.read_bytes(), before)
         for url in ("https://rpc.example:8940", "http://rpc.example"):
             with self.subTest(url=url), mock.patch.object(common, "RPC", rpc), self.env(LP2_SENDER_URL=url):
-                self.assertEqual(self.p4.sender_url(421614), url)
-                self.p4.publish_sender(self.dir, 421614)
+                self.assertEqual(self.full_run.sender_url(421614), url)
+                self.full_run.publish_sender(self.dir, 421614)
                 doc = json.loads(path.read_text())
-                self.assertEqual((doc["sender_url"], self.p4.operator_problems(doc, True)), (url, []))
+                self.assertEqual((doc["sender_url"], self.full_run.operator_problems(doc, True)), (url, []))
 
     def test_the_run_and_serve_refuse_a_sender_that_is_not_an_origin_and_keep_the_file(self):
         # Review C3's C4: a sender URL that held the whole RPC URL, its key
@@ -960,7 +960,7 @@ class PublicFull(unittest.TestCase):
         rpc = "https://rpc.example/v2/KEY"
         path = self.dir / "deployment.json"
         with c, m, b:
-            path.write_text(json.dumps(self.p4.operator_doc(421614, "https://sender.example"), indent=1) + "\n")
+            path.write_text(json.dumps(self.full_run.operator_doc(421614, "https://sender.example"), indent=1) + "\n")
         before = path.read_bytes()
         for url in ("https://sender.example/" + rpc + "x", "https://sender.example/x" + rpc + "-suffix",
                     "https://sender.example/" + rpc, "https://sender.example/lp2", "https://sender.example:8443/join",
@@ -971,9 +971,9 @@ class PublicFull(unittest.TestCase):
                     "https://sender.example:08443"):
             with self.subTest(url=url), mock.patch.object(common, "RPC", rpc), self.env(LP2_SENDER_URL=url):
                 with self.assertRaises(common.NotRun) as run:
-                    self.p4.sender_url(421614)
+                    self.full_run.sender_url(421614)
                 with self.assertRaises(common.NotRun) as serve:
-                    self.p4.publish_sender(self.dir, 421614)
+                    self.full_run.publish_sender(self.dir, 421614)
                 self.assertIn("LP2_SENDER_URL", str(run.exception))
                 self.assertIn("kept as it was", str(serve.exception))
                 self.assertEqual(path.read_bytes(), before)
@@ -982,8 +982,8 @@ class PublicFull(unittest.TestCase):
         # IPv6 address with no zone is an origin.
         for url in ("https://sender.example:8443", "https://sender.example:8443/", "http://[2606:4700::1111]:8443"):
             with self.subTest(url=url), mock.patch.object(common, "RPC", rpc), self.env(LP2_SENDER_URL=url):
-                self.assertEqual(self.p4.sender_url(421614), url)
-                self.p4.publish_sender(self.dir, 421614)
+                self.assertEqual(self.full_run.sender_url(421614), url)
+                self.full_run.publish_sender(self.dir, 421614)
                 self.assertEqual(json.loads(path.read_text())["sender_url"], url)
 
     def handed(self, failures):
@@ -993,22 +993,22 @@ class PublicFull(unittest.TestCase):
                 "buy": {"tx": "0x" + "bb" * 32, "usdc_in_micro_usdc": "1", "lpt_out_wei": "2", "burned_wei": "2"}}
         state = {"deployer_keystore": "/owner/deployer.json", "deployer_password_file": "/owner/deployer.pw",
                  "authority": "0x" + "a1" * 20, "done": done}
-        accounts = {w: "0x" + f"{i:02x}" * 20 for i, w in enumerate(self.p4.ROLES, 1)}
+        accounts = {w: "0x" + f"{i:02x}" * 20 for i, w in enumerate(self.full_run.ROLES, 1)}
         wrote = []
         with c, m, b, self.env(), mock.patch.dict(public.STATE, state, clear=True), \
                 mock.patch.dict(public.TEMPLATE_DOC, self.t4, clear=True), mock.patch.object(public, "STATE_DIR", self.dir), \
                 mock.patch.dict(common.ADDR, accounts), mock.patch.object(common, "FAILURES", list(failures)), \
                 mock.patch.object(common, "RPC", "http://127.0.0.1:49200"), \
-                mock.patch.object(self.p4, "executor_in_force", lambda: contracts["Buyback"]), \
+                mock.patch.object(self.full_run, "executor_in_force", lambda: contracts["Buyback"]), \
                 mock.patch.object(public, "write_manifest", lambda *a: wrote.append(a)):
-            self.p4.handover(31337)
+            self.full_run.handover(31337)
         return wrote
 
     def test_a_run_that_passed_hands_over_both_files(self):
         self.assertEqual(len(self.handed([])), 1)
         svc = json.loads((self.dir / "services.json").read_text())
         op = json.loads((self.dir / "deployment.json").read_text())
-        self.assertEqual(self.p4.operator_problems(op, False), [])
+        self.assertEqual(self.full_run.operator_problems(op, False), [])
         self.assertEqual((op["chain_id"], op["first_block"], op["contracts"]["Controller"]),
                          (svc["chain_id"], svc["from_block"], svc["contracts"]["Controller"]))
         self.assertEqual(((self.dir / "services.json").stat().st_mode & 0o777,
@@ -1024,7 +1024,7 @@ class PublicFull(unittest.TestCase):
         self.assertFalse((self.dir / "services.json").exists())
         self.assertFalse((self.dir / "deployment.json").exists())
         with self.env(LP2_STATE_DIR=str(self.dir)), self.assertRaises(common.NotRun) as e:
-            self.p4.serve()
+            self.full_run.serve()
         self.assertIn("holds no services.json", str(e.exception))
 
     def test_serve_starts_the_faucet_from_the_first_block_with_a_kept_journal(self):
@@ -1033,11 +1033,11 @@ class PublicFull(unittest.TestCase):
         started = []
         with mock.patch.object(common, "start", lambda name, argv: started.append((name, argv))), \
                 mock.patch.object(public, "note_holders", lambda: None), \
-                mock.patch.object(self.p4, "call", lambda *a: 10**24), \
+                mock.patch.object(self.full_run, "call", lambda *a: 10**24), \
                 mock.patch.dict(rewards.KEYS, {"Faucet": self.dir / "keys" / "Faucet" / "Faucet"}), \
                 mock.patch.dict(common.C, {"Controller": "0x" + "cc" * 20, "TestLPT": "0x" + "dd" * 20}), \
                 mock.patch.dict(common.ADDR, {"Faucet": "0x" + "05" * 20}):
-            self.p4.start_faucet(self.dir, 1234)
+            self.full_run.start_faucet(self.dir, 1234)
         (name, argv), = started
         flags = dict(zip(argv[1::2], argv[2::2]))
         self.assertEqual((name, Path(argv[0]).name), ("faucet", "lp2-faucet"))
@@ -1064,9 +1064,9 @@ class PublicFull(unittest.TestCase):
         fake = types.SimpleNamespace(time=lambda: clock[0], sleep=sleep, strftime=time.strftime)
         keeper = mock.Mock()
         keeper.poll.return_value = None
-        with mock.patch.object(self.p4, "time", fake), mock.patch.object(rewards, "current_round", lambda: 5), \
-                mock.patch.object(self.p4, "keeper_gas", lambda: gas(polls[0])), \
-                mock.patch.object(self.p4, "call", lambda *a: 0), mock.patch.object(self.p4, "words", lambda *a: (0, 0, 0, 0)), \
+        with mock.patch.object(self.full_run, "time", fake), mock.patch.object(rewards, "current_round", lambda: 5), \
+                mock.patch.object(self.full_run, "keeper_gas", lambda: gas(polls[0])), \
+                mock.patch.object(self.full_run, "call", lambda *a: 0), mock.patch.object(self.full_run, "words", lambda *a: (0, 0, 0, 0)), \
                 mock.patch.object(common, "rpc", lambda *a: {"timestamp": "0x10"}), \
                 mock.patch.dict(common.PROCS, {"keeper": keeper}), mock.patch.dict(public.STATE, {"done": {}}, clear=True), \
                 mock.patch.dict(common.PARAMS, {"buyback_twap_seconds": "3600"}), \
@@ -1074,7 +1074,7 @@ class PublicFull(unittest.TestCase):
                 mock.patch.dict(common.C, {"Buyback": "0x" + "b0" * 20, "Broker": "0x" + "b1" * 20}), \
                 mock.patch.dict(public.TEMPLATE_DOC, self.t4, clear=True):
             with self.assertRaises(common.Failed) as e:
-                self.p4.wait_both({"counts_from": 100})
+                self.full_run.wait_both({"counts_from": 100})
         return str(e.exception), polls[0]
 
     def test_a_keeper_that_runs_out_of_gas_in_a_round_fails_the_run(self):
@@ -1088,7 +1088,7 @@ class PublicFull(unittest.TestCase):
     def test_a_round_that_does_not_start_fails_the_run_in_bounded_time(self):
         said, polls = self.waiting(lambda poll: 1000)
         self.assertIn("no round has started for 30 minutes", said)
-        self.assertEqual(polls, self.p4.STALL_SECONDS // 5 + 1)
+        self.assertEqual(polls, self.full_run.STALL_SECONDS // 5 + 1)
 
 
 class PagedLogs(unittest.TestCase):
@@ -1202,7 +1202,7 @@ class Startup(unittest.TestCase):
 
 class ContainerPayments(unittest.TestCase):
     """demo/container.py's payment check: the node is paid once in every
-    round it was up for whole. Importing the demo reads stage 4's manifest
+    round it was up for whole. Importing the demo reads the full system’s manifest
     into common's shared state, so each test puts that state back."""
 
     def setUp(self):

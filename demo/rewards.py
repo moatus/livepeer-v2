@@ -1,7 +1,7 @@
-"""./dev demo: S-05 section 1, one full reward cycle, and S-06 section 1,
+"""./dev demo: one full reward cycle and
 the scripted validators, on a fresh local chain.
 
-Deploys the stage 3 contracts and runs the unmodified node for four nodes,
+Deploys the rewards contracts and runs the unmodified node for four nodes,
 N, M, K and L, the round keeper and four scripted validators. Four holders
 bond test LPT to N, M and K; in round 2 the node serves five paid relays of
 1 USDC each, three for N and one each for M and K. The keeper is stopped as
@@ -11,7 +11,7 @@ runs again, after somebody else has started round 3, it mints them.
 V1 to V3, with 5,000, 3,000 and 2,000 LPT (4,000 of V1's from holder H, and
 V1 a 10 % reward cut), opt in in round 3 and are members from round 4. In
 round 4 they vote M 0.5 and K 0, V1 alone votes L 0, and N, M, K and L each
-serve one paid relay, so that four nodes earn in one round (S-06 section 1);
+serve one paid relay, so that four nodes earn in one round;
 V4, with 6,000 LPT, opts in and takes V3's seat from round 5, and its vote
 in round 4 is refused. Round 4's validator amount is divided among V1,
 V2 and V3 by stake; V1's cut goes to its payout and its pot to Claims, from
@@ -20,12 +20,11 @@ early; in round 9 a rival's and a delegator's claims for N are refused, N
 claims at score 1, its holders withdraw their parts, N's second claim is
 refused, M claims at 0.5 and K at 0. F then moves 100 LPT from K toward M,
 unbonds 40 of the move and rebonds it, which can go back only to K. In round
-11 N, M, L and K claim their round 4 rewards, S-06 section 1's four claims:
+11 N, M, L and K claim their round 4 rewards
 at scores 1, 0.5, 1 (one vote cannot cut a node) and 0.
 
 Every figure read from the chain is printed beside the independent
-calculator's figure for the same steps, and checked against S-05 section
-1's figures (the shared example ledger-cycle). The run is written as a
+calculator's figure for the same steps, and checked against the shared ledger-cycle example. The run is written as a
 `ledger` case, a `validators` case and one `validator-pay` case for each
 round minted, and `./calculator/check` reproduces each.
 
@@ -53,15 +52,15 @@ ORCHS = {"N": ("orch", "orch_metrics"), "M": ("orch_m", "orch_m_metrics"), "K": 
          "L": ("orch_l", "orch_l_metrics")}
 SCRIPT = common.HERE / "validators.script"
 KEYS: dict[str, object] = {}
-CYCLE = CASES["ledger-cycle"]  # S-05 section 1, step for step
-# S-06 section 1's validators are pay-split's members A, B and C: their
+CYCLE = CASES["ledger-cycle"]  # the ledger-cycle example, step for step
+# the validator example’s validators are pay-split's members A, B and C: their
 # stakes, A's reward cut, and A's bonds, its operator's and H's.
 PAY = CASES["pay-split"]["inputs"]
 SEATED = dict(zip(("V1", "V2", "V3"), (int(m["stake_wei"]) for m in PAY["members"])))
 V1_CUT = int(PAY["splits"]["A"]["cut_millionths"])
 V1_OWN, H_BOND = (int(PAY["splits"]["A"]["bonds_wei"][h]) for h in ("O", "H"))
-# D-35 (e)'s worked line: V4, with 6,000 LPT, takes V3's seat. L is the
-# fourth node S-06 section 1 needs; its stake is the demo's choice.
+# The seat replacement example: V4, with 6,000 LPT, takes V3's seat. L is the
+# fourth node in the validator reward example; its stake is the demo's choice.
 V4_STAKE = 6_000 * LPT
 L_STAKE = 1_000 * LPT
 VALIDATORS = (*SEATED, "V4")
@@ -406,7 +405,7 @@ def resume_keeper() -> int:
 def main() -> int:
     open_log()
     started = time.time()
-    say("Stage 3 demo (S-05 and S-06 section 1): one full reward cycle, stake, scores, claims and LPT, and the scripted")
+    say("Rewards demo: one full reward cycle, stake, scores, claims and LPT, and the scripted")
     say("validators: their votes, a seat changing hands and their pay, on a fresh local chain")
     say(f"Stand-ins, from deployments/rewards-local.json: {'; '.join(s['stand_in'] for s in MANIFEST['stand_ins'])}.")
 
@@ -475,7 +474,7 @@ def main() -> int:
     for n in ORCHS:
         fund("P", 0, face, n)
     say(f"  P deposits {money(deposit)} micro-USDC and earmarks {money(face)} for each node: the node will not take a payer")
-    say("  who has set nothing aside for it (stage 2's refusal 2), so ledger-cycle's payer, with no earmark, could not pay here")
+    say("  who has set nothing aside for it (the payments demo’s refusal 2), so ledger-cycle's payer, with no earmark, could not pay here")
 
     names_file = common.RUN / "names.json"
     names_file.write_text(json.dumps({n: ADDR[n] for n in REGISTERED}))
@@ -655,7 +654,7 @@ def main() -> int:
     extra = keeper_steps()
     m = members()
     ordered, views, calc = reconcile("At the end of the run", extra, m)
-    say("  against S-05 section 1 (ledger-cycle in the shared examples):")
+    say("  against ledger-cycle in the shared examples:")
     want = CYCLE["expected"]
     check("W's LPT: ledger-cycle's (N's round 2 cut), plus N's round 4 cut", views["lpt"]["W"],
           int(want["lpt_wei"]["W"]) + c4["N"]["cut"])
@@ -677,7 +676,7 @@ def main() -> int:
     calc_never = int(calc_ceiling(1)) - int(calc["minted_for_round_wei"]["2"])
     say(f"  {'LPT never minted for round 2, C(1) less the above':<46}{lpt(never):>28}{lpt(calc_never):>28}  "
         f"{'equal' if never == calc_never else 'DIFFERS'}")
-    check("LPT never minted for round 2 (section 1)", never, 544_750_300_038_956_261_284)
+    check("LPT never minted for round 2 (ledger-cycle)", never, 544_750_300_038_956_261_284)
     shown = [r for r in ordered if r["fields"]["action"] == "observe_stake"]
     check("N's stake in rounds 2 and 3", [(r["round"], r["shown"][0]) for r in shown if r["fields"]["node"] == "N"],
           [(2, 400 * LPT), (3, 500 * LPT)])
@@ -692,7 +691,7 @@ def main() -> int:
 
     vcase, vordered = validators_run_case()
     pay_cases = validator_pay_run_cases()
-    section_s06(ordered, vcase, pay_cases, withdrawn)
+    show_validator_rewards(ordered, vcase, pay_cases, withdrawn)
 
     say("\n13. The run as cases, reproduced by the calculator")
     scan(ordered, ["Registry", "Broker", "StakeLedger", "Claims"])
@@ -703,29 +702,29 @@ def main() -> int:
     return finish(started, "one reward cycle and the scripted validators, every refusal seen, every figure read from the chain equals the calculator's.")
 
 
-# S-06 section 1's table: four nodes' claims of rewards earned in one round.
+# The validator reward example: four nodes' claims of rewards earned in one round.
 CLAIM_ROWS = (("A", "N", 4), ("B", "M", 4), ("C", "L", 4), ("D", "K", 4))
 
 
 def described(votes: dict[str, int]) -> str:
-    """S-06 section 1's "votes cast" column."""
+    """the validator example’s "votes cast" column."""
     if not votes:
         return "none"
     who = " and ".join(sorted(votes)) if len(votes) > 1 else f"{next(iter(votes))} alone"
     return f"{who}: " + "/".join(sorted({f"{v:,}" for v in votes.values()}))
 
 
-def section_s06(ordered: list[dict], vcase: dict, pay_cases: list[dict], withdrawn: dict[str, int]) -> None:
-    """S-06 section 1's figures, read from the chain beside the calculator's:
+def show_validator_rewards(ordered: list[dict], vcase: dict, pay_cases: list[dict], withdrawn: dict[str, int]) -> None:
+    """The validator reward example, read from the chain beside the calculator's:
     the four claims, V4 taking V3's seat, round 4's validator mint and the
     withdrawals from V1's pot."""
-    say("\n12. S-06 section 1, read from the chain beside the calculator's")
+    say("\n12. Validator rewards, read from the chain beside the calculator's")
     vcalc = calculate("validators", vcase["inputs"])
     seen = {o["step"]: o for o in vcalc["observed"]}
     claims = {(r["fields"]["node"], r["fields"]["earned_round"]): r for r in ordered
               if r["fields"]["action"] == "claim" and not r.get("code")}
     rows = [(row, claims[(n, e)]["claimed"]["node"], claims[(n, e)]["claimed"]["round"]) for row, n, e in CLAIM_ROWS]
-    check("S-06 section 1's four claims are four nodes' rewards earned in one round (their Claimed events)",
+    check("Four nodes claimed rewards earned in the same round (their Claimed events)",
           validatorcases.one_earning_round(rows), 4)
     rounds = {e: calculate("round", round_inputs(e, {n: int(seen[CLAIM_SEEN[(n, e)]["step"]]["score"])
                                                      for _, n, r in CLAIM_ROWS if r == e}))

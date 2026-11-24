@@ -62,8 +62,8 @@ func main() {
 	keystoreFile := flag.String("keystore-file", "", "the keeper's keystore file")
 	passwordFile := flag.String("keystore-password-file", "", "the file holding the keystore's password")
 	controller := flag.String("controller-address", "", "the Controller the node is given")
-	claimsAddr := flag.String("claims-address", "", "Claims (stage 3): also mint each ended round's validator and treasury amounts")
-	paramsAddr := flag.String("parameters-address", "", "Parameters (stage 4): also buy and poke at the executor in force, when either would succeed")
+	claimsAddr := flag.String("claims-address", "", "Claims (rewards): also mint each ended round's validator and treasury amounts")
+	paramsAddr := flag.String("parameters-address", "", "Parameters (full system): also buy and poke at the executor in force, when either would succeed")
 	every := flag.Duration("poll", 2*time.Second, "how often to ask the clock")
 	once := flag.Bool("once", false, "try once and exit: 0 started a round, 3 the round is not over")
 	flag.Parse()
@@ -129,7 +129,7 @@ func main() {
 type keeper struct {
 	ops    chainOps
 	clock  common.Address
-	claims common.Address // zero: stage 2, no shares to mint
+	claims common.Address // zero: payments, no shares to mint
 	next   uint64         // the first round whose shares it has not seen minted
 
 	params   common.Address    // zero: no buyback to call

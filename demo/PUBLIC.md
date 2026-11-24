@@ -1,13 +1,13 @@
 # The public run
 
-`demo/public-run` deploys the stage 3 system to a chain it does not control
+`demo/public-run` deploys the reward system to a chain it does not control
 and runs the team's node through one paid job and one full reward cycle in
 real time. Then it reads every figure from the chain and prints it beside
 the independent calculator's figure. It is the path for the first public
-deployment (Arbitrum Sepolia, D-14). It uses the demo's code: the same node,
+deployment (Arbitrum Sepolia). It uses the demo's code: the same node,
 programs, steps and reconciliation. `demo/public-run full` does the same
-for the stage 4 system and hands it over to services that keep it running;
-see "Stage 4" below.
+for the full system and hands it over to services that keep it running;
+see “Buyback, parameter changes and key rotation” below.
 
 The run does the following, in order:
 
@@ -33,7 +33,7 @@ allows it.
 | Variable | What |
 |---|---|
 | `LP2_RPC_URL` | The chain's JSON-RPC URL. On Arbitrum Sepolia, use a provider's keyed endpoint. The free public endpoints rate-limit hard enough to stall a run that lasts more than an hour. No archive node is needed |
-| `LP2_DEPLOYER_KEYSTORE` | The deployer's keystore file, outside the repository. Make it with `cast wallet new <dir>`, which asks for a password. Use a key made for the testnet alone, never one that has held real funds (D-45) |
+| `LP2_DEPLOYER_KEYSTORE` | The deployer's keystore file, outside the repository. Make it with `cast wallet new <dir>`, which asks for a password. Use a key made for the testnet alone, never one that has held real funds |
 | `LP2_DEPLOYER_PASSWORD_FILE` | A file that holds that password, outside the repository |
 | `LP2_STATE_DIR` | A directory outside the repository. It holds the keys the run makes, the addresses, the steps done, the logs, the node's data and the run's `manifest.json`. Keep it: N's key is the team node's identity |
 | `LP2_ROLE_GAS_WEI` | Optional. The gas money the deployer gives each of N, P, V and the keeper. The default is 0.003 ETH |
@@ -58,8 +58,7 @@ Docker.
 
 ## Against Arbitrum Sepolia
 
-Before the run, the owner makes the deployer key and funds it from a faucet
-(D-45). Then:
+Before the run, the owner makes the deployer key and funds it from a faucet. Then:
 
 ```sh
 export LP2_RPC_URL=...                       # an Arbitrum Sepolia endpoint
@@ -140,19 +139,19 @@ sent has a receipt.
   contracts were deployed from, saved at the deployment, even when a later
   checkout resumes it.
 
-## Stage 4
+## Buyback, parameter changes and key rotation
 
-`demo/public-run full` deploys the stage 4 system once, from
-`deployments/public-arbitrum-sepolia-full.json`, and shows stage 4's two
+`demo/public-run full` deploys the full system once, from
+`deployments/public-arbitrum-sepolia-full.json`, and shows the full system’s two
 public exit items in real time: test LPT bought with the network's share
 of a fee and burned, and an announced parameter change that counts seven
 rounds later. It then hands the deployment over to services that run
-without the deployer's key. It uses the stage 3 run's code: the same
+without the deployer's key. It uses the rewards run's code: the same
 environment, chain allow-list, keys, steps, resume rule and fee table.
 
 The run does the following, in order:
 
-1. It deploys the twelve contracts of stage 4: stage 3's, the test pool,
+1. It deploys the full system’s twelve contracts: the rewards contracts, the test pool,
    Parameters naming the Buyback as the buyback executor, and the Buyback.
    Parameters' one authority is G, the key the owner gives the run. Round
    1 starts at deployment.
@@ -160,7 +159,7 @@ The run does the following, in order:
    the keeper and the faucet. It seeds the pool with 500,000 mock USDC and
    100,000 test LPT, and grants the faucet 1,000,000 test LPT. Under
    `serve`, `lp2-faucet` hands it out.
-3. N and V register and bond, and P funds, as in the stage 3 run. G
+3. N and V register and bond, and P funds, as in the rewards run. G
    announces the unbonding period of 42 rounds (21 at deployment), which
    counts seven rounds later.
 4. The keeper starts, given Parameters' address. Each tick it starts the
@@ -175,7 +174,7 @@ The run does the following, in order:
    share on test LPT and burns all of it. The run waits for all three, in
    whatever order they come.
 7. Every figure is reconciled against the calculator:
-   - the payment, the stake and each round's shares, as the stage 3 run
+   - the payment, the stake and each round's shares, as the rewards run
      reconciles them. A ledger step cannot hold a buy, so the share held
      and the LPT minted are shown with what the buys spent and burned
      added back, as their `Bought` events give it;
@@ -211,7 +210,7 @@ The run does the following, in order:
 
 ### What to set
 
-As for the stage 3 run, and also:
+As for the rewards run, and also:
 
 | Variable | What |
 |---|---|
@@ -234,7 +233,7 @@ demo/public-run serve
 `serve` reads `services.json`, the role keys and their password file, and
 nothing of the deployer's or G's. It needs neither the deployer's nor G's
 variables, and their keystores may be absent. It refuses a state directory
-no passing stage 4 run has handed over. It uses the RPC URL the run used, kept in
+no passing full system run has handed over. It uses the RPC URL the run used, kept in
 the state directory, unless `LP2_RPC_URL` gives another for the same
 chain. It needs no Docker and no model. It starts these services:
 
@@ -275,7 +274,7 @@ and is paid a request at once and then one a round. N's URL is
 chain it is by default its loopback address. On a public chain, N's
 orchestrator listens on loopback, so N joins only when `LP2_NODE_URL`
 gives a public URL that leads to it, such as a proxy on the machine the
-services run on (D-52). Without one, `serve` says that N has not joined,
+services run on. Without one, `serve` says that N has not joined,
 and the sender still pays every other node that joins.
 
 `serve` prints each round as it starts, and each relay the sender logs,
@@ -294,7 +293,7 @@ handover, and `public-run.log` keeps them.
 ### Against Arbitrum Sepolia
 
 Before the run, the owner makes two keys, the deployer and G, each for the
-testnet alone, and funds both from a faucet (D-45). Then:
+testnet alone, and funds both from a faucet. Then:
 
 ```sh
 export LP2_RPC_URL=...                       # an Arbitrum Sepolia endpoint
@@ -329,7 +328,7 @@ owner publishes the file again under the same name.
 ### What it costs
 
 These figures are estimates. The gas is from the receipts of a run on a
-local chain mining one block a second. The price is the stage 3 run's on
+local chain mining one block a second. The price is the rewards run's on
 Arbitrum Sepolia: its 45 transactions paid about 0.001 Sepolia ETH, the L1
 data fee included, and the same steps use about 19.6 million gas locally.
 
@@ -352,7 +351,7 @@ The keeper keeps spending after the run. It sends two transactions a
 round, one to start the round and one to mint the ended round's shares,
 about 240,000 gas, and a poke or a buy when one is due. On Arbitrum
 Sepolia, at 144 rounds a day, that is about 34 million gas a day, roughly
-0.002 Sepolia ETH at the stage 3 run's price, and 0.0035 at 0.1 gwei. The
+0.002 Sepolia ETH at the rewards run's price, and 0.0035 at 0.1 gwei. The
 default gas money of 0.003 lasts it one to two days. Send its address,
 which `services.json` names, more as it goes. `serve` says how many
 transactions the keeper can still pay for once fewer than 100 are left.
@@ -377,19 +376,19 @@ second. Two waits make up most of the run, and they overlap:
   counted in seconds, not rounds.
 
 Against Arbitrum Sepolia the run takes about 80 to 90 minutes, as the
-stage 3 run does. The deployment takes a few minutes of that, and the
+rewards run does. The deployment takes a few minutes of that, and the
 reconciliation a few more. On a local chain mining one block a second it
 took 61 minutes, a 2-minute stop included. Most of that is the hour of the
 price window; the change counted 7 minutes after the deployment. Nothing
 in the run moves time. The window is Parameters' value at deployment,
 3,600 s, fixed by the contract.
-D-47 allows a window as short as 1,800 s, but that needs an announcement
+R-25 allows a window as short as 1,800 s, but that needs an announcement
 and seven rounds' wait, which on Arbitrum Sepolia is longer than the half
 hour it would save.
 
 ### A second run, or an interrupted one
 
-The stage 3 run's rules hold for every stage 4 step. An interrupted run,
+The rewards run's rules hold for every full system step. An interrupted run,
 started again with the same command, resumes. A finished one sends
 nothing and reconciles every figure again. A step stopped while it was
 being sent is refused. The paid job is never sent twice. Two waits are not
@@ -404,6 +403,6 @@ send. Its script's opt-in line would otherwise be sent again, late, since
 the contract takes a second opt-in.
 
 A state directory records which system it holds. `demo/public-run` refuses
-a stage 4 state directory, and `demo/public-run full` refuses a stage 3
-one, mission 11's included. A state directory also records G's address, and
+a full system state directory, and `demo/public-run full` refuses a rewards
+one, including the dated deployment. A state directory also records G's address, and
 a run given another authority key is refused.

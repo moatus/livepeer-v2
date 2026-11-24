@@ -1,7 +1,7 @@
 """./dev demo container: one operator container joins the standing testnet's
 services on a local chain, with nobody acting after it is funded.
 
-Deploys stage 4's contracts on a local chain that mines a block a second,
+Deploys the full system’s contracts on a local chain that mines a block a second,
 and runs the services as ./dev demo light runs them: the keeper, the payer
 P's signer, lp2-sender (with --allow-private-urls, since the node's URL is
 on loopback, and minting only the mock USDC it funds) and lp2-faucet,
@@ -53,7 +53,7 @@ import urllib.request
 
 import common
 import light
-import rewards as s3
+import rewards as rewards
 import buyback as bb
 import ledgercase
 common.use("full-local.json")
@@ -392,7 +392,7 @@ def main() -> int:
     open_log()
     started = time.time()
     say("The operator container: one command runs a node that joins the testnet, is paid and claims, with nobody acting")
-    say("\n1. Setting up stage 4's system and the standing services")
+    say("\n1. Setting up the full system and the standing services")
     preflight(["chain", "orch", "signer_p", "signer_p_metrics", "explorer", "sender"])
     host = gateway()
     node_bin = fetch_node()
@@ -406,18 +406,18 @@ def main() -> int:
     for who in ("deployer", "P", "Keeper", "F"):
         new_key(who)
         if who != "deployer":
-            light.KEYS[who] = s3.KEYS[who] = keystore(who, pw)
+            light.KEYS[who] = rewards.KEYS[who] = keystore(who, pw)
     ADDR["Treasury"] = "0x" + os.urandom(20).hex()
     NAMES[ADDR["Treasury"].lower()] = "Treasury"
     first_block = block_number()
     bb.deploy_full()
     send(KEY["deployer"], C["TestLPT"], "transfer(address,uint256)", ADDR["F"], light.FAUCET_LPT)
-    s3.start_keeper("--parameters-address", C["Parameters"])
+    rewards.start_keeper("--parameters-address", C["Parameters"])
     start_signer("P", node_bin, light.KEYS["P"], pw, PORT["signer_p"], PORT["signer_p_metrics"], [PORT["orch"]])
     light.start_sender(host, "--mint", "0")
     write_deployment(first_block)
     DATA.mkdir()
-    say(f"  stage 4's contracts on {common.RPC} (and on {host} for the container), a block a second, "
+    say(f"  the full system’s contracts on {common.RPC} (and on {host} for the container), a block a second, "
         f"{MANIFEST['chain']['round_length_blocks']} blocks a round; the keeper starts each round")
     say(f"  lp2-sender answers joins on {host}:{light.SENDER}; P's signer on loopback; the faucet is not started yet")
     say(f"  the deployment file the container reads: {where(DEPLOYMENT)}; its data folder: {where(DATA)}")
@@ -570,7 +570,7 @@ def main() -> int:
         f"{sum(len(v) for v in shown.values())} characters")
     check("no credential in the RPC URL, nor the marker, appears in any Docker output, file under logs, or explorer page or JSON",
           [(k, c) for k, v in shown.items() for c in CREDENTIALS if c in v], [])
-    s3.wait("N's last transactions to be mined", lambda: rpc("eth_getTransactionCount", [ADDR["N"], "pending"]) ==
+    rewards.wait("N's last transactions to be mined", lambda: rpc("eth_getTransactionCount", [ADDR["N"], "pending"]) ==
             rpc("eth_getTransactionCount", [ADDR["N"], "latest"]), 60)
     time.sleep(3)
 
@@ -603,7 +603,7 @@ def main() -> int:
           (len(whole) >= 3, missed, twice), (True, [], []))
 
     say(f"\n11. The run as a ledger case, and the explorer's figures for round {n}")
-    extra = steps_from_chain(all_txs) + s3.keeper_steps()
+    extra = steps_from_chain(all_txs) + rewards.keeper_steps()
     start_block = int(next(x for x in logs(C["RoundClock"], "RoundStarted(uint256,uint256,bytes32)")
                            if int(x["topics"][1], 16) == n)["blockNumber"], 16)
     extra.append({"fields": {"action": "observe_stake", "node": "N"}, "block": start_block, "index": None,
@@ -627,13 +627,13 @@ def main() -> int:
             (f"round {n}: claim paid", int(row["paid_wei"]), paid, lpt),
             (f"round {n}: pot (N's cut is 0)", int(row["pot_wei"]), paid, lpt),
             (f"round {n}: N's own part (N holds no bond)", int(row["part_wei"]), 0, lpt)):
-        s3.side(f"Explorer: {label}", page_v, want, fmt)
+        rewards.side(f"Explorer: {label}", page_v, want, fmt)
     check(f"explorer: round {n} claimed, claimable from round {n + delay} to {n + delay + window}",
           (row["state"], row["claimable_from"], row["claimable_until"]), ("claimed", n + delay, n + delay + window))
     check("explorer: N registered, H its operator key", (status["node"]["registered"], status["node"]["operator"].lower()),
           (True, ADDR["H"].lower()))
     withdrawn_parts = sum(part(r)[0] for r in claims if part(r)[1])
-    s3.side("H's parts withdrawn (the explorer shows N's, not H's)", withdrawn_parts, int(calc["lpt_wei"]["H"]), lpt)
+    rewards.side("H's parts withdrawn (the explorer shows N's, not H's)", withdrawn_parts, int(calc["lpt_wei"]["H"]), lpt)
     check("the explorer's page reloads itself and carries no script", ('http-equiv="refresh"' in page, "<script" in page), (True, False))
     return finish(started, f"the container registered, was granted, bonded, joined, was paid once a round and claimed and "
                            f"withdrew round {n}, through three kills, each step once; a second container refused")

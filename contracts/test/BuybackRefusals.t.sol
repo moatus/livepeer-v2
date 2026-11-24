@@ -308,7 +308,7 @@ contract BuybackRefusalsTest is FullFixture {
         expectRefused(as_(address(this), address(broker), d), err("NOT_AUTHORIZED()"), "the deployer");
     }
 
-    // --- rule 10: the draw follows group 10, by round (D-51) ----------------
+    // --- rule 10: the draw follows group 10, by round ----------------
 
     /// The parameters-executor case's draws, which a case does not hold.
     /// X, the deployment's Buyback, buys from P. X3, an executor of another
@@ -475,7 +475,7 @@ contract BuybackRefusalsTest is FullFixture {
 
     // --- 3.1: the values' ranges --------------------------------------------
 
-    /// Parameters takes each of group 9's values at either end of D-47
+    /// Parameters takes each of group 9's values at either end of the R-25 range
     /// (v)'s range, and group 8's one value (10^6, 0, 0), and refuses one
     /// past either end with VALUE_OUT_OF_RANGE (R-25).
     function test_values_ranges() external {

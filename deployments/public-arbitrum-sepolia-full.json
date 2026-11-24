@@ -1,7 +1,6 @@
 {
   "testnet": "public-arbitrum-sepolia-full",
-  "about": "The template for the stage 4 public deployment: the stage 4 system, as full-local.json describes it, deployed once to Arbitrum Sepolia (D-14) by demo/public-run full and left running by demo/public-run serve. Nothing is deployed yet: every address is null until a run fills it. The run reads the node, model, price, signer limits, LPT, pool, faucet and parameter change values below, so what runs is what this file says, and writes its own copy, with the chain id, the addresses, the source commit, the accounts and what the standing services need, to its state directory. That copy, once a run on Arbitrum Sepolia has reconciled, is the manifest to keep here. The stage 3 template, public-arbitrum-sepolia.json, still runs with demo/public-run.",
-  "spec": "S-07 and S-10",
+  "about": "The template for the full system public deployment: the full system, as full-local.json describes it, deployed once to Arbitrum Sepolia by demo/public-run full and left running by demo/public-run serve. Nothing is deployed yet: every address is null until a run fills it. The run reads the node, model, price, signer limits, LPT, pool, faucet and parameter change values below, so what runs is what this file says, and writes its own copy, with the chain id, the addresses, the source commit, the accounts and what the standing services need, to its state directory. That copy, once a run on Arbitrum Sepolia has reconciled, is the manifest to keep here. The rewards template, public-arbitrum-sepolia.json, still runs with demo/public-run.",
   "rulebook": "rulebook/october-main-text-v5.md",
   "vectors": "vectors/october-main-text-v5.json",
   "contracts": [
@@ -63,7 +62,7 @@
     {
       "contract": "Parameters",
       "source": "contracts/src/authority/Parameters.sol",
-      "node_name": "none: the Broker reads its fee split from it, Claims, StakeLedger and Scores their values, and the Buyback its values (S-07's view, groups 8 and 9), and the Broker the executor that may draw (group 10)",
+      "node_name": "none: the Broker reads its fee split from it, Claims, StakeLedger and Scores their values, and the Buyback its values (groups 8 and 9), and the Broker the executor that may draw (group 10)",
       "checks": "authority() is G, the authority key the owner gives the run; deployed after the TestPool, at the address the Broker, StakeLedger and Scores were given; its deployment buyback values are the TestPool and the buyback values below, and its deployment executor (group 10) is the Buyback, taken at construction as the address predicted for it",
       "address": null
     },
@@ -97,7 +96,7 @@
     "server_image": "ghcr.io/ggml-org/llama.cpp@sha256:7751a6c0dc3d019c231d42678abbb0fac1a13a24c17c956109ed27533139f280"
   },
   "chain": {
-    "kind": "Arbitrum Sepolia, a public test chain (D-14)",
+    "kind": "Arbitrum Sepolia, a public test chain",
     "chain_id": 421614,
     "round_length_blocks": 50,
     "round_clock": "block.number, which on Arbitrum is close to the L1 block number (about one every 12 s), and the node's clock is the header's l1BlockNumber: one round of 50 blocks is about 10 minutes. Round 1 starts with the clock's deployment; the parameter change, announced in round 1, counts from round 8, about 70 minutes later, and the first buy comes once the pool's average price is an interval old (3,600 s, about six rounds) and the network share holds the job's half"
@@ -133,7 +132,7 @@
   "pool": {
     "seed_usdc_micro_usdc": "500000000000",
     "seed_lpt_wei": "100000000000000000000000",
-    "note": "Seeded by the deployer from its genesis LPT and freshly minted mock USDC: 5.000000 USDC per LPT (S-07 section 1)"
+    "note": "Seeded by the deployer from its genesis LPT and freshly minted mock USDC: 5.000000 USDC per LPT"
   },
   "buyback": {
     "burn_ppm": "1000000",
@@ -151,7 +150,7 @@
     "values": [
       "42"
     ],
-    "note": "The change the run announces as G right after the deployment and reads back in the round before it counts and in the round it counts from: the unbonding period, 21 rounds at deployment, to 42, inside D-47's range of 1 to 840. Nothing in the run unbonds, so no figure of the run depends on it"
+    "note": "The change the run announces as G right after the deployment and reads back in the round before it counts and in the round it counts from: the unbonding period, 21 rounds at deployment, to 42, inside R-25’s range of 1 to 840. Nothing in the run unbonds, so no figure of the run depends on it"
   },
   "stand_ins": [
     {
@@ -172,7 +171,7 @@
     {
       "stand_in": "Every ticket wins",
       "for": "Probabilistic micropayments",
-      "value": "Win probability 2^256 - 2, the largest the node accepts, and a face of the job price + 1 micro-USDC (0.999999 USD = 999,999, so 1,000,000: one ticket of 1 USDC a job). Each job settles one ticket and overpays 1 micro-USDC (D-06)"
+      "value": "Win probability 2^256 - 2, the largest the node accepts, and a face of the job price + 1 micro-USDC (0.999999 USD = 999,999, so 1,000,000: one ticket of 1 USDC a job). Each job settles one ticket and overpays 1 micro-USDC"
     },
     {
       "stand_in": "The signer's ticket limits in micro-USDC",
@@ -191,7 +190,7 @@
     },
     {
       "stand_in": "G, the governance stand-in",
-      "for": "Governance announcing parameter changes under D-12 (S-10 R-25)",
+      "for": "Governance announcing parameter changes (R-25)",
       "value": "A key the owner makes for the testnet alone and gives the run as a keystore outside the repository, fixed in Parameters at deployment as its one authority: it announces and withdraws with lp2-params, and a change counts from the announce round + 7. No contract has an owner key, and the Controller's names are fixed at deployment"
     },
     {
@@ -202,7 +201,7 @@
     {
       "stand_in": "The deployment's buyback values",
       "for": "The buyback values governance sets",
-      "value": "Parameters holds burn 100 %, TWAP interval 3,600 s, slippage bound 1 %, a buy every round and the TestPool above until G announces a change; the burn share is fixed (D-47 (v)). The executor, group 10, is the Buyback until G announces another; a later executor and pool are named by announcement, with nothing else redeployed"
+      "value": "Parameters holds burn 100 %, TWAP interval 3,600 s, slippage bound 1 %, a buy every round and the TestPool above until G announces a change; the burn share is fixed. The executor, group 10, is the Buyback until G announces another; a later executor and pool are named by announcement, with nothing else redeployed"
     },
     {
       "stand_in": "One paid job",
@@ -232,11 +231,11 @@
     {
       "stand_in": "Scripted validators",
       "for": "Validators who judge work (R-11, R-13)",
-      "value": "One validator, V, a registered node with 1,000 test LPT of its own, run by programs/validators: in the run from demo/public-validators.script, which opts it in in round 2, so that it is the only member from round 3, and casts no vote; under demo/public-run serve from a script the services write, in which V votes the full score, 1,000,000, for N in the round after they start, which leaves every score as it was. The S-06 division of each round's validator amount is paid to it"
+      "value": "One validator, V, a registered node with 1,000 test LPT of its own, run by programs/validators: in the run from demo/public-validators.script, which opts it in in round 2, so that it is the only member from round 3, and casts no vote; under demo/public-run serve from a script the services write, in which V votes the full score, 1,000,000, for N in the round after they start, which leaves every score as it was. The R-14 division of each round's validator amount is paid to it"
     },
     {
       "stand_in": "ValidatorSetSize 3",
-      "for": "The paper's 33 seats (p. 4; D-35)",
+      "for": "The paper's 33 seats (p. 4)",
       "value": "Scores seats at most 3 members, Parameters' validator set size at deployment, which G may change (R-25); the public run seats one"
     },
     {

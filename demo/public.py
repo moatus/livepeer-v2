@@ -1,6 +1,6 @@
-"""demo/public-run: the stage 3 system on a chain the run does not control.
+"""demo/public-run: the reward system on a chain the run does not control.
 
-Deploys the stage 3 contracts to the chain at LP2_RPC_URL, with the
+Deploys the rewards contracts to the chain at LP2_RPC_URL, with the
 deployer's keystore given by the environment, and runs the team's node N
 through one paid job and one full reward cycle in real time: N registers
 with no stake and bonds test LPT to itself, payer P funds, V opts in as the
@@ -55,7 +55,7 @@ import rewards
 from common import NotRun, Failed, say, check, call, rpc, money, lpt, C, ADDR, NAMES, RECORDS, FAILURES, PORT, MANIFEST
 
 # The chains this path may send to. Local development chains, and
-# Arbitrum Sepolia (D-14). Nothing with real funds is on it.
+# Arbitrum Sepolia. Nothing with real funds is on it.
 ALLOWED_CHAINS = {31337: "a local anvil (its default chain id)", 1337: "a local development chain",
                   474747: "the demo's local anvil", 421614: "Arbitrum Sepolia"}
 LOCAL_CHAINS = {31337, 1337, 474747}
@@ -213,9 +213,9 @@ def new_role_key(who: str) -> str:
     return made["address"]
 
 
-def open_state(stage: int = 3) -> int:
+def open_state(deployment: str = "rewards") -> int:
     """Check the chain and the keys, then load or start the run's state of
-    `stage`'s system. Returns the chain id."""
+    the requested deployment. Returns the chain id."""
     global STATE_DIR
     url = os.environ.get("LP2_RPC_URL", "")
     if not url:
@@ -261,15 +261,18 @@ def open_state(stage: int = 3) -> int:
             raise NotRun(f"this state directory belongs to chain {STATE['chain_id']}, not {chain_id}")
         if STATE["deployer"].lower() != deployer.lower():
             raise NotRun(f"this state directory was deployed by {STATE['deployer']}, not {deployer}")
-        if STATE.get("stage", 3) != stage:  # a state from before stages were recorded is stage 3's
-            raise NotRun(f"this state directory holds the stage {STATE.get('stage', 3)} system; run "
-                         f"demo/public-run{' full' if STATE.get('stage', 3) == 4 else ''} to resume it. Nothing was sent")
+        saved_deployment = STATE.get("deployment")
+        if saved_deployment not in ("rewards", "full"):
+            raise NotRun("this state directory has no recognized deployment name; use a fresh state directory")
+        if saved_deployment != deployment:
+            command = "demo/public-run full" if saved_deployment == "full" else "demo/public-run"
+            raise NotRun(f"this state directory holds the {saved_deployment} deployment; run {command} to resume it. Nothing was sent")
         if "deploy" in STATE["done"]:
             check_deployment()
         say(f"  resuming the run in this state directory: {len(STATE['done'])} steps done")
     else:
         STATE.update({"chain_id": chain_id, "deployer": deployer, "accounts": {}, "contracts": {}, "done": {},
-                      "sending": None, "records": [], "vrecords": [], "sent": [], "stage": stage})
+                      "sending": None, "records": [], "vrecords": [], "sent": [], "deployment": deployment})
         pw.write_text("pw-" + os.urandom(16).hex())
         pw.chmod(0o600)
     STATE["deployer_keystore"], STATE["deployer_password_file"] = str(keystore), str(password)
@@ -303,7 +306,7 @@ def open_state(stage: int = 3) -> int:
 
 def deploy(create=rewards.deploy_rewards) -> dict:
     """Deploy once, with `create`, the system's own deployment function
-    (stage 3's, or stage 4's in demo/public_full.py)."""
+    (the rewards demo’s, or the full system’s in demo/public_full.py)."""
     if "deploy" not in STATE["done"] and STATE.get("sending") == "deploy":
         raise NotRun("a previous run was stopped during the deployment; its contracts are abandoned. "
                      "Start a new state directory to deploy afresh")
@@ -434,7 +437,7 @@ def main() -> int:
                         json.loads((common.ROOT / "deployments" / TEMPLATE).read_text()))
     common.MANIFEST.update(json.loads(json.dumps(TEMPLATE_DOC)))
     common.MANIFEST["chain"] = dict(common.MANIFEST["chain"], chain_id=chain_id)  # what the node and signer are given
-    say("Public run: the stage 3 system, the team's node N paid for one job, and one reward cycle in real time")
+    say("Public run: the reward system, the team's node N paid for one job, and one reward cycle in real time")
     say(f"  chain id {chain_id}, {ALLOWED_CHAINS[chain_id]}; state directory outside the repository")
     say(f"  deployer {STATE['deployer']}; N {ADDR['N']}, P {ADDR['P']}, V {ADDR['V']}, keeper {ADDR['Keeper']}")
 
@@ -546,13 +549,13 @@ def write_manifest(chain_id: int, more: dict | None = None) -> None:
                        "deployer": STATE["deployer"], "source_commit": d["source_commit"],
                        "accounts": {k: ADDR[k] for k in ROLES}, "treasury": ADDR["Treasury"],
                        # Parameters' one authority, read from the chain: in
-                       # stage 3 an address the run made up, whose key nobody
-                       # holds; in stage 4 the owner's authority key.
+                       # rewards an address the run made up, whose key nobody
+                       # holds; in full system the owner's authority key.
                        "parameters_authority": f"0x{call(C['Parameters'], 'authority()'):040x}", **(more or {})}
     if chain_id in LOCAL_CHAINS:
         m["chain"] = {"kind": "a local development chain, started apart from the run and mining on its own",
                       "chain_id": chain_id, "round_length_blocks": m["chain"]["round_length_blocks"]}
-        m["stand_ins"].insert(0, {"stand_in": "Local chain", "for": "Arbitrum Sepolia (D-14)",
+        m["stand_ins"].insert(0, {"stand_in": "Local chain", "for": "Arbitrum Sepolia",
                                   "value": f"chain id {chain_id} on this machine, not controlled by the run: no block, "
                                            "time or balance was set by it"})
     out = STATE_DIR / "manifest.json"
@@ -579,7 +582,7 @@ def spending() -> None:
     now = common.rpc_batch([("eth_getTransactionCount", [a, "latest"]) for a in roles] +
                            [("eth_getBalance", [a, "latest"]) for a in roles])
     rows = []
-    # The owner's keys, the deployer's and, in stage 4, the authority's: their
+    # The owner's keys, the deployer's and, in full system, the authority's: their
     # fees from the receipts of what the run sent with them.
     for who in ("deployer", "authority"):
         if who in STATE:
@@ -602,11 +605,11 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(prog="demo/public-run", description="The public run (demo/PUBLIC.md).")
     parser.add_argument("command", nargs="?", choices=("full", "serve"),
-                        help="full: deploy and run the stage 4 system; serve: start the services a finished "
-                             "stage 4 run handed over to. With none, the stage 3 run")
+                        help="full: deploy and run the full system; serve: start the services a finished "
+                             "full system run handed over to. With none, the rewards run")
     command = parser.parse_args().command
     if command:
-        import public_full  # the stage 4 run and its services, which read stage 4's shared examples
+        import public_full  # the full system run and its services, which read the full system’s shared examples
         common.run_main(public_full.main if command == "full" else public_full.serve)
     else:
         common.run_main(main)

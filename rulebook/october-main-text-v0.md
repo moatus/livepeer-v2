@@ -12,8 +12,7 @@ this text and a case disagree, the disagreement is a defect to be decided
 against this text.
 
 Where the paper is silent or unclear, the choice is ours and is labelled
-"Ours". Each entry names what it rests on. The council rulings it names
-(D-03, D-04, D-05, D-07, D-22, D-23) were made in the owner's absence, and
+"Ours". Each entry names what it rests on. The council rulings were made in the owner's absence, and
 the owner keeps or changes each later. A council ruling is not an owner
 decision.
 
@@ -27,7 +26,7 @@ and the decisions it rests on.
   reading of an unclear or contradictory passage. `Placeholder`: our
   invention, standing in until something better exists.
 - **Delivery.** `Decide now`: fixed before code is written. `Substitute`:
-  a declared temporary stand-in. `Decide before stage 3`: only the paper's
+  a declared temporary stand-in. `Decide before the reward cycle`: only the paper's
   literal part is frozen here; the rest is an open decision.
 
 ## Units, parameters and codes
@@ -82,8 +81,7 @@ leaves the inputs alone.
   at that score, and `validators_wei` and `treasury_wei` are R-10's two
   amounts. `minted_wei` is everything the round mints: the nodes' rewards
   plus the validator and treasury amounts. It is given only where every
-  score is 10^6, so no case depends on where a withheld part goes (D-21,
-  open).
+  score is 10^6, so no case depends on where a withheld part goes, which remains open here.
 - A **claim** case claims one node's reward from a round case
   (`earned_in`), at a claim round, with the score read at claim and
   whether that entitlement has already paid. It states `paid_wei`, or a
@@ -94,7 +92,6 @@ leaves the inputs alone.
 ## R-01 Registration
 
 Origin: `Paper`; ours for "only registered". Delivery: `Decide now`.
-Rests on: D-23.
 
 **The paper says.** Any address can register as a node at any time, and
 no LPT bond is required (p. 3). There is no cap on the number of nodes
@@ -115,12 +112,11 @@ node can be paid. A payment to any other address is refused with
 address that is not registered and is refused with `NOT_REGISTERED`.
 
 **Would change it.** A gateway design that must settle to an address that
-is not a node (D-23).
+is not a node.
 
 ## R-02 Currency
 
-Origin: `Paper`. Delivery: `Substitute` for the token. Rests on: D-03,
-D-07.
+Origin: `Paper`. Delivery: `Substitute` for the token.
 
 **The paper says.** Nodes price in USD and are paid in USDC, in place of
 ETH (pp. 6, 12).
@@ -134,12 +130,11 @@ emission is in LPT and depends on no price (R-05).
 
 **Example.** `settle-even`: 2.50 USDC is 2,500,000 micro-USDC.
 
-**Would change it.** A payment rail that settles in another unit (D-06).
+**Would change it.** A payment rail that settles in another unit.
 
 ## R-03 Fee split
 
-Origin: `Paper`, rounding ours. Delivery: `Decide now`. Rests on: D-07,
-D-23.
+Origin: `Paper`, rounding ours. Delivery: `Decide now`.
 
 **The paper says.** Of the USDC fees a node earns, half goes to the node
 and half to the network, which buys LPT and burns it (p. 6). The node cut
@@ -155,12 +150,11 @@ the network, so a node paying itself never gains from rounding.
 `settle-odd`: 1,000,001 splits into 500,000 for the node and 500,001 for
 the network. `settle-one`: 1 gives the node 0 and the network 1.
 
-**Would change it.** A tiny-payment pattern where the odd unit matters
-(D-23).
+**Would change it.** A tiny-payment pattern where the odd unit matters.
 
 ## R-04 Recognized fee
 
-Origin: `Interpretation`. Delivery: `Decide now`. Rests on: D-05.
+Origin: `Interpretation`. Delivery: `Decide now`.
 
 **The paper says.** Nothing defines the fee that a node's fee share is
 counted in. It speaks of fees only as USDC paid to nodes and split (pp. 6,
@@ -183,11 +177,11 @@ counts in the round's total.
 
 **Would change it.** Paper text defining the fee share by signed or
 expected value; a run where nodes gain materially by timing redemptions
-into thin rounds (D-05).
+into thin rounds.
 
 ## R-05 Emission ceiling
 
-Origin: `Interpretation`. Delivery: `Decide now`. Rests on: D-03, D-23.
+Origin: `Interpretation`. Delivery: `Decide now`.
 
 **The paper says.** Emission follows a fixed schedule in LPT, halving
 every two years as a smooth per-round decay: EmissionBase x
@@ -217,29 +211,28 @@ C(r + 840k) = floor(C(r) / 2^k).
 250,000,000,000,000,000,000.
 
 **Would change it.** A later paper or author statement that the diagram
-is the current design (D-03). A contract at the real EmissionBase that
+is the current design. A contract at the real EmissionBase that
 cannot reproduce all 840 residues within acceptable gas, which would make
 a table derived from the exact floor the rule; a stage that must continue
-a schedule across deployments (D-23).
+a schedule across deployments.
 
 ## R-06 Emission base
 
-Origin: `Placeholder`. Delivery: `Substitute`. Rests on: no ruling; D-20
-is untouched.
+Origin: `Placeholder`. Delivery: `Substitute`. The question of using real issuance remains open.
 
 **The paper says.** EmissionBase is a launch snapshot of the existing
 protocol's annualized issuance, converted to LPT a round (pp. 7, 13). The
 half-life starts at 840 rounds, about two years (pp. 7, 13).
 
 **Unclear.** How many rounds make a year when annual issuance becomes a
-per-round amount (D-20).
+per-round amount.
 
 **We build.** EmissionBase is 1,000 LPT a round, a test value. The
 half-life stays 840 rounds.
 
 **Example.** `ceiling-0`: 1,000,000,000,000,000,000,000 wei.
 
-**Would change it.** D-20, when EmissionBase is taken from real issuance.
+**Would change it.** Taking EmissionBase from real issuance.
 
 ## R-07 Emission shares
 
@@ -266,8 +259,7 @@ profile does not have.
 
 ## R-08 Node reward
 
-Origin: `Interpretation`. Delivery: `Decide now`. Rests on: D-04, D-07,
-D-22, D-23.
+Origin: `Interpretation`. Delivery: `Decide now`.
 
 **The paper says.** A node's reward share is the smaller of its share of
 network fees and its share of network stake (pp. 3, 12), so stake sets a
@@ -276,10 +268,10 @@ capped reward the node receives (p. 4). The capped part is not minted
 (p. 8). The parameter table on p. 13 instead describes the node share as
 divided by share of work, weighted by score, with no stake term.
 
-**Unclear.** p. 13 against pp. 3, 4, 8 and 12 (D-04). Whether a node
-later scored at zero still counts in the network total (D-22). The
-integer form and where it rounds (D-07). What a share is when a total is
-zero (D-23). The rejected forms on the cases below: flooring the 94 %
+**Unclear.** p. 13 against pp. 3, 4, 8 and 12. Whether a node
+later scored at zero still counts in the network total. The
+integer form and where it rounds. What a share is when a total is
+zero. The rejected forms on the cases below: flooring the 94 %
 pool before the share would pay D in `round-chained` one wei less,
 704,418,491,429,684,820,622; flooring the share before the score would
 pay each node in `round-one-division` 234.999999999999999999 LPT; without
@@ -325,17 +317,16 @@ three equal nodes are paid 313,333,333,333,333,333,333 wei each.
 `round-no-stake`: every node is paid 0. `round-chained`, at r = 1: D
 704,418,491,429,684,820,623 wei and E 234,806,163,809,894,940,207.
 
-**Would change it.** Paper text that drops the stake cap (D-04); paper
+**Would change it.** Paper text that drops the stake cap; paper
 text defining the network total as score-weighted or excluding zero-scored
 nodes, or a run showing self-paid dilution driving honest nodes off at a
-scale the stake cap does not bound (D-22); an authoritative arithmetic
+scale the stake cap does not bound; an authoritative arithmetic
 requirement, or implementation limits that make exact arithmetic
-impractical (D-07).
+impractical.
 
 ## R-09 Unminted
 
-Origin: `Paper`; ours for zero totals. Delivery: `Decide now`. Rests on:
-D-04, D-07, D-23.
+Origin: `Paper`; ours for zero totals. Delivery: `Decide now`.
 
 **The paper says.** The part of a round's node emission that nodes cannot
 claim because their stake share is below their fee share is not minted;
@@ -356,15 +347,14 @@ A round's never-minted amount is C(r) minus everything minted in it.
 three equal nodes is never minted. `round-no-fees` and `round-no-stake`
 each mint 60,000,000,000,000,000,000 wei, validators and treasury only.
 
-**Would change it.** Paper text that redistributes the capped part
-(D-04). A run where most of the pool stays unminted and stake does not
+**Would change it.** Paper text that redistributes the capped part. A run where most of the pool stays unminted and stake does not
 move is evidence about the design for the owner, not about what the
 paper says.
 
 ## R-10 Validators and treasury
 
 Origin: `Paper`. Delivery: `Decide now`. Rests on: no ruling; the paper
-states it. How the validator amount divides among validators is D-10,
+states it. How the validator amount divides among validators remains open here,
 open.
 
 **The paper says.** The validator and treasury shares of each round's
@@ -389,15 +379,15 @@ node share.
 ## R-11 Score
 
 Origin: `Interpretation`; ours for the refusal. Delivery: `Decide before
-stage 3`. Rests on: D-23; D-09 and D-21 are open.
+the reward cycle`. The scoring and withheld reward questions remain open here.
 
 **The paper says.** Each active validator scores each node from 0.0 to
 1.0; the median across active validators sets the fraction of the capped
 reward the node receives, 1.0 meaning all of it and 0.0 none (p. 4). The
 contract that produces scores can be swapped by governance (pp. 5, 12).
 
-**Unclear.** Missing votes, quorum and even counts (D-09). Where the part
-of a reward that a score below 10^6 withholds goes (D-21). What a claim
+**Unclear.** Missing votes, quorum and even counts. Where the part
+of a reward that a score below 10^6 withholds goes. What a claim
 does with a score outside the range, since the scorer can be swapped.
 
 **We build.** A score is an integer from 0 to 10^6, the median of active
@@ -405,7 +395,7 @@ validators. This profile takes it as an input to the claim and applies it
 inside R-08's one division. Ours: a claim that reads a score above 10^6 is
 refused with `SCORE_OUT_OF_RANGE`; the entitlement stays intact and no
 other node is affected. A score of exactly 10^6 pays in full. No example
-here decides D-09 or D-21.
+here settles missing votes or withheld rewards.
 
 **Example.** `claim-open` at score 1,000,000 pays 188,000,000,000,000,000,000
 wei. `claim-rescored` at score 500,000 pays 94,000,000,000,000,000,000 wei.
@@ -413,21 +403,20 @@ wei. `claim-rescored` at score 500,000 pays 94,000,000,000,000,000,000 wei.
 a node. `claim-score-range` at score 1,000,001 is refused with
 `SCORE_OUT_OF_RANGE`.
 
-**Would change it.** S-06 enforcing the score range where scores are
-produced, at the same seam as the swap (D-23); the rulings on D-09 and
-D-21.
+**Would change it.** Enforcing the score range where scores are
+produced, at the same seam as the swap; the rulings on missing votes and withheld rewards.
 
 ## R-12 Claim
 
-Origin: `Paper`; ours for paying once. Delivery: `Decide before stage 3`.
-Rests on: roadmap section 7.2 for paying once; D-08 is open.
+Origin: `Paper`; ours for paying once. Delivery: `Decide before the reward cycle`.
+Pays each entitlement once.
 
 **The paper says.** A round's rewards are not claimable at once: round n
 becomes claimable at round n + 7, and the score applied is the median
 current when the claim is made (pp. 6, 12).
 
 **Unclear.** Who claims, where it pays, whether a zero score uses up the
-entitlement, and whether a claim expires (D-08). Not decided here.
+entitlement, and whether a claim expires. Not decided here.
 
 **We build.** Round n is claimable from round n + 7. The claim pays R-08's
 amount using round n's ceiling, fees and stake, and the score read at
@@ -443,11 +432,11 @@ round 7: pays 188,000,000,000,000,000,000 wei. `claim-rescored`, in round
 7 at score 500,000: pays 94,000,000,000,000,000,000 wei. `claim-again`, in
 round 8 after it has paid: `ALREADY_CLAIMED`.
 
-**Would change it.** The ruling on D-08.
+**Would change it.** A ruling on the claim window.
 
 ## R-19 Rounding
 
-Origin: `Interpretation`. Delivery: `Decide now`. Rests on: D-07, D-23.
+Origin: `Interpretation`. Delivery: `Decide now`.
 
 **The paper says.** Nothing about units or rounding. The reward is a plain
 ratio (pp. 3, 12), emission is a ceiling (p. 8), and the simple, secure
@@ -471,4 +460,4 @@ wei each, exactly. `round-chained`: D is paid 704,418,491,429,684,820,623
 wei.
 
 **Would change it.** Paper text giving a rounding rule; a demonstrated
-need to store a fixed-precision share for another consumer (D-07).
+need to store a fixed-precision share for another consumer.

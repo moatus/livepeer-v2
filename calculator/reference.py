@@ -3,8 +3,7 @@
 LPT replay models round-start stake/cuts, bonding, transfers, unbonding,
 claims, minting and holder pots. It rejects overspending as invalid input.
 Earning round zero gets NO_SUCH_ROUND; unregistered self-claims and self-cuts
-get NOT_REGISTERED. Simultaneous refusals follow the rulebook units section
-(D-26, D-38, D-39, D-40); only a withdrawal that is both ALREADY_CLAIMED and
+get NOT_REGISTERED. Simultaneous refusals follow the rulebook units section; only a withdrawal that is both ALREADY_CLAIMED and
 NOT_CLAIMED remains an input error among simultaneous LPT refusals.
 
 From v3, Settings holds R-25's announced changes and the R-05 schedule
@@ -120,9 +119,9 @@ GROUPS = {1: "FEE", 2: "EMISSION", 3: "SCHEDULE", 4: "REWARD_DELAY",
           5: "VALIDATOR_SET_SIZE", 6: "SCORE_SOURCE", 7: "UNBONDING",
           8: "BUYBACK_CUTS", 9: "BUYBACK_VALUES", 10: "BUYBACK_EXECUTOR"}
 STEPS = 840          # R-05: positions are 840ths of the deployment's half-life
-LARGEST_DROP = 840   # D-49: one announcement drops at most one halving
-LONGEST = 840        # D-47 (iii): reward delay, unbonding and a buy interval
-LARGEST_SET = 33     # D-47 (ii)
+LARGEST_DROP = 840   # one announcement drops at most one halving
+LONGEST = 840        # reward delay, unbonding and a buy interval
+LARGEST_SET = 33     # validator seat limit
 ADDRESS_VALUES = {(6, 0), (9, 0), (10, 0)}
 
 
@@ -338,7 +337,7 @@ def calculate(kind: str, inputs: dict, parameters: Parameters,
     """Calculate one case using only inputs; rounds maps IDs to earning inputs.
 
     A ceiling returns both its ceiling and fixed shares. A round returns total
-    minting only when all scores are full: D-21 leaves withheld rewards open.
+    minting only when all scores are full: the handling of withheld rewards remains open.
     A claim is a stateless calculation against the supplied already-paid flag.
     """
     if kind == "validators":
@@ -625,7 +624,7 @@ def ledger(inputs: dict, parameters: Parameters) -> dict:
 
 
 def median_score(members: list, votes: dict) -> int:
-    """R-11 / D-09: missing votes are full; even medians floor."""
+    """R-11: missing votes are full; even medians floor."""
     values = sorted(integer(votes[m]) if m in votes else MILLION for m in members)
     if len(set(members)) != len(members) or any(v > MILLION for v in values):
         raise ValueError("invalid members or score")
@@ -650,7 +649,7 @@ def split(paid: int, inputs: dict) -> dict:
 
 
 def validators(inputs: dict, parameters: Parameters) -> dict:
-    """R-13 / D-35: calls edit next round seats, never current membership."""
+    """R-13: calls edit next round seats, never current membership."""
     current, pending, opted = [], [], set()
     votes, observed, refused = {}, [], []
     settings = Settings(parameters, inputs.get("authority"), inputs.get("addresses"))
@@ -685,7 +684,7 @@ def validators(inputs: dict, parameters: Parameters) -> dict:
             if code:
                 refused.append({"step": step["step"], "code": code})
             continue
-        # Units / D-39: identity precedes node status and amount.
+        # Units: identity precedes node status and amount.
         if (action in ("opt_in", "opt_out", "vote")
                 and not operators.may_act(step.get("caller", node), node)):
             refused.append({"step": step["step"], "code": "NOT_AUTHORIZED"})
@@ -713,7 +712,7 @@ def validators(inputs: dict, parameters: Parameters) -> dict:
                     if len(pending) >= size:
                         pending.remove(smallest)
                     pending.append(node)
-                    # R-13 / D-37: undoing an exit preserves current tenure.
+                    # R-13: undoing an exit preserves current tenure.
                     # Newcomers stay after current members, in call order.
                     pending.sort(key=lambda n: current.index(n)
                                  if n in current else len(current))
@@ -814,7 +813,7 @@ class LptReplay:
             old, new = s.get('from', n), s.get('to', n)
             if a in ('bond', 'transfer', 'rebond') and new not in payouts:
                 return 'NOT_REGISTERED'
-            # R-15 / D-38: same-node refusal precedes amount checks.
+            # R-15: same-node refusal precedes amount checks.
             if a in ('transfer', 'unbond_transfer') and old == new:
                 return 'SAME_NODE'
             if a == 'bond':
@@ -856,7 +855,7 @@ class LptReplay:
             earned = integer(s['earned_round'])
             if a == 'claim' and not self.operators.may_act(s['caller'], n):
                 return 'NOT_AUTHORIZED'
-            # R-18 / D-40 and R-12: round zero follows authorization.
+            # R-18 R-12: round zero follows authorization.
             if earned == 0:
                 return 'NO_SUCH_ROUND'
             if a == 'claim' and n not in payouts:

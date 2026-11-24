@@ -234,7 +234,7 @@ func TestAFaultyPoolIsAnError(t *testing.T) {
 	}
 }
 
-// A keeper that is running follows a change of executor (D-51): from the
+// A keeper that is running follows a change of executor: from the
 // round group 10 names another, it buys and pokes there and no longer at
 // the executor it started with, whose buy the Broker would refuse.
 func TestARunningKeeperFollowsAMoveOfTheExecutor(t *testing.T) {

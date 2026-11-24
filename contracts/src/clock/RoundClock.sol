@@ -9,7 +9,7 @@ import {IRoundClock} from "../../interfaces/IRoundClock.sol";
 /// lasts longer, and no round number is skipped. The node finds it under
 /// the name "RoundsManager".
 contract RoundClock is IRoundClock {
-    /// RoundLength (R-18): a test value (D-16).
+    /// RoundLength (R-18): a test value.
     uint256 private constant ROUND_LENGTH = 50;
 
     uint256 private round;

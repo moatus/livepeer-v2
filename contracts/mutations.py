@@ -81,7 +81,7 @@ M = [
  ("drawn to 0 keeps its ready round", [(B, "_set(payer, node, b, left, left, left == 0 ? 0 : b.readyRound);", "_set(payer, node, b, left, left, b.readyRound);")], "qualify:MoneyInvariants", True),
  ("top-up cancels a pending deposit release", [(B, "        _set(msg.sender, address(0), d, d.amount + deposit_, d.pending, d.readyRound);", "        _set(msg.sender, address(0), d, d.amount + deposit_, 0, 0);")], "qualify:MoneyInvariants", True),
 
- # Scores (spec S-06 phase 2): each rule of R-11 and R-13 a case or test pins.
+ # Scores: each rule of R-11 and R-13 a case or test pins.
  ("scores: an example's expected score changed", [(V5, '"expected": {"score": "166666"}', '"expected": {"score": "166667"}')], "test_score_even_floor"),
  ("scores: abi: extra public function", [(S, "    // --- views", "    function size() external pure returns (uint256) {\n        return N;\n    }\n\n    // --- views")], "check"),
  ("scores: no vote counts as 0", [(S, "v.seated == nodes[m[k]].seated ? v.score : MAX_SCORE", "v.seated == nodes[m[k]].seated ? v.score : 0")], "test_score_none"),
@@ -121,7 +121,7 @@ M = [
     (S, "        nodes[node].optedIn = true;\n", "        nodes[node].optedIn = true;\n        everyOptedIn.push(node);\n"),
     (S, "        if (k == 0) return MAX_SCORE;", "        for (uint256 q = 0; q < everyOptedIn.length; q++) {\n            if (everyOptedIn[q] == node) return MAX_SCORE;\n        }\n        if (k == 0) return MAX_SCORE;")], "test_gas_does_not_grow"),
 
- # Validator pay (spec S-06 phase 4): R-10, R-14 and B1 to B5 in Claims.
+ # Validator pay: R-10, R-14 and B1 to B5 in Claims.
  ("pay: members read when the mint runs, not as the round started", [(CL, "validators.membersAt(round)", "validators.membersAt(clock.currentRound())")], "test_a_node_seated_after_the_round"),
  ("pay: stake read when the mint runs", [(CL, "stakes[i] = ledger.stakeAt(members[i], round);", "stakes[i] = ledger.stakeAt(members[i], clock.currentRound());")], "test_ledger_mid_round"),
  ("pay: cut read when the mint runs", [(CL, "RewardMath.cutOf(paid, ledger.cutAt(m, round))", "RewardMath.cutOf(paid, ledger.cutAt(m, clock.currentRound()))")], "test_ledger_mid_round"),
@@ -153,12 +153,12 @@ M = [
     (SL, "        if (!registry.isRegistered(node)) revert NOT_REGISTERED();\n        uint256 now_ = clock.currentRound();\n        _add(stayingPoints[msg.sender][node], now_, amount);", "        if (!registry.isRegistered(node)) revert NOT_REGISTERED();\n        uint256 now_ = clock.currentRound();\n        everyHolder.push(msg.sender);\n        _add(stayingPoints[msg.sender][node], now_, amount);"),
     (SL, "        return _at(stakePoints[node], round);", "        for (uint256 q = 0; q < everyHolder.length; q++) {\n            if (everyHolder[q] == address(1)) revert();\n        }\n        return _at(stakePoints[node], round);")], "test_mint_gas_does_not_grow"),
  # Parameters: the values of a round, not the values
- # now; the ceiling after a change, exact; D-49's bound on a drop; and each
+ # now; the ceiling after a change, exact; the bound on a drop; and each
  # reader taking its group from Parameters, for its round.
  ("params: an overwriting setter replaces a change that counts", [(P, "        if (n > 0 && list[n - 1].countsFrom > now_) {", "        if (n > 0) {")], "test_parameters_"),
  ("params: the values now, not the round's", [(P, "            if (list[mid].countsFrom <= round) lo = mid + 1;", "            if (list[mid].countsFrom <= type(uint256).max) lo = mid + 1;")], "test_parameters_"),
  ("params: a withdrawn change still counts", [(P, "        list.pop();\n", "")], "test_parameters_|test_validators_set_size_withdrawn"),
- ("params: drops above 840 accepted (D-49)", [(P, "v.length == 2 && v[0] <= MOST && v[1] != 0", "v.length == 2 && v[1] != 0")], "test_parameters_drop"),
+ ("params: drops above 840 accepted", [(P, "v.length == 2 && v[0] <= MOST && v[1] != 0", "v.length == 2 && v[1] != 0")], "test_parameters_drop"),
  ("params: a raised half-life accepted", [(P, "values.length == 2 && values[1] > inForce[1]", "values.length == 2 && false")], "test_parameters_half_life"),
  ("params: the new half-life starts a round late", [(P, "RewardMath.position(inForce[0], inForce[1], inForce[2], countsFrom - 1) + values[0];", "RewardMath.position(inForce[0], inForce[1], inForce[2], countsFrom) + values[0];")], "test_parameters_half_life|test_half_life_420"),
  ("params: pending still shown in the round the change counts from", [(P, "        if (n > 0 && list[n - 1].countsFrom > clock.currentRound()) {", "        if (n > 0 && list[n - 1].countsFrom >= clock.currentRound()) {")], "test_pending_ends_in_the_round_the_change_counts_from"),
@@ -167,7 +167,7 @@ M = [
  ("params: a score source word above 160 bits accepted", [(P, "return v.length == 1 && v[0] <= type(uint160).max && address(uint160(v[0])).code.length > 0;", "return v.length == 1 && address(uint160(v[0])).code.length > 0;")], "test_an_address_word_above_160_bits_is_out_of_range"),
  ("params: a pool word above 160 bits accepted", [(P, "return v.length == 4 && v[0] <= type(uint160).max && v[1] >= 1800", "return v.length == 4 && v[1] >= 1800")], "test_an_address_word_above_160_bits_is_out_of_range"),
  ("params: valuesAt answers a number with no group", [(P, "    function valuesAt(uint256 group, uint256 round) external view returns (uint256[] memory) {\n        if (group == 0 || group > BUYBACK_EXECUTOR) revert NOT_ADJUSTABLE();\n", "    function valuesAt(uint256 group, uint256 round) external view returns (uint256[] memory) {\n")], "test_the_views_refuse_a_number_with_no_group"),
- # S-10 3.1: the pool's runtime has no SELFDESTRUCT and no DELEGATECALL.
+ # the pool's runtime has no SELFDESTRUCT and no DELEGATECALL.
  ("pool: TestPool given a function that delegates", [(TP, "    constructor(address tokenA, address tokenB) {", "    function relay(address t) external returns (bool ok) {\n        (ok,) = t.delegatecall(\"\");\n    }\n\n    constructor(address tokenA, address tokenB) {")], "test_the_pool_runtime_has_no_selfdestruct_or_delegatecall"),
  ("pool: TestPool given a function that destroys it", [(TP, "    constructor(address tokenA, address tokenB) {", "    function close() external {\n        selfdestruct(payable(msg.sender));\n    }\n\n    constructor(address tokenA, address tokenB) {")], "test_the_pool_runtime_has_no_selfdestruct_or_delegatecall"),
  ("ceiling: one factor 2^-64 low", [(RM, "K9 = 0xa7c92571bd511e01b2", "K9 = 0xa7c92571bd511e00b2")], "check"),
@@ -182,7 +182,7 @@ M = [
  ("ledger: the unbonding wait fixed at 21", [(SL, "        return params.valuesAt(UNBONDING, now_)[0];", "        return 21;")], "test_ledger_delays"),
  ("scores: the set size fixed at 3", [(S, "        if (n >= params.valuesAt(VALIDATOR_SET_SIZE, r)[0]) {", "        if (n >= 3) {")], "test_validators_set_size"),
  ("params: a buy reads group 9 now, not for its round", [(P, "        uint256[] memory b = _at(BUYBACK_VALUES, round);", "        uint256[] memory b = _at(BUYBACK_VALUES, clock.currentRound());")], "test_a_buy_reads_the_values_of_its_round"),
- # The executor is a parameter (D-51): the draw answers to the round's
+ # The executor is a parameter: the draw answers to the round's
  # executor, and a pool is put to the pending executor when one is pending.
  ("broker: the deployment's executor draws, not the round's", [(B, "params.valuesAt(BUYBACK_EXECUTOR, clock.currentRound())[0]", "params.valuesAt(BUYBACK_EXECUTOR, 0)[0]")], "test_the_draw_follows_the_executor_of_its_round"),
  ("params: the pool is put to the executor in force while one is pending", [(P, "n > 0 && list[n - 1].countsFrom > round ? list[n - 1].values : _at(BUYBACK_EXECUTOR, round)", "_at(BUYBACK_EXECUTOR, round)")], "test_parameters_executor"),

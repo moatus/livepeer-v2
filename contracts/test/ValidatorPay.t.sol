@@ -199,7 +199,7 @@ contract ValidatorPayTest is RewardLedgerRunner {
         revert(string.concat("no ceiling case for emission index ", vm.toString(r)));
     }
 
-    /// Stage 2, the token, the stubs and Claims, created at the address the
+    /// Payments, the token, the stubs and Claims, created at the address the
     /// token was given.
     function deployWithStubs() internal {
         uint256 n = vm.getNonce(address(this));

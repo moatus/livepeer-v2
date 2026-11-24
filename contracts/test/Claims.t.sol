@@ -10,7 +10,7 @@ import {RewardMath} from "../src/math/RewardMath.sol";
 import {IClaims} from "../interfaces/IClaims.sol";
 import {ITicketBroker} from "../interfaces/ITicketBroker.sol";
 
-/// Claims (S-05 phase 4, S-06 phase 4): the v2 `ledger` cases with claims,
+/// Claims: the v2 `ledger` cases with claims,
 /// withdrawals, share mints and validator pots, from
 /// vectors/october-main-text-v5.json, with the after-step checks of the
 /// shared examples (RewardLedgerRunner); then the refusals and orders no case
@@ -58,7 +58,7 @@ contract ClaimsTest is RewardLedgerRunner {
     }
 
     // R-25: Parameters' changes, read for the round each
-    // part names. The section 1 table: round 5 claimed after round 11.
+    // part names. The validator rewards example: round 5 claimed after round 11.
     function test_ledger_authority() external {
         runRewardCase("ledger-authority");
     }
@@ -110,7 +110,7 @@ contract ClaimsTest is RewardLedgerRunner {
         (list[0], list[1]) = (a, b);
     }
 
-    // --- D-26: the first refusal that applies -----------------------------
+    // --- The first refusal that applies -----------------------------
 
     /// R-12's order, NOT_AUTHORIZED, NO_SUCH_ROUND, NOT_REGISTERED,
     /// CLAIM_TOO_EARLY, CLAIM_EXPIRED, ALREADY_CLAIMED, SCORE_OUT_OF_RANGE,
@@ -118,7 +118,7 @@ contract ClaimsTest is RewardLedgerRunner {
     /// ledger-mint-order show who before when and when before once;
     /// ledger-round-zero who before the round; refusal-order the round
     /// before the node, and the node before when. This shows the rest.
-    function test_claim_refusals_come_in_d26_order() external {
+    function test_claim_refusals_follow_precedence() external {
         deployRewards();
         address n = who("N");
         register("N");
@@ -129,10 +129,10 @@ contract ClaimsTest is RewardLedgerRunner {
         // Who before the score, and before when.
         expectRefused(claimAs(who("H"), n, 2), "NOT_AUTHORIZED", "holder, early, score out of range");
         // An unregistered address acting for itself is refused for the node
-        // it names, after who (D-39); another address for it, for who.
+        // it names, after who; another address for it, for who.
         expectRefused(claimAs(who("X"), who("X"), 1), "NOT_REGISTERED", "unregistered, for itself");
         expectRefused(claimAs(who("H"), who("X"), 0), "NOT_AUTHORIZED", "for unregistered X, round 0");
-        // The round before when, and before the score (D-40).
+        // The round before when, and before the score.
         expectRefused(claimAs(n, n, 0), "NO_SUCH_ROUND", "round 0, score out of range");
         // A round far beyond any now is early, not an overflow.
         expectRefused(claimAs(n, n, type(uint256).max), "CLAIM_TOO_EARLY", "the last round number");

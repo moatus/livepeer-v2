@@ -57,7 +57,7 @@ interface IParameters is IBuybackValues {
     /// NOT_ADJUSTABLE, SCHEDULE_RAISED (a schedule change of two values whose
     /// half-life is above the one in force), VALUE_OUT_OF_RANGE (also a wrong
     /// number of values), IDENTITY_NOT_WHOLE, POOL_INVALID. A raise is what
-    /// D-12 forbids, so it is named first; the pool, the one value another
+    /// R-25 forbids, so it is named first; the pool, the one value another
     /// contract is asked about, is checked last.
     function announce(uint256 group, uint256[] calldata values) external returns (uint256 countsFrom);
 

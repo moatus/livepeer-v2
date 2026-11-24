@@ -1,20 +1,20 @@
-"""demo/public-run full and demo/public-run serve: the stage 4 system on a
+"""demo/public-run full and demo/public-run serve: the full system on a
 chain the run does not control, and the services that keep it running.
 
-full deploys stage 4's contracts to the chain at LP2_RPC_URL by stage 4's
-own deployment function (stage 3's contracts with the test pool, Parameters
+full deploys the full system’s contracts to the chain at LP2_RPC_URL by the full system’s
+own deployment function (the rewards demo’s contracts with the test pool, Parameters
 naming the Buyback as the buyback executor, then the Buyback), with the
 deployer's keystore and the authority's given by the environment: G, the
 authority, is Parameters' one authority. The deployer seeds the pool and
 grants the faucet account its share of genesis test LPT. The team's node N,
-payer P and validator V then do what the stage 3 run has them do, and G
+payer P and validator V then do what the rewards run has them do, and G
 announces one parameter change. In real time: N serves one paid job, so the
 network share holds USDC; the keeper, given Parameters' address, pokes the
 Buyback and, once the pool's average price is an interval old, buys test LPT
 with the share and burns it; and the change is read back in the round before
 it counts and in the round it counts from. Every figure is read from the
 chain and printed beside the calculator's: the payment, stake and each
-round's shares as a ledger case, as the stage 3 run does; the buys as a
+round's shares as a ledger case, as the rewards run does; the buys as a
 buyback case; the change as a parameters case. Only when every figure is
 equal does the run hand over: it writes deployment.json, the file operators
 give their node container, and services.json, in the state directory, and
@@ -150,7 +150,7 @@ def main() -> int:
     started = time.time()
     g = authority()
     public.ROLES = ROLES
-    chain_id = public.open_state(stage=4)
+    chain_id = public.open_state(deployment="full")
     sender_url(chain_id)   # the handover's deployment.json names it: checked before anything is sent
     state = public.STATE
     if state.get("authority", g).lower() != g.lower():
@@ -162,7 +162,7 @@ def main() -> int:
                                json.loads((common.ROOT / "deployments" / TEMPLATE).read_text()))
     doc = public.TEMPLATE_DOC
     use_template(doc, chain_id)
-    say("Public run, stage 4: the buyback buys and burns test LPT, and an announced parameter change counts seven "
+    say("Public run, full system: the buyback buys and burns test LPT, and an announced parameter change counts seven "
         "rounds later, in real time; then the deployment is handed over to services without the deployer's key")
     say(f"  chain id {chain_id}, {public.ALLOWED_CHAINS[chain_id]}; state directory outside the repository")
     say(f"  deployer {state['deployer']}; authority G {g}; N {ADDR['N']}, P {ADDR['P']}, V {ADDR['V']}, "
@@ -190,7 +190,7 @@ def main() -> int:
     say(f"  node {MANIFEST['node']['commit'][:12]} (unmodified), model sha256 {MANIFEST['model']['sha256'][:12]}, "
         f"contracts and programs built; ticket face {money(face)} micro-USDC")
 
-    say("\n2. Deploying stage 4 (round 1 starts with the round clock)")
+    say("\n2. Deploying full system (round 1 starts with the round clock)")
     deploy()
     say("  contracts: " + ", ".join(f"{k} {v}" for k, v in C.items()))
     say(f"  from block {common.FROM_BLOCK}; treasury {ADDR['Treasury']} (no key); Parameters' authority G {g}")
@@ -517,7 +517,7 @@ def services_doc(chain_id: int) -> dict:
     force, and the role key files, relative to the state directory, which
     holds them with their password file and the RPC URL."""
     state = public.STATE
-    return {"stage": 4, "chain_id": chain_id, "from_block": common.FROM_BLOCK, "contracts": dict(C),
+    return {"deployment": "full", "chain_id": chain_id, "from_block": common.FROM_BLOCK, "contracts": dict(C),
             "executor": executor_in_force(), "authority": state["authority"],
             "accounts": {k: ADDR[k] for k in ROLES},
             "keys": {who: f"keys/{who}/{who}" for who in ROLES}, "password_file": "pw", "rpc_url_file": "rpc-url",
@@ -758,7 +758,7 @@ def handover(chain_id: int) -> None:
                                  "announced_in_round": done["announce"]["round"],
                                  "counts_from": done["announce"]["counts_from"], "tx": done["announce"]["tx"]},
             "first_buy": {k: done["buy"][k] for k in ("tx", "usdc_in_micro_usdc", "lpt_out_wei", "burned_wei")},
-            "services": {k: v for k, v in svc.items() if k not in ("stage", "chain_id", "from_block", "contracts",
+            "services": {k: v for k, v in svc.items() if k not in ("deployment", "chain_id", "from_block", "contracts",
                                                                    "authority", "accounts")}}
     public.write_manifest(chain_id, more)
     write_public(public.STATE_DIR / OPERATORS, op_text, 0o644)
@@ -866,7 +866,7 @@ def serve() -> int:
     """The standing services, from services.json and the role keys alone."""
     state_dir = public.outside_repo("LP2_STATE_DIR", False)
     if not (state_dir / SERVICES).is_file() or not (state_dir / OPERATORS).is_file():
-        raise NotRun(f"{state_dir} holds no {SERVICES} and {OPERATORS}: no stage 4 run has passed and handed over to "
+        raise NotRun(f"{state_dir} holds no {SERVICES} and {OPERATORS}: no full system run has passed and handed over to "
                      "services there (demo/public-run full)")
     public.STATE_DIR = state_dir
     public.lock()
@@ -899,7 +899,7 @@ def serve() -> int:
         rewards.KEYS[who] = public.private(state_dir / svc["keys"][who])
         if not rewards.KEYS[who].is_file():
             raise NotRun(f"the state directory holds no key file for {who} ({svc['keys'][who]})")
-    say("The standing services of the stage 4 deployment: N's node with the light responder, the keeper, the "
+    say("The standing services of the full system deployment: N's node with the light responder, the keeper, the "
         "scripted validator V, lp2-sender with P's signer, and lp2-faucet")
     publish_sender(state_dir, chain_id)
     say(f"  chain id {chain_id}; Controller {C['Controller']}; executor in force {executor_in_force()}; "

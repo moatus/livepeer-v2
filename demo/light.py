@@ -1,7 +1,7 @@
 """./dev demo light: the standing testnet's services on a fresh local chain,
 with the unmodified node, no model and no Docker.
 
-Deploys the stage 3 contracts and starts the keeper. Nodes N, M and S
+Deploys the rewards contracts and starts the keeper. Nodes N, M and S
 register; each runs the node's orchestrator, N and M in front of their own
 lp2-responder, S in front of a runner that answers its health check and
 never answers a request. X registers and runs nothing; U never registers.
@@ -376,7 +376,7 @@ def main() -> int:
     start_faucet()
     start("keeper", [str(common.RUN / "bin" / "lp2-keeper"), "--rpc-url", common.RPC, "--keystore-file", str(KEYS["Keeper"]),
                      "--keystore-password-file", str(pw), "--controller-address", C["Controller"], "--poll", "1s"])
-    say(f"  chain on {common.RPC}; stage 3 contracts; N, M, S and X registered, U not; the keeper starts each round "
+    say(f"  chain on {common.RPC}; rewards contracts; N, M, S and X registered, U not; the keeper starts each round "
         f"({MANIFEST['chain']['round_length_blocks']} blocks of {MANIFEST['chain']['block_time_seconds']} s)")
     say(f"  the deployer funded the faucet F with {FAUCET_LPT // 10**18:,} test LPT; lp2-faucet, holding F's key, grants each "
         f"registered node {GRANT // 10**18:,}, once, polling every {FAUCET_POLL} s")

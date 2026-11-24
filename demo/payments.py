@@ -1,6 +1,6 @@
-"""./dev demo payments: S-09 section 1 on a fresh local chain.
+"""./dev demo payments: on a fresh local chain.
 
-Starts a local chain, deploys the stage 2 contracts, and runs the
+Starts a local chain, deploys the payments contracts, and runs the
 unmodified node (orchestrator and signer) and a tiny model. A stake-free
 node registers, a payer funds 10 USDC of mock USDC and earmarks 0.02 USDC,
 and six real jobs each settle one ticket. Then: the three refusals where
@@ -27,7 +27,7 @@ common.use("payments-local.json")
 from common import *  # noqa: E402,F401,F403
 from common import RUN, ROOT, MANIFEST, PARAMS, CASES, VECTORS, PORT, RPC, C, ADDR, KEY, NAMES, sel  # noqa: E402
 
-JUNK = 999  # S-09 section 1: a paid job after 999 junk registrations
+JUNK = 999  # a paid job after 999 junk registrations
 ORCH, SIGNER = PORT["orch"], {"P": PORT["signer_p"], "P2": PORT["signer_p2"]}
 
 
@@ -67,7 +67,7 @@ def junk_registrations(n: int) -> None:
 def main() -> int:
     open_log()
     started = time.time()
-    say("Stage 2 demo (S-09 section 1): the unmodified node paid in mock USDC on a fresh local chain")
+    say("Payments demo: the unmodified node paid in mock USDC on a fresh local chain")
     say(f"Stand-ins, from deployments/payments-local.json: {'; '.join(s['stand_in'] for s in MANIFEST['stand_ins'])}.")
 
     say("\n1. Setting up")
@@ -150,7 +150,7 @@ def main() -> int:
     ordered, views, _ = reconcile("After the six jobs")
     want = demo_case["expected"]
     fees_n = sum(v for (r, n), v in views["fees"].items() if n == "N")
-    say("  against S-09 section 1 (ledger-demo in the shared examples):")
+    say("  against ledger-demo in the shared examples:")
     check("P's deposit", views["deposit"]["P"], int(want["deposits_micro_usdc"]["P"]))
     check("P's earmark for N", views["earmark"][("P", "N")], int(want["earmarks_micro_usdc"]["P"]["N"]))
     check("N's wallet", views["wallet"]["N"], int(want["paid_micro_usdc"]["N"]))

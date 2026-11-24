@@ -27,7 +27,7 @@ interface ITestLPT {
     error NOT_AUTHORIZED();
 }
 
-/// The test LPT as stage 4 reads it (rulebook october-main-text-v4, R-16):
+/// Test LPT with burning (rulebook october-main-text-v4, R-16):
 /// ITestLPT and a real burn.
 interface IBurnableTestLPT is ITestLPT {
     /// Anyone burns from its own balance: the balance and totalSupply fall

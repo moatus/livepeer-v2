@@ -71,7 +71,7 @@
 // that the challenge's ticket pays the node and is of the current round;
 // a top-up when short, minting the payer's own mock USDC (an open-mint
 // stand-in) into its wallet, then one approve and one fund of the deposit
-// and the node's earmark (rulebook R-21, D-24); the challenge to the
+// and the node's earmark (rulebook R-21); the challenge to the
 // signer, which signs a ticket; and the request again with the ticket.
 // Every connection to a node is dialled through the node's destination
 // policy, which refuses a name that resolves to any address that is not
@@ -95,7 +95,7 @@
 // public interface or behind a proxy), a runner for --app, which is
 // lp2-responder on the standing testnet, and test ETH for gas: one
 // registration, and one redemption for each paid request, since every
-// ticket wins (D-06). The node is sent about one paid request a round.
+// ticket wins. The node is sent about one paid request a round.
 //
 // Amounts are micro-USDC.
 package main

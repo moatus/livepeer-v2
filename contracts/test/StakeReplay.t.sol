@@ -5,7 +5,7 @@ import {vm} from "./Vm.sol";
 import {RewardsFixture} from "./RewardsFixture.sol";
 import {StakeLedger} from "../src/money/StakeLedger.sol";
 
-/// S-05's hard core, stake at the start of a past round: bonds, unbonds,
+/// Stake at the start of a past round: bonds, unbonds,
 /// transfers, unbonds of transfers, rebonds and withdrawals across 40
 /// rounds, replayed by a model written another way. The model keeps only
 /// the present: each holder's bond staying at each node, its transfers and

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-/// The Registry as stage 4 reads it (rulebook october-main-text-v3): who is
+/// The registry of nodes and their operator keys (rulebook october-main-text-v3): who is
 /// a node and where its USDC half is paid (R-01), and each node's one
 /// operator key (R-26), the node itself until a proposed key accepts. Only
 /// that key acts for the node.
@@ -44,7 +44,7 @@ interface IRegistry {
 
     /// Whether `caller` may act for `node`: caller == operatorOf(node). It
     /// reads nothing else about the node; whether `node` is registered is
-    /// checked after it (D-39).
+    /// checked after it.
     function mayActFor(address caller, address node) external view returns (bool);
 
     event NodeRegistered(address indexed node, uint256 round);

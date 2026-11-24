@@ -30,7 +30,7 @@ contract ValuesStub is IBuybackValues {
     }
 }
 
-/// An executor of another design (R-16 rule 13, D-51), test-only: it
+/// An executor of another design (R-16 rule 13), test-only: it
 /// accepts the pools it is told to, whatever their code, and its buy draws
 /// all that is held to its round's pool and buys nothing. No exchange.
 contract OtherExecutor is IBuybackExecutor {
@@ -122,7 +122,7 @@ contract OverPool is ShortPool {
     }
 }
 
-/// Stage 2's contracts, then the test LPT, the pool, a values source,
+/// Payments's contracts, then the test LPT, the pool, a values source,
 /// Parameters naming the Buyback as the executor (group 10), and the
 /// Buyback; and the steps of a `buyback` case (rulebook v5, R-16).
 abstract contract FullFixture is PaymentsFixture {

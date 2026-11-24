@@ -1,7 +1,6 @@
 {
   "testnet": "rewards-local",
-  "about": "What the stage 3 testnet contains and every stand-in it uses. It is deployed fresh on a local chain by ./dev demo at every run, so no address is fixed here: the demo prints the addresses of its run and writes them to .cache/demo/run/addresses.json. The demo reads the node, model, chain, flag and LPT values below from this file, so what runs is what this file says. Stage 2's testnet, payments-local.json, still runs with ./dev demo payments.",
-  "spec": "S-05 and S-06",
+  "about": "What the rewards testnet contains and every stand-in it uses. It is deployed fresh on a local chain by ./dev demo at every run, so no address is fixed here: the demo prints the addresses of its run and writes them to .cache/demo/run/addresses.json. The demo reads the node, model, chain, flag and LPT values below from this file, so what runs is what this file says. Payments's testnet, payments-local.json, still runs with ./dev demo payments.",
   "rulebook": "rulebook/october-main-text-v2.md",
   "vectors": "vectors/october-main-text-v2.json",
   "contracts": [
@@ -98,7 +97,7 @@
   "stand_ins": [
     {
       "stand_in": "Local chain",
-      "for": "A public chain (D-14)",
+      "for": "A public chain",
       "value": "anvil, chain id 474747, one block a second; every key is a throwaway key made by the run"
     },
     {
@@ -114,7 +113,7 @@
     {
       "stand_in": "Every ticket wins",
       "for": "Probabilistic micropayments",
-      "value": "Win probability 2^256 - 2, the largest the node accepts, and a face of the job price + 1 micro-USDC (0.999999 USD = 999,999, so 1,000,000: one ticket of 1 USDC a job). Each job settles one ticket and overpays 1 micro-USDC (D-06)"
+      "value": "Win probability 2^256 - 2, the largest the node accepts, and a face of the job price + 1 micro-USDC (0.999999 USD = 999,999, so 1,000,000: one ticket of 1 USDC a job). Each job settles one ticket and overpays 1 micro-USDC"
     },
     {
       "stand_in": "The signer's ticket limits in micro-USDC",
@@ -133,12 +132,12 @@
     },
     {
       "stand_in": "Parameters with no key",
-      "for": "Parameter changes under D-12 (S-10 R-25)",
+      "for": "Parameter changes (R-25)",
       "value": "Parameters is deployed with an authority address the run makes up and whose key nobody holds, so no change can be announced and every value is the deployment's for every round; no contract has an owner key, and the Controller's names are fixed at deployment. ./dev demo buyback gives the authority to G, the governance stand-in"
     },
     {
       "stand_in": "No buyback",
-      "for": "The buyback and burn of LPT (D-13, stage 4)",
+      "for": "The buyback and burn of LPT",
       "value": "The network half of each fee is held in the Broker (networkHeld) and nothing draws it; no LPT is bought or burned"
     },
     {
@@ -163,7 +162,7 @@
     },
     {
       "stand_in": "ValidatorSetSize 3",
-      "for": "The paper's 33 seats (p. 4; D-35)",
+      "for": "The paper's 33 seats (p. 4)",
       "value": "Scores seats at most 3 members, a constant fixed at deployment, so that four validators make a seat change hands: V4 takes the seat of V3, the smallest member"
     },
     {

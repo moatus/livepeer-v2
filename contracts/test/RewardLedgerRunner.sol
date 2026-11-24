@@ -10,7 +10,7 @@ import {IClaims} from "../interfaces/IClaims.sol";
 import {RewardMath} from "../src/math/RewardMath.sol";
 import {IParameters} from "../interfaces/IParameters.sol";
 
-/// Runs a v2 `ledger` case on a stage 3 deployment: v1's steps, the LPT
+/// Runs a v2 `ledger` case on a rewards deployment: v1's steps, the LPT
 /// steps of rulebook v2 and the claim, withdrawal and share steps. After
 /// every step it holds the contracts to the shared examples' after-step
 /// checks, each figure seen by the test from balances and the supply, not

@@ -8,7 +8,7 @@ import {IScores} from "../interfaces/IScores.sol";
 import {StakeLedger} from "../src/money/StakeLedger.sol";
 import {IParameters} from "../interfaces/IParameters.sol";
 
-/// Scores on a stage 3 deployment: the real Registry, RoundClock and
+/// Scores on a rewards deployment: the real Registry, RoundClock and
 /// StakeLedger, with every stake made by real bonds and unbonds. Runs every
 /// `score` and `validators` case of vectors/october-main-text-v5.json, every
 /// input and expected number read from there.
@@ -379,7 +379,7 @@ contract ScoresTest is RewardsFixture {
 
     // --- the hard core: a displaced member's vote ---------------------------
 
-    /// R-11, R-13 (spec S-06 phase 2): a member displaced in round R may
+    /// R-11, R-13: a member displaced in round R may
     /// still vote in R, and that vote counts in R; it counts in no later
     /// round, even once the member is seated again.
     function test_displaced_member_vote_counts_in_its_last_round_only() external {
@@ -464,7 +464,7 @@ contract ScoresTest is RewardsFixture {
     // --- refusals and calls that change nothing -------------------------------
 
     /// NOT_AUTHORIZED for each call made for a node, ahead of every other
-    /// refusal (D-39); NOT_VALIDATOR ahead of SCORE_OUT_OF_RANGE.
+    /// refusal; NOT_VALIDATOR ahead of SCORE_OUT_OF_RANGE.
     function test_calls_for_a_node_are_refused_for_anyone_else() external {
         world();
         reg("A");

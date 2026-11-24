@@ -354,7 +354,7 @@ def start_signer(payer: str, node_bin: Path, keyfile: Path, pw: Path, port: int,
 
 
 def ticket_face() -> int:
-    """The job price in micro-USDC plus 1 (D-06)."""
+    """The job price in micro-USDC plus 1."""
     price = MANIFEST["price"]
     return int(float(price["job_price_usd"]) * int(price["wei_per_usd"]) + 0.5) + 1
 
@@ -570,7 +570,7 @@ C: dict[str, str] = {}   # contract addresses
 
 
 def deploy_payments(more: int = 0) -> None:
-    """The stage 2 contracts. The Broker reads its fee split, and the one
+    """The payments contracts. The Broker reads its fee split, and the one
     executor that may draw its network share (group 10), from Parameters,
     created after the five contracts and `more` others; with none,
     deploy_payments creates it at once, with no executor: nobody may draw."""
@@ -618,7 +618,7 @@ def deploy_parameters(score_source: str = ZERO, pool: str = ZERO, executor: str 
 
 
 def deploy_rewards(executor: str = ZERO, pool: bool = False) -> None:
-    """Stage 2's contracts, then test LPT, StakeLedger, Scores, the pool
+    """Payments's contracts, then test LPT, StakeLedger, Scores, the pool
     when asked, Parameters, naming `executor` as the buyback executor, and
     Claims. The token is given the address Claims will have, its one
     minter; the Broker, StakeLedger and Scores the address Parameters will
@@ -974,7 +974,7 @@ def reconcile(title: str, extra: list[dict] | None = None, members: dict | None 
     for the same steps; record a failure for any that differ.
 
     `moved` is what a buyback moved where no ledger step can follow it
-    (demo/public.py's stage 4 run): the network share its buys spent
+    (demo/public.py's full system run): the network share its buys spent
     (`spent_micro_usdc`) and the LPT they burned (`burned_wei`), as their
     Bought events give them, and the mock USDC minted to seed its pool
     (`seeded_micro_usdc`). The first two are added back to the chain's

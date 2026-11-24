@@ -363,7 +363,7 @@ contract ParametersTest is FullFixture {
         }
     }
 
-    // --- the pool check (R-25, D-51: the executor is asked) ----------------
+    // --- the pool check (R-25: the executor is asked) ----------------
 
     /// The Buyback, asked at the announce, accepts a pool with its pinned
     /// code only when it holds this deployment's two tokens, in either
@@ -537,7 +537,7 @@ contract ParametersTest is FullFixture {
         expectEq(q.valuesAt(4, r + 7)[0], 9, "in force from that round");
     }
 
-    // --- the pool's runtime (S-10 3.1) -----------------------------------------
+    // --- the pool's runtime -----------------------------------------
 
     /// A pool that passes the check at the announce still passes at use only
     /// if nothing can change or remove its code: TestPool is deployed

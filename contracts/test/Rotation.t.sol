@@ -12,8 +12,8 @@ import {StakeLedger} from "../src/money/StakeLedger.sol";
 import {TestLPT} from "../src/money/TestLPT.sol";
 import {ITicketBroker} from "../interfaces/ITicketBroker.sol";
 
-/// Key rotation (rulebook R-26, spec S-10 section 4, "the old key refused
-/// everywhere"), on a stage 3 deployment with the real Scores.
+/// Key rotation (rulebook R-26, "the old key refused
+/// everywhere"), on a rewards deployment with the real Scores.
 ///
 /// Every public state-changing function of every part, read from the
 /// compiler's ABI by its full signature, is on exactly one of six lists. The

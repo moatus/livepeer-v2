@@ -11,22 +11,22 @@ rulebook and labelled as ours.
 
 ## Status
 
-Stage 3 is built: nodes are paid in mock USDC for real jobs, holders bond
+The reward cycle is built: nodes are paid in mock USDC for real jobs, holders bond
 test LPT to them, scripted validators score them, and each round's LPT
 reward is claimed, split between a node and its holders, and minted under
-the round's ceiling. Stage 4 is built and shown locally: the network's
+the round's ceiling. The full system is built and shown locally: the network's
 share of fees buys and burns test LPT, an announced parameter change
 counts seven rounds later, and after an operator key is rotated the old
 key is refused. A node restarted during settlement collects each payment
-once. Stage 4 has yet to be deployed on a public test chain.
+once. The full system has yet to be deployed on a public test chain.
 
 | Part | State |
 |---|---|
-| Rulebook and shared examples | `october-main-text-v5`: stage 4's rules, with the buyback executor a parameter, and 98 worked cases (the earlier versions are kept) |
+| Rulebook and shared examples | `october-main-text-v5`: the full system’s rules, with the buyback executor a parameter, and 98 worked cases (the earlier versions are kept) |
 | Independent calculator | Computes every shared example from the rulebook alone |
-| Contracts | Stage 2: Controller, Registry, RoundClock, Broker, MockUSDC. Stage 3: TestLPT, StakeLedger, Scores, Claims. Stage 4: Parameters, TestPool, Buyback |
+| Contracts | Payments: Controller, Registry, RoundClock, Broker, MockUSDC. Rewards: TestLPT, StakeLedger, Scores, Claims. Full system: Parameters, TestPool, Buyback |
 | Node integration | The unmodified node, configured by flags alone; no fork |
-| One-command demo | `./dev demo` (stage 3); `./dev demo payments` still runs stage 2's; `./dev demo full` runs stage 4's; `./dev demo buyback` runs the buyback's walk; `./dev demo light` runs the services that pay each node that joins and grant each registered node test LPT; `./dev demo container` runs the operator container against them |
+| One-command demo | `./dev demo` (rewards); `./dev demo payments` runs paid jobs; `./dev demo full` runs the full system; `./dev demo buyback` runs the buyback's walk; `./dev demo light` runs the services that pay each node that joins and grant each registered node test LPT; `./dev demo container` runs the operator container against them |
 
 ## Run the demo
 
@@ -50,7 +50,7 @@ since each run starts by clearing `.cache/demo/run/`. It never touches a
 public chain: everything runs on a local chain with throwaway keys made by
 the run.
 
-### Stage 3: one reward cycle and the scripted validators
+### One reward cycle with scripted validators
 
 `./dev demo` runs one full reward cycle, the one the shared example
 `ledger-cycle` describes, on a fresh local chain with four nodes running
@@ -78,9 +78,9 @@ What it does not show: a validator's score is the script's choice, not a
 judgment of work, and the set changes only when someone calls Scores (here
 an opt-in), not whenever stake moves.
 
-### Stage 2: paid jobs with no stake
+### Paid jobs with no stake
 
-`./dev demo payments` runs stage 2's demo against stage 2's rulebook. What it
+`./dev demo payments` runs paid jobs against the payments rulebook. What it
 does, in this order, printing each step:
 
 1. Starts a fresh local chain, deploys the five contracts, and starts the
@@ -92,7 +92,7 @@ does, in this order, printing each step:
 3. P puts 10 USDC of mock USDC in its deposit and sets 0.02 USDC aside for
    N (its earmark). The orchestrator checks each ticket alone against the
    deposit and the earmark, not everything it already holds unredeemed, so
-   N may hold more in tickets than the earmark guarantees (D-24).
+   N may hold more in tickets than the earmark guarantees.
 4. **Six real jobs**, each paid with one ticket of 10,001 micro-USDC, which
    the node redeems itself. Every balance read from the chain is printed
    beside the calculator's figure for the same steps, and then checked
@@ -120,7 +120,7 @@ does, in this order, printing each step:
 The demo mines empty blocks where it would otherwise wait for the chain,
 for example the 40 blocks before the node redeems a ticket.
 
-### Stage 4: buyback, authority changes and settlement recovery
+### Buyback, authority changes and settlement recovery
 
 `./dev demo full` starts a fresh local chain and runs paid jobs through
 the node. It shows an announced parameter change taking effect seven
@@ -135,7 +135,7 @@ the calculator.
 ### The buyback
 
 `./dev demo buyback` runs the buyback's walk on a fresh local chain,
-with no node or model. It deploys stage 3's contracts, then the test
+with no node or model. It deploys the rewards demo’s contracts, then the test
 pool, Parameters, which names the Buyback as the one executor that may
 draw the network share, and the Buyback. It sends 7 test LPT to the Buyback beforehand. Each of the walk's
 22 steps (paid jobs, the pool's seeding, trades, pokes and buys) is a
@@ -160,7 +160,7 @@ Broker with nothing moved. Its stand-ins are named in
 
 ### The standing services: a node joins and is paid
 
-`./dev demo light` runs, on a fresh local chain with stage 3's contracts
+`./dev demo light` runs, on a fresh local chain with the rewards demo’s contracts
 and no model or Docker, the services that keep a testnet's traffic going.
 Each node runs the unmodified node's orchestrator in front of
 `lp2-responder`, a light responder that answers each paid request with a
@@ -231,7 +231,7 @@ is not done, so a restart at any moment repeats nothing. Its
 how to run it, what to fund, which port must be reachable, how long each
 step takes and how to read its explorer.
 
-`./dev demo container` builds the image and runs it on stage 4's
+`./dev demo container` builds the image and runs it on the full system’s
 contracts on a local chain mining a block a second, with the keeper, the
 sender and the faucet running as `./dev demo light` runs them. After it
 sends the two keys 1 ETH each, the demo only kills and restarts the
@@ -261,9 +261,9 @@ started (`orchestrator-N.log`, `keeper.log`, `validators.log`, ...) are in
 `.cache/demo/run/`; check a case file again with, for example,
 `./calculator/check .cache/demo/run/validators-case.json`.
 
-Every stand-in the stage 2 and 3 demos use (the local chain, mock USDC, the fixed price,
+Every stand-in the payments and rewards demos use (the local chain, mock USDC, the fixed price,
 every ticket winning, 50-block rounds, the tiny model, Parameters with no
-key (so every value is the deployment's) and no buyback, and from stage 3
+key (so every value is the deployment's) and no buyback, and in the rewards demo
 test LPT and its genesis supply, the treasury address, the scripted
 validators, three validator seats for the paper's 33 and the keeper) is
 named in its manifest,
@@ -279,11 +279,11 @@ it reads its settings from.
 ./dev summary   # the one-screen summary of a change: seams, checks, open questions
 ```
 
-`demo/public-run` deploys the stage 3 system to a chain it does not
+`demo/public-run` deploys the reward system to a chain it does not
 control, such as Arbitrum Sepolia, from an RPC URL and a deployer keystore
 you give it. It runs the team's node through one paid job and one reward
 cycle in real time, then reconciles every figure against the calculator.
-`demo/public-run full` does the same for the stage 4 system: the
+`demo/public-run full` does the same for the full system: the
 network's share of a paid job buys test LPT and burns it, and a parameter
 change announced by an authority key you give it counts seven rounds
 later. When every figure is equal, it hands the deployment over to

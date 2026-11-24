@@ -1,7 +1,6 @@
 {
   "testnet": "public-arbitrum-sepolia",
-  "about": "The template for the first public deployment (D-14): the stage 3 system, as rewards-local.json describes it, on Arbitrum Sepolia, with the team's node and one scripted validator. Nothing is deployed yet: every address is null until a run fills it. demo/public-run reads the node, model, price, signer limits and LPT values below, so what runs is what this file says; it writes the run's own copy, with the chain id, the addresses, the source commit and the accounts, to its state directory. That copy, once a run on Arbitrum Sepolia has reconciled, is the manifest to keep here.",
-  "spec": "S-05 and S-06",
+  "about": "The template for the first public deployment: the reward system, as rewards-local.json describes it, on Arbitrum Sepolia, with the team's node and one scripted validator. Nothing is deployed yet: every address is null until a run fills it. demo/public-run reads the node, model, price, signer limits and LPT values below, so what runs is what this file says; it writes the run's own copy, with the chain id, the addresses, the source commit and the accounts, to its state directory. That copy, once a run on Arbitrum Sepolia has reconciled, is the manifest to keep here.",
   "rulebook": "rulebook/october-main-text-v2.md",
   "vectors": "vectors/october-main-text-v2.json",
   "contracts": [
@@ -83,7 +82,7 @@
     "server_image": "ghcr.io/ggml-org/llama.cpp@sha256:7751a6c0dc3d019c231d42678abbb0fac1a13a24c17c956109ed27533139f280"
   },
   "chain": {
-    "kind": "Arbitrum Sepolia, a public test chain (D-14)",
+    "kind": "Arbitrum Sepolia, a public test chain",
     "chain_id": 421614,
     "round_length_blocks": 50,
     "round_clock": "block.number, which on Arbitrum is close to the L1 block number (about one every 12 s), and the node's clock is the header's l1BlockNumber: one round of 50 blocks is about 10 minutes. Round 1 starts with the clock's deployment; a fee earned in round 2 or 3 may be claimed from the start of round 9 or 10, about 80 or 90 minutes after it, before delays"
@@ -133,7 +132,7 @@
     {
       "stand_in": "Every ticket wins",
       "for": "Probabilistic micropayments",
-      "value": "Win probability 2^256 - 2, the largest the node accepts, and a face of the job price + 1 micro-USDC (0.999999 USD = 999,999, so 1,000,000: one ticket of 1 USDC a job). Each job settles one ticket and overpays 1 micro-USDC (D-06)"
+      "value": "Win probability 2^256 - 2, the largest the node accepts, and a face of the job price + 1 micro-USDC (0.999999 USD = 999,999, so 1,000,000: one ticket of 1 USDC a job). Each job settles one ticket and overpays 1 micro-USDC"
     },
     {
       "stand_in": "The signer's ticket limits in micro-USDC",
@@ -152,12 +151,12 @@
     },
     {
       "stand_in": "Parameters with no key",
-      "for": "Parameter changes under D-12 (S-10 R-25)",
+      "for": "Parameter changes (R-25)",
       "value": "Parameters is deployed with an authority address the run makes up and whose key nobody holds, so no change can be announced and every value is the deployment's for every round; no contract has an owner key, and the Controller's names are fixed at deployment. ./dev demo buyback gives the authority to G, the governance stand-in"
     },
     {
       "stand_in": "No buyback",
-      "for": "The buyback and burn of LPT (D-13, stage 4)",
+      "for": "The buyback and burn of LPT",
       "value": "The network half of each fee is held in the Broker (networkHeld) and nothing draws it; no LPT is bought or burned"
     },
     {
@@ -178,11 +177,11 @@
     {
       "stand_in": "Scripted validators",
       "for": "Validators who judge work (R-11, R-13)",
-      "value": "One validator, V, a registered node with 1,000 test LPT of its own, run by programs/validators from demo/public-validators.script: it opts in in round 2 and is the only member from round 3; it never votes, so every node keeps score 1. The S-06 division of each round's validator amount is paid to it"
+      "value": "One validator, V, a registered node with 1,000 test LPT of its own, run by programs/validators from demo/public-validators.script: it opts in in round 2 and is the only member from round 3; it never votes, so every node keeps score 1. The R-14 division of each round's validator amount is paid to it"
     },
     {
       "stand_in": "ValidatorSetSize 3",
-      "for": "The paper's 33 seats (p. 4; D-35)",
+      "for": "The paper's 33 seats (p. 4)",
       "value": "Scores seats at most 3 members, a constant fixed at deployment; the public run seats one"
     },
     {

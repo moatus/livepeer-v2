@@ -1,5 +1,5 @@
 // lp2-responder is the light responder a node serves on the standing
-// testnet in place of a model (D-01): a job is one request and one
+// testnet in place of a model: a job is one request and one
 // response, so a node needs no heavy compute. The node's orchestrator
 // forwards each paid request to it and returns its answer unchanged.
 //

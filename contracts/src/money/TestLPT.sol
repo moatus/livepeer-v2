@@ -14,7 +14,7 @@ contract TestLPT is IBurnableTestLPT {
     string public constant symbol = "tLPT";
     uint8 public constant decimals = 18;
 
-    /// The one minter (spec S-05, section 3.3). Claims is deployed after
+    /// The one minter . Claims is deployed after
     /// this token, so the deployer passes the address Claims will have.
     address private immutable claims;
 

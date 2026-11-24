@@ -34,7 +34,7 @@ import {IParameters} from "../../interfaces/IParameters.sol";
 contract StakeLedger is IStakeLedger {
     /// The UnbondingPeriod's group (R-25).
     uint256 private constant UNBONDING = 7;
-    /// The longest UnbondingPeriod (D-47 (iii)): nothing made in round R
+    /// The longest UnbondingPeriod: nothing made in round R
     /// waits past R + 840.
     uint256 private constant MOST = 840;
     /// A reward cut is in millionths, 0 to 10^6 (R-24).
@@ -128,8 +128,8 @@ contract StakeLedger is IStakeLedger {
         emit Unbonded(msg.sender, node, amount, ready);
     }
 
-    /// Who, then the node named, then the amount (D-39): NOT_REGISTERED,
-    /// SAME_NODE (D-38), AMOUNT_TOO_LARGE.
+    /// Who, then the node named, then the amount: NOT_REGISTERED,
+    /// SAME_NODE, AMOUNT_TOO_LARGE.
     function transferBond(address from, address to, uint256 amount) external {
         if (!registry.isRegistered(to)) revert NOT_REGISTERED();
         if (from == to) revert SAME_NODE();
@@ -210,7 +210,7 @@ contract StakeLedger is IStakeLedger {
     }
 
     /// Authority is read from the Registry at execution. Who, then the node
-    /// named, then the amount (D-39).
+    /// named, then the amount.
     function setRewardCut(address node, uint256 cut) external {
         if (!registry.mayActFor(msg.sender, node)) revert NOT_AUTHORIZED();
         if (!registry.isRegistered(node)) revert NOT_REGISTERED();

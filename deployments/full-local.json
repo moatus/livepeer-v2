@@ -1,7 +1,6 @@
 {
   "testnet": "full-local",
-  "about": "What the stage 4 testnet contains and every stand-in it uses. It is deployed fresh on a local chain at every run, so no address is fixed here: ./dev demo buyback and ./dev demo full each print the addresses of their run and write them to .cache/demo/run/addresses.json. Both read the chain, LPT and pool values below from this file, and check the buyback values below against those Parameters holds at deployment, so what runs is what this file says. Stage 3's testnet, rewards-local.json, still runs with ./dev demo.",
-  "spec": "S-07 and S-10",
+  "about": "What the full system testnet contains and every stand-in it uses. It is deployed fresh on a local chain at every run, so no address is fixed here: ./dev demo buyback and ./dev demo full each print the addresses of their run and write them to .cache/demo/run/addresses.json. Both read the chain, LPT and pool values below from this file, and check the buyback values below against those Parameters holds at deployment, so what runs is what this file says. Rewards's testnet, rewards-local.json, still runs with ./dev demo.",
   "rulebook": "rulebook/october-main-text-v5.md",
   "vectors": "vectors/october-main-text-v5.json",
   "contracts": [
@@ -54,7 +53,7 @@
     {
       "contract": "Parameters",
       "source": "contracts/src/authority/Parameters.sol",
-      "node_name": "none: the Broker reads its fee split from it, Claims, StakeLedger and Scores their values, and the Buyback its values (S-07's view, groups 8 and 9), and the Broker the executor that may draw (group 10)",
+      "node_name": "none: the Broker reads its fee split from it, Claims, StakeLedger and Scores their values, and the Buyback its values (groups 8 and 9), and the Broker the executor that may draw (group 10)",
       "checks": "authority() is G, the governance stand-in; deployed after the TestPool, at the address the Broker, StakeLedger and Scores were given; its deployment buyback values are the TestPool and the buyback values below, and its deployment executor (group 10) is the Buyback, taken at construction as the address predicted for it"
     },
     {
@@ -110,7 +109,7 @@
   "pool": {
     "seed_usdc_micro_usdc": "500000000000",
     "seed_lpt_wei": "100000000000000000000000",
-    "note": "Seeded by the deployer from its genesis LPT and freshly minted mock USDC: 5.000000 USDC per LPT (S-07 section 1)"
+    "note": "Seeded by the deployer from its genesis LPT and freshly minted mock USDC: 5.000000 USDC per LPT"
   },
   "buyback": {
     "burn_ppm": "1000000",
@@ -121,7 +120,7 @@
   "stand_ins": [
     {
       "stand_in": "Local chain",
-      "for": "A public chain (D-14)",
+      "for": "A public chain",
       "value": "anvil, chain id 474747, one block a second; every key is a throwaway key made by the run"
     },
     {
@@ -137,7 +136,7 @@
     {
       "stand_in": "Every ticket wins",
       "for": "Probabilistic micropayments",
-      "value": "Win probability 2^256 - 2, the largest the node accepts, and a face of the job price + 1 micro-USDC (0.999999 USD = 999,999, so 1,000,000: one ticket of 1 USDC a job). Each job settles one ticket and overpays 1 micro-USDC (D-06)"
+      "value": "Win probability 2^256 - 2, the largest the node accepts, and a face of the job price + 1 micro-USDC (0.999999 USD = 999,999, so 1,000,000: one ticket of 1 USDC a job). Each job settles one ticket and overpays 1 micro-USDC"
     },
     {
       "stand_in": "The signer's ticket limits in micro-USDC",
@@ -156,7 +155,7 @@
     },
     {
       "stand_in": "G, the governance stand-in",
-      "for": "Governance announcing parameter changes under D-12 (S-10 R-25)",
+      "for": "Governance announcing parameter changes (R-25)",
       "value": "A throwaway key the run makes, fixed in Parameters at deployment as its one authority: it announces and withdraws with lp2-params, and a change counts from the announce round + 7. No contract has an owner key, and the Controller's names are fixed at deployment"
     },
     {
@@ -167,22 +166,22 @@
     {
       "stand_in": "The deployment's buyback values",
       "for": "The buyback values governance sets",
-      "value": "Parameters holds burn 100 %, TWAP interval 3,600 s, slippage bound 1 %, a buy every round and the TestPool above until G announces a change; the burn share is fixed (D-47 (v)), and a new pool must be one the executor asked accepts (POOL_INVALID at the announce): for the Buyback, a pool with the TestPool's runtime code hash and this deployment's two tokens. The executor, group 10, is the Buyback until G announces another"
+      "value": "Parameters holds burn 100 %, TWAP interval 3,600 s, slippage bound 1 %, a buy every round and the TestPool above until G announces a change; the burn share is fixed, and a new pool must be one the executor asked accepts (POOL_INVALID at the announce): for the Buyback, a pool with the TestPool's runtime code hash and this deployment's two tokens. The executor, group 10, is the Buyback until G announces another"
     },
     {
       "stand_in": "A second Buyback and TestPool",
-      "for": "An executor and pool of another design, wherever liquidity is (S-07, note of 2026-11-23)",
+      "for": "An executor and pool of another design, wherever liquidity is (owner’s instruction of 2026-11-23)",
       "value": "./dev demo buyback deploys a second Buyback, pinned to the same TestPool code, and a second TestPool seeded as the first, and G moves the buyback to them by announcing group 10 and group 9; no other contract is redeployed. An executor of another design is shown only by a test-only contract in the contract tests"
     },
     {
       "stand_in": "Tickets signed and redeemed by the demo",
       "for": "Jobs paid through the node",
-      "value": "./dev demo buyback makes the network share by signing and redeeming winning tickets directly (stages 2 and 3 prove the node's path); ./dev demo full runs the buyback beside real node jobs"
+      "value": "./dev demo buyback makes the network share by signing and redeeming winning tickets directly (the payments and rewards demos prove the node's path); ./dev demo full runs the buyback beside real node jobs"
     },
     {
       "stand_in": "Moved time",
       "for": "Waiting out each TWAP interval",
-      "value": "./dev demo buyback sets each block's time with anvil's evm_setNextBlockTimestamp and mines a round's blocks at once, so section 1's walk runs at its own times, offset by the start time it records; ./dev demo full moves time once, by one TWAP interval, so that the keeper's buy has an observation old enough"
+      "value": "./dev demo buyback sets each block's time with anvil's evm_setNextBlockTimestamp and mines a round's blocks at once, so the buyback-walk case runs at its own times, offset by the start time it records; ./dev demo full moves time once, by one TWAP interval, so that the keeper's buy has an observation old enough"
     },
     {
       "stand_in": "Test LPT",
@@ -206,7 +205,7 @@
     },
     {
       "stand_in": "ValidatorSetSize 3",
-      "for": "The paper's 33 seats (p. 4; D-35)",
+      "for": "The paper's 33 seats (p. 4)",
       "value": "Scores seats at most 3 members, Parameters' validator set size at deployment, which G may change (R-25); the three validators of ./dev demo full fill the seats"
     },
     {
