@@ -162,7 +162,7 @@
   },
   "faucet": {
     "lpt_wei": "1000000000000000000000000",
-    "note": "1,000,000 test LPT of the genesis supply, granted at deployment to the faucet account the run makes, so that test LPT can be handed out later without the deployer's key. Nothing hands it out yet"
+    "note": "1,000,000 test LPT of the genesis supply, granted at deployment to the faucet account the run makes, so that test LPT is handed out without the deployer's key: under demo/public-run serve, lp2-faucet grants each registered node 1,000 test LPT once, up to 100 nodes"
   },
   "parameter_change": {
     "group": 7,
@@ -209,6 +209,16 @@
       "value": "SmolLM2-135M-Instruct served by llama.cpp; its answers are not checked, and a settled ticket does not show the work was done"
     },
     {
+      "stand_in": "Light responder",
+      "for": "Real AI work, on the standing services",
+      "value": "Under demo/public-run serve, N's node serves lp2-responder in place of a model: it answers each paid request with a small JSON echo of it, so a node needs no heavy compute, and a settled ticket does not show any work was done"
+    },
+    {
+      "stand_in": "The sender's paid requests",
+      "for": "Users' demand, on the standing services",
+      "value": "Under demo/public-run serve, lp2-sender pays as P each node that joins one request a round, funding P's deposit from mock USDC it mints; the explorer's labels mark P simulated"
+    },
+    {
       "stand_in": "G, the governance stand-in",
       "for": "Governance announcing parameter changes (R-25)",
       "value": "A key the owner makes for the testnet alone and gives the run as a keystore outside the repository, fixed in Parameters at deployment as its one authority: it announces and withdraws with lp2-params, and a change counts from the announce round + 7. No contract has an owner key, and the Controller's names are fixed at deployment"
@@ -231,7 +241,7 @@
     {
       "stand_in": "Faucet account",
       "for": "The way people outside the team get test LPT to bond",
-      "value": "A key the run makes, granted the faucet share of genesis test LPT above at deployment; nothing hands it out yet"
+      "value": "A key the run makes, granted the faucet share of genesis test LPT above at deployment; under demo/public-run serve, lp2-faucet holds it and grants each registered node 1,000 test LPT once"
     },
     {
       "stand_in": "Test LPT",
