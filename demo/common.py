@@ -397,12 +397,20 @@ def rpc_batch(calls: list[tuple[str, list]]) -> list:
                 with urllib.request.urlopen(req, timeout=120) as r:
                     answers = json.loads(r.read())
                 if isinstance(answers, list):
-                    answers.sort(key=lambda a: a["id"])
-                    break
-                # One error for the whole batch, such as a rate limit some
-                # endpoints answer with status 200.
+                    # Exactly one answer for each call, by id: a short or
+                    # mixed-up batch would let callers pair answers with
+                    # the wrong calls, or with none.
+                    by_id = {a.get("id"): a for a in answers}
+                    if len(answers) == len(chunk) and all(j in by_id for j in range(len(chunk))):
+                        answers = [by_id[j] for j in range(len(chunk))]
+                        break
+                    problem = f"answered {len(answers)} of {len(chunk)} calls, not one for each id"
+                else:
+                    # One error for the whole batch, such as a rate limit
+                    # some endpoints answer with status 200.
+                    problem = f"refused the batch: {answers.get('error', answers)}"
                 if wait is None or not reads:
-                    raise Failed(f"the endpoint refused the batch: {answers.get('error', answers)}")
+                    raise Failed(f"the endpoint {problem}")
             except urllib.error.HTTPError as e:
                 if wait is None or not (e.code == 429 or (reads and e.code >= 500)):
                     raise

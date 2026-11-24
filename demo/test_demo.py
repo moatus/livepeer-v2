@@ -75,6 +75,44 @@ class RPCBatchTests(unittest.TestCase):
                 common.rpc("eth_sendRawTransaction", ["0x"])
         self.assertEqual(len(batches), 5)
 
+    def test_the_apply_comparison_reads_one_answer_for_each_call_or_fails(self):
+        """The upgrade demo pairs each view with its answer at the block
+        before the apply and at the apply's. A batch answered for every
+        call compares them all; one answered short, or with an id twice,
+        fails the run instead of leaving reads uncompared."""
+        import upgrade
+        items = [(f"read {n}", "eth_call", [{"to": "0x01", "data": hex(n)}]) for n in range(3)]
+        response = mock.MagicMock()
+        response.__enter__.return_value = response
+
+        def answering(shape):
+            def open_request(req, *, timeout):
+                batch = json.loads(req.data)
+                answers = [{"id": call["id"], "result": "0x01"} for call in batch]
+                response.read.return_value = json.dumps(shape(answers))
+                return response
+            return open_request
+
+        for what, shape in (("answered 2 of 3 calls", lambda a: a[:-1]),
+                            ("answered 3 of 3 calls, not one for each id", lambda a: a[:-1] + [a[0]])):
+            with self.subTest(what), mock.patch.object(upgrade, "view_calls", return_value=items), \
+                 mock.patch.object(common.urllib.request, "urlopen", side_effect=answering(shape)), \
+                 mock.patch.object(common.time, "sleep"), mock.patch.object(common, "say"):
+                with self.assertRaisesRegex(common.Failed, what):
+                    upgrade.compare_at_apply(12)
+        with mock.patch.object(upgrade, "view_calls", return_value=items), \
+             mock.patch.object(common.urllib.request, "urlopen", side_effect=answering(lambda a: a[::-1])), \
+             mock.patch.object(common, "FAILURES", []) as failures, mock.patch.object(common, "say") as said:
+            upgrade.compare_at_apply(12)
+        self.assertEqual(failures, [])
+        self.assertIn("3 reads", said.call_args_list[0].args[0])
+        # A send answered short is not sent again: it may have landed.
+        with mock.patch.object(common.urllib.request, "urlopen", side_effect=answering(lambda a: [])) as sent, \
+             mock.patch.object(common.time, "sleep"):
+            with self.assertRaisesRegex(common.Failed, "answered 0 of 1 calls"):
+                common.rpc("eth_sendRawTransaction", ["0x"])
+        self.assertEqual(sent.call_count, 1)
+
 
 def records_and_views(case):
     """A run that sent exactly the case's steps, one block each, and whose
