@@ -18,6 +18,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
 
+	"lp2core/programs/chain"
 	"lp2core/programs/index"
 )
 
@@ -103,7 +104,7 @@ func (e *explorer) seen(_ string, err error) {
 	answering := err == nil
 	e.rpc.Answering = &answering
 	if err != nil {
-		why := describe(err, e.cfg.rpcURL)
+		why := chain.Describe(err, e.cfg.rpcURL)
 		e.rpc.Failure = &why
 	} else {
 		e.rpc.Failure = nil
@@ -118,7 +119,7 @@ func (e *explorer) note(step string, err error) {
 		delete(e.failed, step)
 		return
 	}
-	e.failed[step] = step + ": " + describe(err, e.cfg.rpcURL)
+	e.failed[step] = step + ": " + chain.Describe(err, e.cfg.rpcURL)
 }
 
 // run starts a cycle every e.every, counted from the start of the last
@@ -424,7 +425,7 @@ func handler(e *explorer) http.Handler {
 			return
 		}
 		doc, known := e.served().nodeDoc(n)
-		if !known && (e.cfg.node == nil || *e.cfg.node != n) {
+		if !known {
 			notFound(w, "no node registered at "+n.Hex())
 			return
 		}
@@ -463,9 +464,8 @@ func handler(e *explorer) http.Handler {
 // labels it had. What it last read is published whole, as one labelSet, and
 // never changed after.
 type labels struct {
-	path    string
-	reading sync.Mutex // one read at a time
-	raw     []byte     // the contents last taken
+	path string
+	raw  []byte // the contents last taken
 
 	mu  sync.Mutex
 	set *labelSet
@@ -486,8 +486,6 @@ func (l *labels) reload() error {
 	if l.path == "" {
 		return nil
 	}
-	l.reading.Lock()
-	defer l.reading.Unlock()
 	raw, err := os.ReadFile(l.path)
 	if err != nil {
 		return err

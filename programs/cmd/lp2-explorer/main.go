@@ -53,24 +53,20 @@
 // --node, / is that node's page; without it, / is the Network page.
 //
 // The figures. Each payer and fee figure is a sum of events or one view at
-// the snapshot's block: a node's fees in a round are the sum of
-// FeeSettled.gross (what its tickets paid) and equal Broker feesOf; the
-// node and network amounts are FeeSettled's as recorded; funded is each
-// Funded's deposit and earmark; released each Released's amount; the
-// deposit now and its pending release are earmarkOf(payer, address(0)).
-// Nothing on chain lists the nodes (R-23): they are the NodeRegistered
-// events. A claim's score, what it paid and its pot are its Claimed event
-// (R-12 reads the score when the claim executes); a node's own part of
-// the pot is Claims partOf. A round with no Claimed event that a claim
-// could have executed in (its claim window opened) is read from Claims
-// entitlementOf: if Claims says it is claimed, it shows as claimed with
-// what it paid, and its claim score is unavailable, never 0. The score now, which a claim made now would
-// read, is scoreOf of the score source in force for the round (R-11,
-// R-20), read at every snapshot, since a validator's vote and a change of
-// the validator set (R-13) both move it. Stake and cut are StakeLedger's
-// for the round (R-15), read once a round. A buy counts only if its
-// emitter is the executor Parameters names for the buy's round (R-25
-// group 10, R-16).
+// the snapshot's block, as its type in docs.go says; a node's fees in a
+// round equal Broker feesOf. Nothing on chain lists the nodes (R-23): they
+// are the NodeRegistered events. A claim's score, what it paid and its pot
+// are its Claimed event (R-12 reads the score when the claim executes); a
+// node's own part of the pot is Claims partOf. A round with no Claimed
+// event that a claim could have executed in (its claim window opened) is
+// read from Claims entitlementOf: if Claims says it is claimed, it shows as
+// claimed with what it paid, and its claim score is unavailable, never 0.
+// The score now, which a claim made now would read, is scoreOf of the score
+// source in force for the round (R-11, R-20), read at every snapshot, since
+// a validator's vote and a change of the validator set (R-13) both move it.
+// Stake and cut are StakeLedger's for the round (R-15), read once a round.
+// A buy counts only if its emitter is the executor Parameters names for the
+// buy's round (R-25 group 10, R-16).
 //
 // The Controller names the Registry, the round clock and the Broker. It
 // names no other contract, so Parameters, StakeLedger, Claims, the mock
@@ -170,9 +166,6 @@ func main() {
 	}
 	ix, err := index.Open(*indexDir, firstBlock, *pageBlocks)
 	if err != nil {
-		fail(err)
-	}
-	if err := ix.Check(cfg.controller, firstBlock); err != nil {
 		fail(err)
 	}
 	waits := &chain.RetryAfter{}

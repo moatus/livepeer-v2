@@ -11,6 +11,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/rpc"
+
+	"lp2core/programs/chain"
 )
 
 // The views the explorer reads, as contracts/interfaces declares them. A
@@ -138,7 +140,7 @@ type reasons struct {
 }
 
 func (r *reasons) add(what string, err error) {
-	r.list = append(r.list, what+": "+describe(err, r.rpcURL))
+	r.list = append(r.list, what+": "+chain.Describe(err, r.rpcURL))
 }
 
 func (r *reasons) int(v *view) *Int {

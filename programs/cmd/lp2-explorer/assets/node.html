@@ -14,8 +14,6 @@
 <dt>Operator key</dt><dd>{{with $.Who $n.Operator}}{{template "address" .}}{{else}}{{$.Missing}}{{end}}</dd>
 <dt>Payout address</dt><dd>{{with $.Who $n.Payout}}{{template "address" .}}{{else}}{{$.Missing}}{{end}}</dd>
 <dt>Own bond this round</dt><dd>{{$.LPT $n.Bond}}</dd>
-<dt>Stake this round</dt><dd>{{$.LPT $n.Stake}}</dd>
-<dt>Score a claim made now reads</dt><dd>{{$.Score $n.ScoreNow}}</dd>
 <dt>Test USDC at the payout address</dt><dd>{{$.USDC $n.PayoutUSDC}}</dd>
 <dt>Node key's ETH, for gas</dt><dd>{{$.ETH $n.ETH}}{{if low $n.LowGas}} <span class="warn">low: under {{$.ETH $n.LowGasWei}}</span>{{end}}</dd>
 </dl></div></section>

@@ -2,13 +2,7 @@ package main
 
 import (
 	"github.com/ethereum/go-ethereum/common"
-
-	"lp2core/programs/chain"
 )
-
-// describe tells a failure of the RPC provider by its fixed category,
-// naming the provider by scheme and host only (chain.Describe).
-var describe = chain.Describe
 
 // Head is how every JSON document starts: the block every figure on it is
 // read at and that block's time, the RPC provider's state, the index's

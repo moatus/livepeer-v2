@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -753,9 +754,9 @@ func TestTheNodesPage(t *testing.T) {
 	page := b.String()
 	for _, want := range []string{
 		`<meta http-equiv="refresh" content="15">`,
-		"<dt>Stake this round</dt><dd>4200 LPT</dd>",
+		`<span class="k">Stake this round</span><span class="v">4200 LPT</span>`,
 		"<td class=\"n\">3200 LPT</td>", // round 3's stake
-		"<dt>Score a claim made now reads</dt><dd>50%</dd>",
+		`<span class="k">Score a claim made now reads</span><span class="v">50%</span>`,
 		"<td>expired after round 30, never minted</td><td class=\"n\"></td>", // no score for an expired round
 		"<td>claimable now, until round 30</td><td class=\"n\">50% (now)</td>",
 		"<td>claimed</td><td class=\"n\">100%</td>",
@@ -915,8 +916,8 @@ func TestRewardStateMatchesTheSharedExamples(t *testing.T) {
 	}
 }
 
-// Every view and event the explorer reads is declared, with the same
-// argument types, in contracts/interfaces.
+// Every view the explorer reads, and every event and view its index
+// reads, is declared, with the same argument types, in contracts/interfaces.
 func TestViewsAreDeclared(t *testing.T) {
 	files, _ := filepath.Glob("../../../contracts/interfaces/*.sol")
 	var src strings.Builder
@@ -938,12 +939,14 @@ func TestViewsAreDeclared(t *testing.T) {
 		}
 		found[m[2]+"("+strings.Join(types, ",")+")"] = true
 	}
-	for _, m := range views.Methods {
-		if !found[m.Sig] {
-			t.Errorf("%s is not declared in contracts/interfaces", m.Sig)
+	for _, ms := range []map[string]abi.Method{views.Methods, index.ABI.Methods} {
+		for _, m := range ms {
+			if !found[m.Sig] {
+				t.Errorf("%s is not declared in contracts/interfaces", m.Sig)
+			}
 		}
 	}
-	for _, e := range views.Events {
+	for _, e := range index.ABI.Events {
 		if !found[e.Sig] {
 			t.Errorf("event %s is not declared in contracts/interfaces", e.Sig)
 		}

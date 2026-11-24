@@ -548,7 +548,7 @@ func (e *explorer) nodePage(w http.ResponseWriter, n common.Address, mine bool) 
 		crumbs, nav = []crumb{{Label: "Your node"}}, "node"
 	}
 	f := e.frame(v, title, nav, "/orchestrators/"+n.Hex()+".json", crumbs...)
-	if !known && !mine && (e.cfg.node == nil || *e.cfg.node != n) {
+	if !known {
 		e.missing(w, f, "No node is registered at "+n.Hex()+".")
 		return
 	}
