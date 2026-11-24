@@ -194,7 +194,7 @@ then shows nodes N and M paid once a round with nobody acting, a node whose
 runner never answers given up at the 10 s bound while they are still paid,
 and a sender restarted within a round paying nobody twice, and it reads
 each node's tickets and payouts from the chain. A run takes about three
-and a half minutes, and uses 25 ports from 47700.
+and a half minutes, and uses 14 local ports, from 47700 to 24 above it.
 
 Beside the sender runs `lp2-faucet`, which holds a faucet account's key and
 gives each node the Registry shows registered one grant of test LPT (1,000
@@ -228,12 +228,14 @@ step takes and how to read its explorer.
 contracts on a local chain mining a block a second, with the services
 running as `./dev demo light` runs them. After it funds the two keys, the
 demo only kills and restarts the container, at the moments a restart must
-survive. It then reads from the chain that nothing was done twice, writes
-the run as a ledger case that `./calculator/check` reproduces, and checks
-the container's explorer against it. The pool is not seeded, so no buy
+survive, and starts others beside it: a second on the same data folder,
+which refuses to start, and three whose RPC provider fails. It then reads
+from the chain that nothing was done twice, writes the run as a ledger case
+that `./calculator/check` reproduces, and checks the container's explorer
+against it. The pool is not seeded, so no buy
 draws the network share or burns LPT and the case holds every LPT and USDC
 movement. A run takes about 12 minutes once the image is built. It uses
-six local ports, from `LP2_DEMO_PORT_BASE` (47700 unless set) to 24 above
+seven local ports, from `LP2_DEMO_PORT_BASE` (47700 unless set) to 30 above
 it; the chain and the sender also listen on Docker's bridge address, where
 the container reaches them.
 

@@ -8,15 +8,17 @@ demo funds the node key N and the operator key H the container prints, and
 from then on only watches, kills and restarts it, at the moments a restart
 must survive (LP2_TEST_HOLD). Then containers whose RPC provider fails, with
 a key in its URL, must each name the failure by its category, and no
-credential may appear in any output.
+credential may appear in any output. The last is started on public port
+09000 (9000, where the responder listened before, written with a leading
+zero), and its node comes up beside the responder.
 
 The explorer of the container restarted after the fourth step opens on its
 node, keeps its index in /data/index and resumes it above the deployment's
 first block, and names N from LP2_LABELS, a file the demo writes into the
 data folder once N is known; the first container, started before it,
 says it could not read it. Replaced by a file that is not a labels file
-before the last container starts, it is said, the copy kept stays,
-and the explorer names N from it with the labels file not read.
+before the container on public port 09000 starts, it is said, the copy
+kept stays, and the explorer names N from it with the labels file not read.
 
 Then the chain is read, and the run is written as a ledger case the
 calculator reproduces, against which the explorer's figures are checked.
@@ -454,7 +456,7 @@ def main() -> int:
     for p in ("sender", "faucet", "keeper", "signer-P"):
         stop(p)
 
-    say("\n9. RPC providers that fail, with a key in their URL")
+    say("\n9. RPC providers that fail, with a key in their URL; and public port 09000, where the responder listened before")
     provider = common.Provider(host, PROVIDER, (SYNTHETIC_KEY, SYNTHETIC_PASSWORD), MARKER)
     code, said = unreachable_start(
         "unreachable", f"https://synthetic-user:{SYNTHETIC_PASSWORD}@127.0.0.1:1/v3/{SYNTHETIC_KEY}?apikey={SYNTHETIC_KEY}")
@@ -477,13 +479,17 @@ def main() -> int:
            f"lp2-stake state: the RPC provider http://host.docker.internal:{PROVIDER} redirected the request (HTTP 307)" in said,
            [c for c in CREDENTIALS if c in said], provider.followed), (1, True, True, [], 0))
     provider.forward()
-    # A file that is not a labels file, given to the last container, which
-    # holds the labels kept so far.
+    # A file that is not a labels file, given to the container on public
+    # port 09000, which holds the labels kept so far.
     kept, not_labels = (DATA / "labels.kept.json").read_bytes(), {"accounts": False}
     (DATA / LABELS_GIVEN).write_text(json.dumps(not_labels))
-    five = run_node(hold="started", ports=("explorer",), rpc=KEYED)
+    five = run_node(hold="started", ports=("explorer",), public="http://127.0.0.1:09000", rpc=KEYED)
+    ports = wait_log(five, "ports:", 60).split(" ", 1)[1]
+    say(f"  {ports}")
+    check("public port 09000 is port 9000, and the responder moves off it",
+          ("the node on 0.0.0.0:9000," in ports, "the responder on 127.0.0.1:9001," in ports), (True, True))
     wait_log(five, "holding after started", 180)
-    check("the node comes up and its discovery lists lp2-responder", running(five), True)
+    check("on public port 09000, the node comes up and its discovery lists lp2-responder", running(five), True)
     shown = {"the explorer's JSON, the provider answering": json.dumps(explorer_status())}
     unread = "the labels file: "
     try:
