@@ -105,13 +105,14 @@ class Verify(Fixture):
         self.assertEqual(code, 1, out)
         self.assertIn("failed   door rule one-funds-door", out)
 
-    def test_a_decision_number_in_a_comment_fails(self):
-        self.add("contracts/check", PASS, executable=True)
-        self.add("contracts/src/math/Score.sol", "// Rounds down, as D-07 ruled.\ncontract Score {}\n")
+    def test_decision_spec_mission_and_phase_numbers_fail(self):
+        self.add("demo/check", PASS, executable=True)
+        self.add("demo/run", "# D-07, S-07, mission 10, phase 3\n", executable=True)
         code, out = self.dev("verify")
         self.assertEqual(code, 1, out)
         self.assertIn("failed   names carry no planning labels", out)
-        self.assertIn("contracts/src/math/Score.sol:1: planning label 'D-07'", out)
+        for label in ("D-07", "S-07", "mission 1", "phase 3"):
+            self.assertIn(f"demo/run:1: planning label '{label}'", out)
 
     def test_a_stage_number_in_a_file_name_fails(self):
         self.add("demo/check", PASS, executable=True)
@@ -119,14 +120,6 @@ class Verify(Fixture):
         code, out = self.dev("verify")
         self.assertEqual(code, 1, out)
         self.assertIn("demo/stage4.py: planning label 'stage4' in its name", out)
-
-    def test_spec_mission_and_phase_numbers_fail(self):
-        self.add("demo/check", PASS, executable=True)
-        self.add("demo/run", "# S-07, mission 10, phase 3\n", executable=True)
-        code, out = self.dev("verify")
-        self.assertEqual(code, 1, out)
-        for label in ("S-07", "mission 1", "phase 3"):
-            self.assertIn(f"planning label '{label}'", out)
 
     def test_a_rule_number_and_a_rulebook_version_pass(self):
         self.add("demo/check", PASS, executable=True)
@@ -205,7 +198,25 @@ class Review(Fixture):
         self.commit("Add R-03\n\nCouncil: D-03")
         _, out = self.dev("review", "--base", "HEAD~1")
         self.assertIn("COUNCIL RULING NEEDED** (rules: no council record found for D-03)", out)
-        self.assertIn("It waits for a council ruling, not for you: there is no council record found for D-03.", out)
+        self.assertIn("It waits on the council, not on you (no council record found for D-03).", out)
+        self.assertNotIn("private repository", out)
+
+    def test_without_the_private_repository_a_named_ruling_is_unchecked_not_missing(self):
+        self.add("rulebook/R-03.md", "# R-03 Emission\n")
+        self.commit("Add R-03\n\nCouncil: D-03")
+        _, out = self.dev("review", "--base", "HEAD~1", research=False)
+        self.assertIn("COUNCIL RULING NOT CHECKED** (rules: the record of D-03 is not on this machine)", out)
+        self.assertIn("It names council ruling D-03, which is checked before it lands.", out)
+        self.assertIn("The council's records are kept in the project's private repository", out)
+        self.assertNotIn("no council record found", out)
+        self.assertNotIn("lp2-research", out)
+
+    def test_without_the_private_repository_a_rule_change_says_how_it_is_ruled_on(self):
+        self.add("rulebook/R-03.md", "# R-03 Emission\n")
+        self.commit("Add R-03")
+        _, out = self.dev("review", "--base", "HEAD~1", research=False)
+        self.assertIn("COUNCIL RULING NEEDED** (rules: no council ruling named by the commits)", out)
+        self.assertIn("its pull request says what the rule should be and why, citing the litepaper page.", out)
 
     def test_an_owner_seam_is_reported_and_does_not_wait(self):
         (self.research / "council").mkdir()
@@ -662,12 +673,13 @@ class Doctor(Fixture):
         self.assertEqual(code, 1, out)
         self.assertIn("WRONG    slither: 0.0.1", out)
 
-
-class Demo(Fixture):
-    def test_before_it_is_built_the_demo_says_so(self):
-        code, out = self.dev("demo")
-        self.assertEqual(code, 2, out)
-        self.assertIn("not built yet", out)
+    def test_the_private_repository_is_optional(self):
+        code, out = self.dev("doctor", path=self.fine())
+        self.assertIn(f"ok       lp2-research: {self.research}", out)
+        code, out = self.dev("doctor", path=self.fine(), research=False)
+        self.assertEqual(code, 0, out)
+        self.assertIn("absent   lp2-research: optional, the project's private repository", out)
+        self.assertNotIn("roster", out)
 
 
 if __name__ == "__main__":

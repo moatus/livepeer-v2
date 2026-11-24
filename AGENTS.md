@@ -45,8 +45,9 @@ on its own.
   change, or the change does not land. A change to a check is a change of
   its own.
 - **Nothing carries forward except the rules and the checks.** Each testnet
-  version is deployed fresh. Until a public testnet exists, no stored state,
-  address or format needs to survive a change: replace it outright.
+  version is deployed fresh: no stored state, address or format needs to
+  survive into the next version, so replace it outright. Within one
+  deployment, an upgrade keeps the stored state on purpose.
 - **Each job runs in its own space.** Its own local chain, ports, data
   directory and throwaway keys, so parallel jobs never share state.
 - **Secrets and keys.** Never read, print or commit `.env` files,

@@ -318,11 +318,7 @@ def cmd_qualify(_args) -> int:
 
 
 def cmd_demo(args) -> int:
-    script = ROOT / "demo" / "run"
-    if not script.is_file():
-        print("demo: not built yet")
-        return 2
-    return subprocess.run([str(script), *args.rest], cwd=ROOT / "demo").returncode
+    return subprocess.run([str(ROOT / "demo" / "run"), *args.rest], cwd=ROOT / "demo").returncode
 
 
 def pins() -> dict[str, str]:
@@ -389,9 +385,8 @@ def cmd_doctor(_args) -> int:
         else:
             print(f"absent   {name}: not needed by ./dev verify. {fix}")
     research = research_dir()
-    print(f"{'ok      ' if research else 'absent  '} lp2-research: {research or 'not beside this checkout (set LP2_RESEARCH)'}")
-    roster = ROOT / ".agents" / "roster.md"
-    print(f"{'ok      ' if roster.exists() else 'absent  '} roster: .agents/roster.md")
+    print(f"ok       lp2-research: {research}" if research else
+          "absent   lp2-research: optional, the project's private repository. LP2_RESEARCH names it")
     print("doctor: a fix is needed" if bad else "doctor: ok")
     return 1 if bad else 0
 
@@ -510,11 +505,16 @@ def cmd_review(args) -> int:
     # the owner, who reads it afterwards. A council-routed seam proceeds only
     # when the commits name a council ruling whose record exists.
     council = [row["seam"] for row in touched if row["review"] == "council"]
+    # The council's records are kept in the project's private repository.
+    # Without it on this machine, a named ruling is unchecked, not missing.
     research = research_dir()
     missing = [d for d in rulings if not (research and (research / "council" / f"{d}.md").is_file())]
     ruled = bool(council and rulings and not missing)
+    unchecked = bool(council and rulings and not research)
     unruled = ""
-    if council and not ruled:
+    if unchecked:
+        unruled = f"the record of {', '.join(rulings)} is not on this machine"
+    elif council and not ruled:
         unruled = (f"no council record found for {', '.join(missing)}" if rulings
                    else "no council ruling named by the commits")
     needs_owner = [row for row in touched if row["review"] == "owner" or (row["review"] == "council" and not ruled)]
@@ -544,6 +544,8 @@ def cmd_review(args) -> int:
     if frozen:
         if ruled and set(frozen) <= set(council):
             who = f"Decided by council ruling {', '.join(rulings)}. The owner keeps or changes it later."
+        elif unchecked:
+            who = f"It names council ruling {', '.join(rulings)}, which is checked before it lands."
         elif unruled:
             who = "It needs a council ruling before it lands."
         else:
@@ -558,7 +560,12 @@ def cmd_review(args) -> int:
     reasons = owned + (["a file no seam owns"] if unowned else []) + (["a decision named by the commits"] if asks else [])
     told = f" It is also reported to the owner ({', '.join(reasons)})." if reasons else ""
     if unruled:
-        out(f"**Routing: COUNCIL RULING NEEDED** ({', '.join(council)}: {unruled}).{told}")
+        verdict = "COUNCIL RULING NOT CHECKED" if unchecked else "COUNCIL RULING NEEDED"
+        out(f"**Routing: {verdict}** ({', '.join(council)}: {unruled}).{told}")
+        if not research:
+            out("The council's records are kept in the project's private repository, where a rule change"
+                " is checked against its ruling before it lands. A change that names none is ruled on there:"
+                " its pull request says what the rule should be and why, citing the litepaper page.")
     elif reasons:
         out(f"**Routing: agent review, then reported to the owner** ({', '.join(reasons)})."
             " It does not wait for the owner, who reads it afterwards.")
@@ -651,7 +658,7 @@ def cmd_review(args) -> int:
     items = [f"{ask}" for ask in asks]
     for row in needs_owner:
         items.append(f"The change to **{row['seam']}** ({row['what crosses it']}): {len(by_seam[row['seam']])} file(s), listed under Structure."
-                     + (f" It waits for a council ruling, not for you: there is {unruled}." if row["review"] == "council" else ""))
+                     + (f" It waits on the council, not on you ({unruled})." if row["review"] == "council" else ""))
     if needs_owner and not asks:
         items.append("The commits do not say what this changes for a participant. Before this lands,"
                      " the builder adds a `Needs-owner:` line that says so in one sentence, and the reviewer checks it.")

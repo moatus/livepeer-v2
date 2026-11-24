@@ -1,8 +1,7 @@
 # The fast checks, on every pull request and on every push to main:
 # ./dev verify, then the Go vulnerability scan. It reports; it does not
 # stop a push. A work branch is checked through its pull request, once: a
-# push run of the same commit would only queue ahead of it on the private
-# host's single runner.
+# push run of the same commit would only check it again.
 #
 # The same file runs on both hosts, unedited. Safe for a pull request from
 # a fork: it runs on
