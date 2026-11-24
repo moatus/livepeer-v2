@@ -450,7 +450,7 @@ func (stalled) BatchCallContext(ctx context.Context, _ []rpc.BatchElem) error {
 // reason on each request, and is told to Seen.
 func TestSourceGivesUpOnABatchNotAnswered(t *testing.T) {
 	src := NewSource(stalled{}, 5)
-	src.timeout = 20 * time.Millisecond
+	src.Timeout = 20 * time.Millisecond
 	var seen error
 	src.Seen = func(_ string, err error) { seen = err }
 	reqs := []rpc.BatchElem{{Method: "eth_blockNumber"}, {Method: "eth_chainId"}}

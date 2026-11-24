@@ -303,8 +303,14 @@ which it resumes after a restart. Its JSON, served on
 total stake, the buys and burns, the validator set), `/orchestrators.json`
 and `/orchestrators/<address>.json` (every registered node: stake, cut,
 score, fees, claims), and `/apps.json` and `/apps/<address>.json` (every
-payer: deposit, funded, released, and its fees by node). Given a node's
-address, `/` is a page for that node's operator: whether it is registered,
+payer: deposit, funded, released, and its fees by node). Each has its
+page at the same path without `.json`, in the look of the Livepeer
+Explorer beta, light or dark as the reader's system is, with no
+JavaScript and nothing loaded from elsewhere. Every page shows the RPC
+provider by scheme and host and whether it answers, the index's progress,
+the round clock and, while the provider fails, a banner naming the
+failure. Without a node's address, `/` is the Network page. Given one,
+`/` is a page for that node's operator: whether it is registered,
 its operator key and payout address, its bond and stake, the score a claim
 made now would read, its test USDC and its key's ETH, with a warning under
 0.001 ETH; for each recent round, the fees counted for it, its stake and

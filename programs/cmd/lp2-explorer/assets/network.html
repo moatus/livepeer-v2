@@ -1,0 +1,33 @@
+{{define "content"}}<div class="title"><h1>Network</h1><p class="sub">The deployment as the chain has it, every figure read at one block.</p></div>
+<section>
+<div class="hero">
+<div class="card round">{{with $.Clock}}{{ring 96 8 .Progress}}<div><div class="big">Round {{.Round}}</div><div class="s">{{.Into}} of {{.Length}} blocks into the round</div>{{else}}{{ring 96 8 0}}<div><div class="big">Round {{$.Num $.Doc.Round}}</div>{{end}}<div class="s">It started at block {{$.Num $.Doc.RoundStartBlock}}, {{$.When $.Doc.RoundStartTime}}</div></div></div>
+<div class="kpis two">
+<div><span class="k">Fees this round</span><span class="v">{{$.USDC $.Doc.TotalFees}}</span><span class="s">Gross of the tickets settled this round</span></div>
+<div><span class="k">Total stake this round</span><span class="v">{{$.LPT $.Doc.TotalStake}}</span></div>
+<div><span class="k">LPT supply</span><span class="v">{{$.LPT $.Doc.LPTSupply}}</span></div>
+<div><span class="k">Network share held</span><span class="v">{{$.USDC $.Doc.NetworkHeld}}</span><span class="s">For the buyback to spend</span></div>
+</div>
+</div>
+</section>
+<section><div class="head"><h2>Fees per round</h2><p>The gross of each round's settled tickets, and the node and network amounts they were split into.</p></div>
+<div class="card">{{if $.Read}}{{if $.Fees}}{{bars ($.Recent $.Fees 48)}}<div class="axis"><span>Round {{(index ($.Recent $.Fees 48) 0).Round}}</span><span>Round {{(index ($.Newest $.Fees 1) 0).Round}}</span></div>{{end}}{{end}}
+<table><tr><th>Round</th><th class="n">Fees</th><th class="n">Node amount</th><th class="n">Network amount</th></tr>
+{{if $.Read}}{{range $.Newest $.Fees 30}}<tr><td>{{.Round}}</td><td class="n">{{$.USDC .Fees}}</td><td class="n">{{$.USDC .Node}}</td><td class="n">{{$.USDC .Network}}</td></tr>
+{{else}}<tr><td colspan="4" class="empty">No fees yet</td></tr>
+{{end}}{{else}}<tr><td colspan="4" class="empty">{{$.Missing}}</td></tr>
+{{end}}</table></div></section>
+<section><div class="head"><h2>Validator set</h2><p>The validators this round, and the buyback executor in force.</p></div>
+<div class="card"><table><tr><th>Validator</th><th>Address</th></tr>
+{{if $.Doc.Validators}}{{range $.Validators}}<tr><td>{{template "who" .}}</td><td class="mono">{{.Address.Hex}}</td></tr>
+{{else}}<tr><td colspan="2" class="empty">None</td></tr>
+{{end}}{{else}}<tr><td colspan="2" class="empty">{{$.Missing}}</td></tr>
+{{end}}<tr><th>Buyback executor in force</th><td class="mono">{{$.Addr $.Doc.Executor}}</td></tr>
+</table></div></section>
+<section><div class="head"><h2>Buys and burns</h2><p>Every buy of the executor in force for its round, newest first.</p></div>
+<div class="card"><table><tr><th>Round</th><th class="n">Block</th><th class="n">USDC spent</th><th class="n">LPT bought</th><th class="n">LPT burned</th><th>Transaction</th></tr>
+{{if $.Read}}{{range $.Buys}}<tr><td>{{.Round}}</td><td class="n">{{.Block}}</td><td class="n">{{$.USDC .USDCIn}}</td><td class="n">{{$.LPT .LPTBought}}</td><td class="n">{{$.LPT .Burned}}</td><td class="mono" title="{{.Tx.Hex}}">{{tx .Tx}}</td></tr>
+{{else}}<tr><td colspan="6" class="empty">None yet</td></tr>
+{{end}}{{else}}<tr><td colspan="6" class="empty">{{$.Missing}}</td></tr>
+{{end}}</table></div></section>
+{{end}}

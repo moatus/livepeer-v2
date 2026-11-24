@@ -1,0 +1,24 @@
+{{define "content"}}<div class="title"><h1>{{if $.Doc.Label}}{{str $.Doc.Label}}{{else}}{{short $.Doc.Address}}{{end}}</h1>
+<p class="sub badges"><span class="badge">Payer</span>{{if $.Doc.Simulated}}<span class="badge sim">simulated</span>{{end}} <span class="mono">{{$.Doc.Address.Hex}}</span></p></div>
+<section>
+<div class="kpis">
+<div><span class="k">Deposit now</span><span class="v">{{$.USDC $.Doc.Deposit}}</span><span class="s">{{$.USDC $.Doc.DepositPending}} pending release</span></div>
+<div><span class="k">Funded in all</span><span class="v">{{$.USDC $.Doc.Funded}}</span><span class="s">Deposits and earmarks</span></div>
+<div><span class="k">Released in all</span><span class="v">{{$.USDC $.Doc.Released}}</span></div>
+<div><span class="k">Fees paid in all</span><span class="v">{{$.USDC $.Doc.Fees}}</span><span class="s">{{$.USDC $.Doc.Node}} to nodes, {{$.USDC $.Doc.Network}} to the network</span></div>
+</div>
+</section>
+<section><div class="head"><h2>Fees per round</h2><p>The gross of the tickets it paid, and their node and network amounts.</p></div>
+<div class="card">{{if $.Doc.FeesByRound}}{{bars ($.Recent $.Doc.FeesByRound 48)}}<div class="axis"><span>Round {{(index ($.Recent $.Doc.FeesByRound 48) 0).Round}}</span><span>Round {{(index ($.Newest $.Doc.FeesByRound 1) 0).Round}}</span></div>{{end}}
+<table><tr><th>Round</th><th class="n">Fees</th><th class="n">Node amount</th><th class="n">Network amount</th></tr>
+{{if $.Read}}{{range $.Newest $.Doc.FeesByRound 30}}<tr><td>{{.Round}}</td><td class="n">{{$.USDC .Fees}}</td><td class="n">{{$.USDC .Node}}</td><td class="n">{{$.USDC .Network}}</td></tr>
+{{else}}<tr><td colspan="4" class="empty">No fees yet</td></tr>
+{{end}}{{else}}<tr><td colspan="4" class="empty">{{$.Missing}}</td></tr>
+{{end}}</table></div></section>
+<section><div class="head"><h2>Nodes paid</h2><p>What its tickets paid each node, and how each was split.</p></div>
+<div class="card"><table><tr><th>Node</th><th class="n">Fees</th><th class="n">Node amount</th><th class="n">Network amount</th></tr>
+{{if $.Read}}{{range $.Doc.ByNode}}<tr class="link"><td><a href="/orchestrators/{{.Address.Hex}}">{{template "who" .Named}}</a></td><td class="n">{{$.USDC .Fees}}</td><td class="n">{{$.USDC .Node}}</td><td class="n">{{$.USDC .Network}}</td></tr>
+{{else}}<tr><td colspan="4" class="empty">None yet</td></tr>
+{{end}}{{else}}<tr><td colspan="4" class="empty">{{$.Missing}}</td></tr>
+{{end}}</table></div></section>
+{{end}}

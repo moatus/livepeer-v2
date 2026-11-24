@@ -1,0 +1,294 @@
+/*
+ * lp2-explorer's stylesheet. Its look, the names and values of the custom
+ * properties below and the layout (a sidebar with the navigation and the
+ * round clock at its foot, the content in one panel, cards), is taken from
+ * the Livepeer Explorer (github.com/livepeer/explorer, branch next), under
+ * this notice:
+ *
+ * MIT License
+ *
+ * Copyright (c) 2022 Livepeer Inc
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ *
+ * Nothing here is fetched from elsewhere: no font, image or script. The
+ * theme follows the reader's system (prefers-color-scheme): dark, the
+ * beta's default, and light.
+ */
+
+/* Dark: charcoal layers, page and sidebar, the content panel, cards. */
+:root {
+  --background: oklch(0.13 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.21 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.205 0 0);
+
+  --green-bright: #40bf86;
+  --green-fill: #40bf86;
+  --warm: #f59e0b;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-other: rgba(255, 255, 255, 0.28);
+  --surface: oklch(0.21 0 0);
+  --surface-highlight: inset 0 1px 0 oklch(1 0 0 / 5%);
+  --hairline: oklch(1 0 0 / 8%);
+  --frame-edge: oklch(1 0 0 / 11%);
+  --panel: oklch(0.17 0 0);
+  --hover: color-mix(in oklch, var(--foreground) 4%, transparent);
+  --active: color-mix(in oklch, var(--foreground) 7%, transparent);
+  --subtle-foreground: color-mix(in oklch, var(--foreground) 50%, transparent);
+  --green-subtle: rgba(24, 121, 78, 0.15);
+  --warm-subtle: rgba(245, 158, 11, 0.12);
+
+  --font-sans: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color-scheme: dark;
+}
+
+/* Light: a soft grey page and sidebar, with white panels and cards. */
+@media (prefers-color-scheme: light) {
+  :root {
+    --background: oklch(0.967 0.002 286);
+    --foreground: oklch(0.235 0.006 286);
+    --card: oklch(1 0 0);
+    --muted-foreground: oklch(0.5 0.012 286);
+    --destructive: oklch(0.577 0.245 27.325);
+    --border: oklch(0.915 0.004 286);
+    --sidebar: oklch(0.967 0.002 286);
+
+    --green-bright: #1e9960;
+    --green-fill: #38b47e;
+    --warm: #b45309;
+    --series-1: #2a78d6;
+    --series-2: #eb6834;
+    --series-3: #1baf7a;
+    --series-4: #eda100;
+    --series-5: #e87ba4;
+    --series-6: #008300;
+    --series-7: #4a3aa7;
+    --series-other: rgba(24, 24, 27, 0.3);
+    --surface: oklch(1 0 0);
+    --surface-highlight: none;
+    --hairline: oklch(0.25 0.02 286 / 10%);
+    --frame-edge: var(--hairline);
+    --hover: color-mix(in oklch, var(--foreground) 5%, transparent);
+    --active: color-mix(in oklch, var(--foreground) 8%, transparent);
+    --subtle-foreground: color-mix(in oklch, var(--foreground) 45%, transparent);
+    --panel: oklch(0.993 0.001 286);
+    color-scheme: light;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; text-decoration: none; }
+a:hover { text-decoration: underline; text-decoration-color: var(--subtle-foreground); }
+h1, h2, h3, p { margin: 0; }
+::selection { background: color-mix(in srgb, var(--green-bright) 25%, transparent); }
+
+/* The sidebar: the name, the navigation, and at its foot the provider, the
+   index and the round clock. */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  background: var(--background);
+  padding: 0 12px 12px;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 56px;
+  padding: 0 4px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.xb {
+  display: inline-flex;
+  align-items: center;
+  height: 19px;
+  padding: 0 7px;
+  border: 1.5px solid var(--green-bright);
+  border-radius: 999px;
+  color: var(--green-bright);
+  background: color-mix(in oklab, var(--green-bright) 9%, var(--background));
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.nav { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.nav a {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 6px;
+  color: color-mix(in oklch, var(--foreground) 85%, transparent);
+}
+.nav a:hover { background: var(--hover); color: var(--foreground); text-decoration: none; }
+.nav a[aria-current="page"] { background: var(--active); color: var(--foreground); font-weight: 500; }
+.spacer { flex: 1; min-height: 24px; }
+.foot { display: flex; flex-direction: column; gap: 10px; padding: 0 8px; font-size: 12px; line-height: 16px; }
+.foot .label { color: var(--subtle-foreground); }
+.foot .value { color: var(--foreground); overflow-wrap: anywhere; }
+.foot .sub { color: var(--muted-foreground); }
+.clock {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+  padding: 8px 0 0;
+  border-top: 1px solid var(--hairline);
+}
+.ring .track { stroke: color-mix(in oklch, var(--foreground) 10%, transparent); }
+.ring .arc { stroke: var(--green-fill); }
+.dot { display: inline-block; width: 6px; height: 6px; border-radius: 999px; margin-right: 6px; vertical-align: middle; background: var(--subtle-foreground); }
+.dot.ok { background: var(--green-bright); }
+.dot.bad { background: var(--warm); }
+
+/* The content panel, a step off the page. */
+.main { min-width: 0; }
+.panel { background: var(--panel); min-height: 100vh; }
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 56px;
+  padding: 8px 24px;
+  border-bottom: 1px solid var(--hairline);
+}
+.crumbs { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.crumbs .sep { color: var(--subtle-foreground); }
+.crumbs a { color: var(--muted-foreground); }
+.read { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; color: var(--muted-foreground); font-size: 12px; }
+.banner {
+  padding: 8px 24px;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--warm-subtle);
+  color: var(--warm);
+  font-size: 12px;
+  line-height: 18px;
+}
+.banner strong { font-weight: 600; }
+.page { max-width: 1200px; margin: 0 auto; padding: 24px 24px 64px; }
+.title { display: flex; flex-direction: column; gap: 6px; margin-bottom: 24px; }
+.title h1 { font-size: 26px; line-height: 32px; font-weight: 600; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.title .sub { color: var(--muted-foreground); font-size: 12px; }
+section { margin-top: 40px; }
+section:first-of-type { margin-top: 0; }
+.head { margin-bottom: 12px; display: flex; flex-direction: column; gap: 2px; }
+.head h2 { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.head p { color: var(--muted-foreground); font-size: 12px; line-height: 16px; }
+
+/* Cards: set into the panel, a hairline edge. */
+.card {
+  border: 1px solid var(--hairline);
+  background: var(--surface);
+  box-shadow: var(--surface-highlight);
+  border-radius: calc(var(--radius) * 0.8);
+  overflow-x: auto;
+}
+.card.pad { padding: 16px 20px; }
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--hairline);
+  border: 1px solid var(--hairline);
+  border-radius: calc(var(--radius) * 0.8);
+  box-shadow: var(--surface-highlight);
+  overflow: hidden;
+}
+.kpis > div { background: var(--surface); padding: 16px 20px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.kpis .k { color: var(--muted-foreground); font-size: 12px; line-height: 16px; }
+.kpis .v { font-size: 22px; line-height: 28px; font-weight: 500; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.kpis .s { color: var(--muted-foreground); font-size: 12px; line-height: 16px; }
+.hero { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.round { display: flex; align-items: center; gap: 24px; padding: 20px; }
+.round .big { font-size: 22px; line-height: 28px; font-weight: 500; }
+.round .s { color: var(--muted-foreground); font-size: 12px; }
+
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 10px 16px; text-align: left; white-space: nowrap; }
+th { color: var(--muted-foreground); font-size: 12px; font-weight: 500; line-height: 16px; }
+td { border-top: 1px solid var(--hairline); }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+tr.link:hover td { background: var(--hover); }
+td.empty { color: var(--muted-foreground); text-align: center; }
+dl.facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); margin: 0; }
+dl.facts dt, dl.facts dd { margin: 0; padding: 10px 16px; border-top: 1px solid var(--hairline); }
+dl.facts dt:first-of-type, dl.facts dd:first-of-type { border-top: 0; }
+dl.facts dt { color: var(--muted-foreground); }
+dl.facts dd { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.mono { font-family: var(--font-mono); font-size: 12.5px; }
+.dim { color: var(--muted-foreground); }
+.warn { color: var(--warm); font-weight: 500; }
+.badge {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 6px;
+  margin-left: 6px;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  vertical-align: middle;
+  color: var(--muted-foreground);
+}
+.badge.ok { color: var(--green-bright); background: var(--green-subtle); border-color: transparent; }
+.badge.sim { color: var(--warm); background: var(--warm-subtle); border-color: transparent; }
+.badges .badge:first-child { margin-left: 0; }
+.chart { display: block; width: 100%; height: 120px; padding: 16px 20px 0; }
+.chart rect { fill: var(--series-4); }
+.axis { display: flex; justify-content: space-between; padding: 4px 20px 12px; color: var(--subtle-foreground); font-size: 11px; }
+.notread li { color: var(--muted-foreground); }
+.notread ul { margin: 0; padding: 12px 20px 12px 36px; }
+
+/* Desktop: the sidebar fixed at the left, the content in one rounded panel
+   inset by 8px. */
+@media (min-width: 64rem) {
+  .sidebar { position: fixed; inset: 0 auto 0 0; width: 244px; overflow-y: auto; }
+  .main { margin-left: 244px; padding: 8px 8px 8px 8px; }
+  .panel { min-height: calc(100vh - 16px); border-radius: 12px; box-shadow: 0 0 0 1px var(--frame-edge); overflow: hidden; }
+  .page { padding: 24px 40px 64px; }
+  .topbar, .banner { padding-left: 40px; padding-right: 40px; }
+  .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .kpis.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hero { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}

@@ -149,7 +149,8 @@ server, reach it through an SSH tunnel (`ssh -L 8080:127.0.0.1:8080
 
 Open <http://127.0.0.1:8080/>; it reloads itself every 15 seconds, and
 `/orchestrators/<N>.json`, N being the node's address, holds the same
-figures. Every 15 seconds the explorer reads the chain, every figure at one
+figures. The sidebar leads to the whole testnet: `/network`,
+`/orchestrators` (every node) and `/apps` (every payer). Every 15 seconds the explorer reads the chain, every figure at one
 block, and the page shows what it read last; a figure that could not be
 read says "unavailable". It keeps an index of the deployment's events in
 `/data/index`, so after a restart it reads only the blocks since.
@@ -173,8 +174,8 @@ the explorer's logs are in `/data/logs`. When a request to the RPC
 provider fails, the container's log and the explorer's page and JSON say
 which step failed, name the provider by its scheme and host only, and say
 what went wrong in fixed words, never in the provider's: it could not be
-reached, did not answer in time, refused the request (with the HTTP
-status), redirected the request (with the HTTP status), answered with an
+reached, did not answer in time, rate-limited the request (HTTP 429),
+refused the request (with the HTTP status), redirected the request (with the HTTP status), answered with an
 error (with the JSON-RPC code), or its answer could not be read. The
 container follows no redirect from the provider: if your provider's URL
 answers with one, give `LP2_RPC_URL` the URL it redirects to. So whatever a provider writes back, even the key or

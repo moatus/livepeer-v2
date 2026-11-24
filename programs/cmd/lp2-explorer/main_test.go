@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -423,7 +424,7 @@ func TestFailedReadIsUnavailableAndRecovers(t *testing.T) {
 		m["testnet"].(map[string]any)["buys"] != nil || len(m["unavailable"].([]any)) == 0 {
 		t.Errorf("with the endpoint down: %v", m)
 	}
-	if page := get(t, h, "/"); !strings.Contains(page, "<td class=\"n\">unavailable</td>") || !strings.Contains(page, errDown.Error()) {
+	if page := get(t, h, "/"); !strings.Contains(page, `<span class="v">not read yet</span>`) || !strings.Contains(page, errDown.Error()) {
 		t.Errorf("the page does not show the figures unavailable:\n%s", page)
 	}
 
@@ -498,7 +499,7 @@ func TestServingNeverReadsTheChain(t *testing.T) {
 	h := handler(e)
 	e.cycle(context.Background())
 	before := f.requests
-	paths := []string{"/", "/network.json", "/orchestrators.json", nodePath, "/apps.json", "/apps/" + payerAt.Hex() + ".json"}
+	paths := append([]string{"/network.json", "/orchestrators.json", nodePath, "/apps.json", "/apps/" + payerAt.Hex() + ".json"}, htmlPaths...)
 	for i := range 100 {
 		get(t, h, paths[i%len(paths)])
 	}
@@ -684,8 +685,9 @@ func TestAnotherChainsIndexStopsTheExplorer(t *testing.T) {
 	}
 }
 
-// The page is plain HTML that the browser reloads; it runs no script.
-func TestPageRendersWithoutJavaScript(t *testing.T) {
+// The node's page shows each figure of the node's JSON, a figure not read
+// as unavailable, and each round's reward where it stands.
+func TestTheNodesPage(t *testing.T) {
 	yes, no := true, false
 	block, at, round, from, until, start := uint64(1000), uint64(1_795_000_000), uint64(12), uint64(9), uint64(30), uint64(990)
 	claimable, claimed, expired := stateClaimable, stateClaimed, stateExpired
@@ -702,38 +704,33 @@ func TestPageRendersWithoutJavaScript(t *testing.T) {
 			}},
 		Testnet: Testnet{Round: &round, RoundStartBlock: &start, Validators: &validators, Buys: &buys}}
 	var b bytes.Buffer
-	if err := render(&b, s); err != nil {
+	f := frame{Head: s.Head, Mine: &nodeAt, Nav: "node", JSON: nodePath, Missing: unavailable, Now: time.Unix(int64(at)+30, 0)}
+	if err := render(&b, "node", nodePage{frame: f, Doc: *s, Validators: []Named{{Address: validatorAt}}, Read: true}); err != nil {
 		t.Fatal(err)
 	}
 	page := b.String()
-	if strings.Contains(strings.ToLower(page), "<script") || strings.Contains(strings.ToLower(page), "javascript") {
-		t.Error("the page carries script")
-	}
 	for _, want := range []string{
 		`<meta http-equiv="refresh" content="15">`,
-		"<tr><th>Stake this round</th><td class=\"n\">4200 LPT</td></tr>",
+		"<dt>Stake this round</dt><dd>4200 LPT</dd>",
 		"<td class=\"n\">3200 LPT</td>", // round 3's stake
-		"<tr><th>Score a claim made now reads</th><td class=\"n\">50%</td></tr>",
+		"<dt>Score a claim made now reads</dt><dd>50%</dd>",
 		"<td>expired after round 30, never minted</td><td class=\"n\"></td>", // no score for an expired round
 		"<td>claimable now, until round 30</td><td class=\"n\">50% (now)</td>",
 		"<td>claimed</td><td class=\"n\">100%</td>",
 		"1.5 USDC", // payout USDC and the buy
 		"0.000000000000000001 ETH <span class=\"warn\">low: under 0.001 ETH</span>",
-		"claimable now, until round 30",
 		"300.551889676665523465 LPT",
-		"<td>block 990, unavailable</td>", // a start block without its time
+		"<dd>block 990, unavailable</dd>", // a start block without its time
 		validatorAt.Hex(),
-		"<td class=\"n\">unavailable</td>", // the bond, not read
+		"<dt>Own bond this round</dt><dd>unavailable</dd>", // the bond, not read
 		"the node&#39;s own bond this round: execution reverted",
-		`<a href="/orchestrators/` + nodeAt.Hex() + `.json">`,
+		"Read at block 1000, 30 s ago",
+		`<a href="/orchestrators/` + nodeAt.Hex() + `.json">JSON</a>`,
+		`<a href="/" aria-current="page">Your node</a>`,
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("the page lacks %q", want)
 		}
-	}
-	var list bytes.Buffer
-	if err := renderIndex(&list); err != nil || strings.Contains(strings.ToLower(list.String()), "<script") {
-		t.Errorf("the list of documents: %v", err)
 	}
 }
 
@@ -918,7 +915,8 @@ func TestAnRPCFailureHidesTheProvidersKey(t *testing.T) {
 		e := newTestExplorer(t, client, cfg)
 		e.cycle(context.Background())
 		srv := httptest.NewServer(handler(e))
-		for _, path := range []string{"/orchestrators/" + nodeAt.Hex() + ".json", "/", "/network.json", "/orchestrators.json", "/apps.json"} {
+		jsonPaths := []string{"/orchestrators/" + nodeAt.Hex() + ".json", "/network.json", "/orchestrators.json", "/apps.json", "/apps/" + payerAt.Hex() + ".json"}
+		for _, path := range append(jsonPaths, htmlPaths...) {
 			r, err := http.Get(srv.URL + path)
 			if err != nil {
 				t.Fatal(err)
@@ -930,6 +928,11 @@ func TestAnRPCFailureHidesTheProvidersKey(t *testing.T) {
 			if strings.Contains(b.String(), "synthetic") || strings.Contains(b.String(), "marker") ||
 				!strings.Contains(b.String(), reason) && !strings.Contains(b.String(), html.EscapeString(reason)) {
 				t.Errorf("%s, with the provider at %s failing:\n%s", path, url, b.String())
+			}
+			// A page shows the banner, with the category and the pointer,
+			// and the provider by scheme and host.
+			if !strings.HasSuffix(path, ".json") && !bannered(b.String(), category, provider(url)) {
+				t.Errorf("%s shows no banner for %s:\n%s", path, category, b.String())
 			}
 		}
 		srv.Close()

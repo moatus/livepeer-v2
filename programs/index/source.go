@@ -44,11 +44,11 @@ type Source struct {
 	// Seen, when set, is told the outcome of each batch: nil when the
 	// provider answered it, or its failure. what names the first request.
 	Seen func(what string, err error)
-	// now and sleep are the clock, and timeout bounds each batch; a test
-	// gives its own.
-	now     func() time.Time
-	sleep   func(ctx context.Context, d time.Duration) error
-	timeout time.Duration
+	// Timeout bounds each batch: 30 seconds, shorter in a test.
+	Timeout time.Duration
+	// now and sleep are the clock; a test gives its own.
+	now   func() time.Time
+	sleep func(ctx context.Context, d time.Duration) error
 
 	mu   sync.Mutex
 	sent []time.Time // when each element of the last second was sent
@@ -59,7 +59,7 @@ func NewSource(c Caller, perSecond int) *Source {
 	if perSecond < 1 {
 		perSecond = 1
 	}
-	return &Source{rpc: c, perSecond: perSecond, now: time.Now, sleep: sleepCtx, timeout: requestTimeout}
+	return &Source{rpc: c, perSecond: perSecond, now: time.Now, sleep: sleepCtx, Timeout: requestTimeout}
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {
@@ -97,7 +97,7 @@ func (s *Source) batch(ctx context.Context, what string, part []rpc.BatchElem) e
 		for i := range part {
 			part[i].Error = nil
 		}
-		call, cancel := context.WithTimeout(ctx, s.timeout)
+		call, cancel := context.WithTimeout(ctx, s.Timeout)
 		err := s.rpc.BatchCallContext(call, part)
 		cancel()
 		if s.Seen != nil {

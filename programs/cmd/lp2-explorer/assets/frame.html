@@ -1,0 +1,45 @@
+{{define "frame"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="{{refresh}}">
+<title>{{.Title}} · lp2-explorer</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<aside class="sidebar">
+<a class="brand" href="/">lp2 <span class="xb">Explorer</span></a>
+<nav aria-label="Pages">
+<ul class="nav">
+{{if .Mine}}<li><a href="/"{{if eq .Nav "node"}} aria-current="page"{{end}}>Your node</a></li>
+{{end}}<li><a href="/network"{{if eq .Nav "network"}} aria-current="page"{{end}}>Network</a></li>
+<li><a href="/orchestrators"{{if eq .Nav "orchestrators"}} aria-current="page"{{end}}>Orchestrators</a></li>
+<li><a href="/apps"{{if eq .Nav "apps"}} aria-current="page"{{end}}>Apps</a></li>
+</ul>
+</nav>
+<div class="spacer"></div>
+<div class="foot">
+<div><div class="label">RPC provider</div>
+<div class="value"><span class="dot {{.Answering}}"></span>{{.Head.RPC.Provider}}</div>
+<div class="sub">{{if eq .Answering "ok"}}answering{{else if eq .Answering "bad"}}not answering{{else}}not asked yet{{end}}{{with .Head.RPC.NewestBlock}}; newest block {{.}}, {{$.Ago $.Head.RPC.NewestBlockTime}}{{end}}</div></div>
+<div><div class="label">Index</div><div class="value">{{.Progress}}</div></div>
+<a class="clock" href="/network">{{with .Clock}}{{ring 28 3 .Progress}}<span><span class="value">Round {{.Round}}</span><br><span class="sub">{{.Into}} of {{.Length}} blocks</span></span>{{else}}{{ring 28 3 0}}<span><span class="value">Round {{$.Missing}}</span></span>{{end}}</a>
+</div>
+</aside>
+<div class="main"><div class="panel">
+<header class="topbar">
+<nav class="crumbs" aria-label="Where you are">{{range $i, $c := .Crumbs}}{{if $i}}<span class="sep">›</span>{{end}}{{if $c.Href}}<a href="{{$c.Href}}">{{$c.Label}}</a>{{else}}<span>{{$c.Label}}</span>{{end}}{{end}}</nav>
+<div class="read">{{if .Head.Scenario}}<span class="badge">Scenario: {{str .Head.Scenario}}</span>{{end}}<span>{{if .Head.Block}}Read at block {{.Num .Head.Block}}, {{.Ago .Head.BlockTime}}{{else}}Not read yet{{end}}</span><a href="{{.JSON}}">JSON</a></div>
+</header>
+{{if .Failure}}<div class="banner" role="status"><strong>The RPC provider is failing:</strong> {{.Failure}}. {{if .Head.Block}}The figures below are as of block {{.Num .Head.Block}}, {{.Ago .Head.BlockTime}}.{{else}}No figure has been read yet.{{end}} To get an RPC URL that works, see {{.Help}}.</div>
+{{end}}<main class="page">
+{{template "content" .}}
+{{if .Head.Unavailable}}<section class="notread"><div class="head"><h2>Not read</h2><p>Why a figure shows as {{.Missing}}. Each is read again every {{refresh}} seconds.</p></div>
+<div class="card"><ul>{{range .Head.Unavailable}}<li>{{.}}</li>{{end}}</ul></div></section>
+{{end}}</main>
+</div></div>
+</body>
+</html>
+{{end}}
+{{define "who"}}{{if .Label}}{{str .Label}} <span class="mono dim" title="{{.Address.Hex}}">{{short .Address}}</span>{{else}}<span class="mono" title="{{.Address.Hex}}">{{short .Address}}</span>{{end}}{{if .Simulated}}<span class="badge sim">simulated</span>{{end}}{{end}}

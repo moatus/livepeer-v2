@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -53,6 +52,7 @@ type explorer struct {
 	src   *index.Source
 	ix    *index.Index
 	every time.Duration
+	now   func() time.Time // for the age of a block a page shows
 	// stop is called with a deployment the index refuses: the explorer
 	// stops, rather than read another deployment into the folder.
 	stop func(error)
@@ -73,7 +73,7 @@ type explorer struct {
 }
 
 func newExplorer(cfg config, src *index.Source, ix *index.Index) *explorer {
-	e := &explorer{cfg: cfg, src: src, ix: ix, every: cycleEvery, stop: func(err error) { fail(err) },
+	e := &explorer{cfg: cfg, src: src, ix: ix, every: cycleEvery, now: time.Now, stop: func(err error) { fail(err) },
 		kept: map[string][]any{}, times: map[uint64]uint64{}, labels: labels{path: cfg.labels}, failed: map[string]string{}}
 	e.rpc.Provider = provider(cfg.rpcURL)
 	e.progress = Progress{FirstBlock: ix.First(), ResumedFrom: ix.ResumedFrom(), PageBlocks: ix.PageBlocks}
@@ -119,14 +119,18 @@ func (e *explorer) note(step string, err error) {
 	e.failed[step] = step + ": " + describe(err, e.cfg.rpcURL)
 }
 
-// run reads every cycle until ctx ends.
+// run starts a cycle every e.every, counted from the start of the last
+// (one that takes longer is followed by the next at once), until ctx ends.
+// So a provider that starts failing is asked again within one cycle, and
+// the banner shows within a cycle and a request's timeout.
 func (e *explorer) run(ctx context.Context) {
 	for {
+		start := time.Now()
 		e.cycle(ctx)
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(e.every):
+		case <-time.After(e.every - time.Since(start)):
 		}
 	}
 }
@@ -252,7 +256,11 @@ func (e *explorer) head() (Head, *snapshot) {
 	s := e.snap
 	if s == nil {
 		if len(h.Unavailable) == 0 {
-			h.Unavailable = append(h.Unavailable, "every figure: not read yet")
+			why := "every figure: " + notRead
+			if ix := h.Index; ix.Newest != nil && !ix.CaughtUp {
+				why = "every figure: the index is catching up"
+			}
+			h.Unavailable = append(h.Unavailable, why)
 		}
 		return h, nil
 	}
@@ -290,32 +298,28 @@ func handler(e *explorer) http.Handler {
 		enc.SetIndent("", " ")
 		enc.Encode(v)
 	}
-	address := func(r *http.Request) (common.Address, bool) {
-		name, ok := strings.CutSuffix(r.PathValue("file"), ".json")
-		if !ok || !common.IsHexAddress(name) {
-			return common.Address{}, false
+	// address is the address a path names, and whether it asks for JSON.
+	address := func(r *http.Request) (common.Address, bool, bool) {
+		name, json := strings.CutSuffix(r.PathValue("file"), ".json")
+		if !common.IsHexAddress(name) {
+			return common.Address{}, json, false
 		}
-		return common.HexToAddress(name), true
+		return common.HexToAddress(name), json, true
 	}
 	notFound := func(w http.ResponseWriter, what string) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": what})
 	}
+	mux.HandleFunc("GET /style.css", serveStylesheet)
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		var body bytes.Buffer
-		var err error
 		if e.cfg.node != nil {
-			doc, _ := e.nodeDoc(*e.cfg.node)
-			err = render(&body, doc)
-		} else {
-			err = renderIndex(&body)
-		}
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			e.nodePage(w, *e.cfg.node, true)
 			return
 		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write(body.Bytes())
+		e.networkPage(w)
 	})
+	mux.HandleFunc("GET /network", func(w http.ResponseWriter, r *http.Request) { e.networkPage(w) })
+	mux.HandleFunc("GET /orchestrators", func(w http.ResponseWriter, r *http.Request) { e.orchestratorsPage(w) })
+	mux.HandleFunc("GET /apps", func(w http.ResponseWriter, r *http.Request) { e.appsPage(w) })
 	mux.HandleFunc("GET /network.json", func(w http.ResponseWriter, r *http.Request) {
 		h, s := e.head()
 		var doc NetworkDoc
@@ -334,7 +338,16 @@ func handler(e *explorer) http.Handler {
 		writeJSON(w, http.StatusOK, doc)
 	})
 	mux.HandleFunc("GET /orchestrators/{file}", func(w http.ResponseWriter, r *http.Request) {
-		n, ok := address(r)
+		n, json, ok := address(r)
+		if !json {
+			if !ok {
+				f, _ := e.frame("Not found", "orchestrators", "/orchestrators.json")
+				e.missing(w, f, "Not a node's address.")
+				return
+			}
+			e.nodePage(w, n, false)
+			return
+		}
 		if !ok {
 			notFound(w, "not a node's address")
 			return
@@ -355,7 +368,16 @@ func handler(e *explorer) http.Handler {
 		writeJSON(w, http.StatusOK, doc)
 	})
 	mux.HandleFunc("GET /apps/{file}", func(w http.ResponseWriter, r *http.Request) {
-		p, ok := address(r)
+		p, json, ok := address(r)
+		if !json {
+			if !ok {
+				f, _ := e.frame("Not found", "apps", "/apps.json")
+				e.missing(w, f, "Not a payer's address.")
+				return
+			}
+			e.appPage(w, p)
+			return
+		}
 		if !ok {
 			notFound(w, "not a payer's address")
 			return

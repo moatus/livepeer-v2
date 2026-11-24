@@ -40,9 +40,17 @@
 // naming its scheme and host only (chain.Describe), and nothing the URL
 // carries as a key is shown (chain.Redact); nor at start.
 //
-// With --node, / is that node's page: HTML with no JavaScript, which the
-// browser loads again every 15 seconds, holding what
-// /orchestrators/<node>.json holds. Without it, / lists the JSON.
+// Each JSON has its page at the same path without ".json" (/network,
+// /orchestrators, /apps, one node's, one payer's): HTML with no
+// JavaScript, which the browser loads again every 15 seconds, drawn on
+// the server from what the loop last published, its stylesheet and
+// templates embedded in the binary (assets/), loading nothing from
+// elsewhere. Every page shows the provider by scheme and host, whether it
+// answers, the newest block and its age, the index's progress ("block X
+// of Y" while it catches up, each figure then shown as catching up), the
+// round clock and the scenario; while the provider fails, a banner names
+// the failure's category and where to read how to get an RPC URL. With
+// --node, / is that node's page; without it, / is the Network page.
 //
 // The figures. Each payer and fee figure is a sum of events or one view at
 // the snapshot's block: a node's fees in a round are the sum of
@@ -102,7 +110,7 @@ func main() {
 	lpt := flag.String("lpt-address", "", "test LPT, for its supply (optional)")
 	first := flag.String("first-block", "", "the deployment's first block, where the index starts")
 	indexDir := flag.String("index-dir", "", "the folder the index of events is kept in")
-	node := flag.String("node", "", "the node / opens on (optional: without it, / lists the JSON)")
+	node := flag.String("node", "", "the node / opens on (optional: without it, / is the Network page)")
 	labelsFile := flag.String("labels", "", "a labels file naming accounts and the scenario (optional)")
 	pageBlocks := flag.Uint64("log-page-blocks", 5000, "the most blocks one eth_getLogs asks for")
 	perSecond := flag.Int("requests-per-second", 5, "the most request elements sent to the provider in one second")

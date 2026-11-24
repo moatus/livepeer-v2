@@ -1,0 +1,16 @@
+{{define "content"}}<div class="title"><h1>Apps</h1><p class="sub">Every payer that funded an account or paid a ticket. Nothing on chain names a payer: names come only from the labels file.</p></div>
+<section>
+<div class="kpis">
+<div><span class="k">Payers</span><span class="v">{{if $.Read}}{{len $.Rows}}{{else}}{{$.Missing}}{{end}}</span></div>
+<div><span class="k">Deposits now</span><span class="v">{{$.USDC $.Deposits}}</span></div>
+<div><span class="k">Funded in all</span><span class="v">{{$.USDC $.Funded}}</span></div>
+<div><span class="k">Fees paid in all</span><span class="v">{{$.USDC $.Fees}}</span><span class="s">{{$.USDC $.Network}} of it the network amount</span></div>
+</div>
+</section>
+<section><div class="card"><table>
+<tr><th>Payer</th><th class="n">Deposit now</th><th class="n">Pending release</th><th class="n">Funded</th><th class="n">Released</th><th class="n">Fees paid</th><th class="n">Node amount</th><th class="n">Network amount</th></tr>
+{{if $.Read}}{{range $.Rows}}<tr class="link"><td><a href="/apps/{{.Address.Hex}}">{{template "who" .Named}}</a></td><td class="n">{{$.USDC .Deposit}}</td><td class="n">{{$.USDC .DepositPending}}</td><td class="n">{{$.USDC .Funded}}</td><td class="n">{{$.USDC .Released}}</td><td class="n">{{$.USDC .Fees}}</td><td class="n">{{$.USDC .Node}}</td><td class="n">{{$.USDC .Network}}</td></tr>
+{{else}}<tr><td colspan="8" class="empty">No payer yet</td></tr>
+{{end}}{{else}}<tr><td colspan="8" class="empty">{{$.Missing}}</td></tr>
+{{end}}</table></div></section>
+{{end}}

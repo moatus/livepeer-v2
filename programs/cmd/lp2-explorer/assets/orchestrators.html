@@ -1,0 +1,16 @@
+{{define "content"}}<div class="title"><h1>Orchestrators</h1><p class="sub">Every registered node. Nothing on chain lists them: they are the NodeRegistered events. Names come only from the labels file.</p></div>
+<section>
+<div class="kpis">
+<div><span class="k">Registered nodes</span><span class="v">{{if $.Read}}{{len $.Rows}}{{else}}{{$.Missing}}{{end}}</span></div>
+<div><span class="k">Fees this round</span><span class="v">{{$.USDC $.FeesThisRound}}</span></div>
+<div><span class="k">Fees in all</span><span class="v">{{$.USDC $.FeesAll}}</span></div>
+<div><span class="k">LPT paid by claims</span><span class="v">{{$.LPT $.LPTPaid}}</span></div>
+</div>
+</section>
+<section><div class="card"><table>
+<tr><th>Node</th><th class="n">Stake this round</th><th class="n">Cut</th><th class="n">Score now</th><th class="n">Fees this round</th><th class="n">Fees in all</th><th class="n">Claims</th><th class="n">LPT paid</th></tr>
+{{if $.Read}}{{range $.Rows}}<tr class="link"><td><a href="/orchestrators/{{.Address.Hex}}">{{template "who" .Named}}</a></td><td class="n">{{$.LPT .Stake}}</td><td class="n">{{$.Cut .Cut}}</td><td class="n">{{$.Score .ScoreNow}}</td><td class="n">{{$.USDC .FeesThisRound}}</td><td class="n">{{$.USDC .Fees}}</td><td class="n">{{.Claims}}</td><td class="n">{{$.LPT .LPTPaid}}</td></tr>
+{{else}}<tr><td colspan="8" class="empty">No node registered yet</td></tr>
+{{end}}{{else}}<tr><td colspan="8" class="empty">{{$.Missing}}</td></tr>
+{{end}}</table></div></section>
+{{end}}

@@ -26,6 +26,7 @@ func TestDescribeTellsAProvidersFailureByItsCategoryOnly(t *testing.T) {
 	status := provider(t, "401 rejected "+said, `{"jsonrpc":"2.0","id":1,"error":{"code":-32001,"message":"invalid key `+said+`"}}`)
 	coded := provider(t, "200 OK", `{"jsonrpc":"2.0","id":1,"error":{"code":-32001,"message":"invalid key `+said+`"}}`)
 	garbled := provider(t, "200 OK", said)
+	limited := provider(t, "429 Too Many Requests "+said, said)
 	keyed := func(host string) string {
 		return "http://synthetic-user:" + encodedPassword + "@" + host + "/v3/synthetic-key"
 	}
@@ -34,6 +35,9 @@ func TestDescribeTellsAProvidersFailureByItsCategoryOnly(t *testing.T) {
 		{keyed(status), "read bondAt: the RPC provider http://" + status + " refused the request (HTTP 401)"},
 		{keyed(coded), "read bondAt: the RPC provider http://" + coded + " answered with an error (code -32001)"},
 		{keyed(garbled), "read bondAt: the RPC provider http://" + garbled + "'s answer could not be read"},
+		{keyed(limited), "read bondAt: the RPC provider http://" + limited + " rate-limited the request (HTTP 429)"},
+		{"ws://synthetic-user:" + encodedPassword + "@" + limited + "/ws/synthetic-key",
+			"read bondAt: the RPC provider ws://" + limited + " rate-limited the request (HTTP 429)"},
 		{"ws://synthetic-user:" + encodedPassword + "@" + status + "/ws/synthetic-key",
 			"read bondAt: the RPC provider ws://" + status + " refused the request (HTTP 401)"},
 	} {
