@@ -36,7 +36,7 @@ divided once, as R-08 and R-19 require. Claims recompute from the earning
 round's inputs with the claim's score.
 
 Ledger cases replay registration, funding, redemption, payout, observation and
-release in fresh in-memory state. The default check covers 104 v6, 98 v5, 97 v4, 93 v3, 74 v2, 35 v1 and 26 v0 cases. No state survives a calculation. The check also runs ledger input regressions.
+release in fresh in-memory state. The default check covers 104 v6, 97 v4, 93 v3, 74 v2, 35 v1 and 26 v0 cases. No state survives a calculation. The check also runs ledger input regressions.
 Decreasing rounds, conflicting details for one ticket ID (including refused
 attempts), and observations without a node raise `ValueError` with a
 `ledger input error` message, rather than returning a rule refusal code.
