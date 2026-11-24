@@ -2,8 +2,8 @@
 pragma solidity 0.8.30;
 
 import {vm} from "./Vm.sol";
-import {Stage4, LyingPool, OtherExecutor} from "./Stage4.sol";
-import {ScoreStub} from "./Stage3.sol";
+import {FullFixture, LyingPool, OtherExecutor} from "./FullFixture.sol";
+import {ScoreStub} from "./RewardsFixture.sol";
 import {Parameters} from "../src/authority/Parameters.sol";
 import {Scores} from "../src/scores/Scores.sol";
 import {IStakeLedger} from "../interfaces/IStakeLedger.sol";
@@ -61,7 +61,7 @@ contract LongAnswer {
     }
 }
 
-contract ParametersTest is Stage4 {
+contract ParametersTest is FullFixture {
     event log_named_uint(string key, uint256 val);
     event log_string(string val);
 
@@ -175,7 +175,7 @@ contract ParametersTest is Stage4 {
     /// it; one that gives `accepts` is an executor of another design that
     /// accepts those pools, made once every pool is.
     function world() internal {
-        deployStage4(1_000_000_000e18, 0);
+        deployFull(1_000_000_000e18, 0);
         // The deployment's real Scores: an address with code and no
         // acceptsPool, which parameters-executor names for group 10. A
         // Parameters case reads no score from it.
@@ -371,7 +371,7 @@ contract ParametersTest is Stage4 {
     /// pinned to a pool code that reports any tokens it is given shows the
     /// token check on its own.
     function test_the_pool_check_reads_the_tokens() external {
-        deployStage4(1_000_000_000e18, 0);
+        deployFull(1_000_000_000e18, 0);
         LyingPool ours = new LyingPool(address(usdc), address(lpt));
         LyingPool other = new LyingPool(address(usdc), address(new MockUSDC()));
         LyingPool same = new LyingPool(address(usdc), address(usdc));
@@ -390,7 +390,7 @@ contract ParametersTest is Stage4 {
     /// answers a word that is not true, and address(0), the executor of a
     /// deployment with none. The Buyback, asked of the same pool, says yes.
     function test_an_executor_that_cannot_answer_refuses_the_pool() external {
-        deployStage4(1_000_000_000e18, 0);
+        deployFull(1_000_000_000e18, 0);
         address[5] memory cannot = [
             address(new Answers(type(uint256).max)),
             address(new ScoreStub()),
@@ -415,7 +415,7 @@ contract ParametersTest is Stage4 {
     /// million gas: copying a megabyte answer would take more than the
     /// executor left.
     function test_an_executor_whose_answer_is_huge_or_endless_refuses_the_pool() external {
-        deployStage4(1_000_000_000e18, 0);
+        deployFull(1_000_000_000e18, 0);
         address[2] memory odd = [address(new LongAnswer(1 << 20)), address(new LongAnswer(0))];
         string[2] memory what = ["a yes and a megabyte", "no answer, all gas spent"];
         for (uint256 i = 0; i < odd.length; i++) {
@@ -456,7 +456,7 @@ contract ParametersTest is Stage4 {
     /// A Parameters of this deployment, with a stub score source, the
     /// deployment's pool and its Buyback as the executor.
     function freshParameters() internal returns (Parameters q, address scores) {
-        deployStage4(1_000_000_000e18, 0);
+        deployFull(1_000_000_000e18, 0);
         scores = address(new ScoreStub());
         q = new Parameters(who("G"), clock, scores, address(pool), address(buyback));
     }
@@ -547,7 +547,7 @@ contract ParametersTest is Stage4 {
     /// in the metadata, which a scan of every byte would take for
     /// SELFDESTRUCT.
     function test_the_pool_runtime_has_no_selfdestruct_or_delegatecall() external {
-        deployStage4(1_000_000_000e18, 0);
+        deployFull(1_000_000_000e18, 0);
         bytes memory code = address(pool).code;
         require(code.length > 0, "no pool code");
         (bool found, uint256 at_) = forbiddenAt(code);

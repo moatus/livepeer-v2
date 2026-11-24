@@ -12,8 +12,8 @@ import {IBuybackExecutor} from "./IBuybackExecutor.sol";
 /// whose two tokens are this deployment's MockUSDC and TestLPT, in either
 /// order. It draws only in a round whose group 10 names it.
 ///
-/// constructor(IBuybackValues values, ITicketBrokerV2 broker, IRoundClock clock,
-///             ITestLPTV2 lpt, IMockUSDC usdc, bytes32 poolCodeHash)
+/// constructor(IBuybackValues values, INetworkShareTicketBroker broker, IRoundClock clock,
+///             IBurnableTestLPT lpt, IMockUSDC usdc, bytes32 poolCodeHash)
 interface IBuyback is IBuybackExecutor {
     // buy() reads the values once for the current round, records an
     // observation if one is due, has the Broker pay usdcIn of the network

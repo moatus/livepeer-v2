@@ -12,7 +12,7 @@ import {ITicketBroker} from "../interfaces/ITicketBroker.sol";
 
 /// A fresh stage 2 deployment, the shared examples, and the steps a test
 /// takes as a participant: register, fund, sign and redeem a ticket.
-abstract contract Stage2 {
+abstract contract PaymentsFixture {
     RoundClock internal clock;
     Registry internal registry;
     MockUSDC internal usdc;

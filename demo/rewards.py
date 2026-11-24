@@ -31,7 +31,7 @@ round minted, and `./calculator/check` reproduces each.
 
 Exit 0 every figure equal and every behaviour seen; 1 a figure differed or
 a behaviour was missing; 2 the demo could not run. What runs, and every
-stand-in, is read from deployments/stage-3-local.json.
+stand-in, is read from deployments/rewards-local.json.
 """
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ import subprocess
 import time
 
 import common
-common.use("stage-3-local.json")
+common.use("rewards-local.json")
 from common import *  # noqa: E402,F401,F403
 from common import MANIFEST, PARAMS, CASES, VECTORS, PORT, C, ADDR, KEY, NAMES, RECORDS, FAILURES  # noqa: E402
 import ledgercase  # noqa: E402
@@ -408,7 +408,7 @@ def main() -> int:
     started = time.time()
     say("Stage 3 demo (S-05 and S-06 section 1): one full reward cycle, stake, scores, claims and LPT, and the scripted")
     say("validators: their votes, a seat changing hands and their pay, on a fresh local chain")
-    say(f"Stand-ins, from deployments/stage-3-local.json: {'; '.join(s['stand_in'] for s in MANIFEST['stand_ins'])}.")
+    say(f"Stand-ins, from deployments/rewards-local.json: {'; '.join(s['stand_in'] for s in MANIFEST['stand_ins'])}.")
 
     say("\n1. Setting up")
     preflight(["chain", "orch", "orch_metrics", "orch_m", "orch_m_metrics", "orch_k", "orch_k_metrics",
@@ -433,7 +433,7 @@ def main() -> int:
     for who in people:
         if who not in ("deployer", "W"):
             KEYS[who] = keystore(who, pw)
-    deploy_stage3()
+    deploy_rewards()
     (common.RUN / "addresses.json").write_text(json.dumps({"contracts": C, "accounts": dict(ADDR)}, indent=1))
     say(f"  local chain on {common.RPC} (chain id {MANIFEST['chain']['chain_id']}); throwaway keys for nodes N, M, K and L, N's payout W,")
     say("  holders O, D, E, F and H, payer P, validators V1 to V4, the keeper and an anyone; the treasury is an address with no key")

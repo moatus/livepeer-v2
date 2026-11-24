@@ -2,8 +2,8 @@
 the keys they make, the steps they record, the node's jobs, and the
 reconciliation of every figure against the independent calculator.
 
-A demo (`stage2.py`, `stage3.py`, `buyback.py`) calls `use(manifest)`
-first, then `from common import *`; `stage4.py` builds on `stage3.py` and
+A demo (`payments.py`, `rewards.py`, `buyback.py`) calls `use(manifest)`
+first, then `from common import *`; `full.py` builds on `rewards.py` and
 `buyback.py`. `demo/run` chooses the demo.
 """
 from __future__ import annotations
@@ -569,11 +569,11 @@ def record(fields: dict, tx_receipt: dict | None = None, block: int | None = Non
 C: dict[str, str] = {}   # contract addresses
 
 
-def deploy_stage2(more: int = 0) -> None:
+def deploy_payments(more: int = 0) -> None:
     """The stage 2 contracts. The Broker reads its fee split, and the one
     executor that may draw its network share (group 10), from Parameters,
     created after the five contracts and `more` others; with none,
-    deploy_stage2 creates it at once, with no executor: nobody may draw."""
+    deploy_payments creates it at once, with no executor: nobody may draw."""
     create = forge_create
     C["RoundClock"] = create("src/clock/RoundClock.sol:RoundClock")
     C["MockUSDC"] = create("src/money/MockUSDC.sol:MockUSDC")
@@ -617,13 +617,13 @@ def deploy_parameters(score_source: str = ZERO, pool: str = ZERO, executor: str 
         raise Failed(f"Parameters landed at {C['Parameters']}, not {at} as the Broker was told")
 
 
-def deploy_stage3(executor: str = ZERO, pool: bool = False) -> None:
+def deploy_rewards(executor: str = ZERO, pool: bool = False) -> None:
     """Stage 2's contracts, then test LPT, StakeLedger, Scores, the pool
     when asked, Parameters, naming `executor` as the buyback executor, and
     Claims. The token is given the address Claims will have, its one
     minter; the Broker, StakeLedger and Scores the address Parameters will
     have."""
-    deploy_stage2(4 if pool else 3)
+    deploy_payments(4 if pool else 3)
     claims_at = next_address(4 + pool)
     C["TestLPT"] = forge_create("src/money/TestLPT.sol:TestLPT", claims_at, MANIFEST["lpt"]["genesis_supply_wei"])
     C["StakeLedger"] = forge_create("src/money/StakeLedger.sol:StakeLedger", C["TestLPT"], C["Registry"],

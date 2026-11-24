@@ -53,10 +53,10 @@ import urllib.request
 
 import common
 import light
-import stage3 as s3
+import rewards as s3
 import buyback as bb
 import ledgercase
-common.use("stage-4-local.json")
+common.use("full-local.json")
 from common import *  # noqa: E402,F401,F403
 from common import PORT, C, ADDR, KEY, NAMES, BASE, MANIFEST, PARAMS, ROOT  # noqa: E402
 
@@ -410,7 +410,7 @@ def main() -> int:
     ADDR["Treasury"] = "0x" + os.urandom(20).hex()
     NAMES[ADDR["Treasury"].lower()] = "Treasury"
     first_block = block_number()
-    bb.deploy_stage4()
+    bb.deploy_full()
     send(KEY["deployer"], C["TestLPT"], "transfer(address,uint256)", ADDR["F"], light.FAUCET_LPT)
     s3.start_keeper("--parameters-address", C["Parameters"])
     start_signer("P", node_bin, light.KEYS["P"], pw, PORT["signer_p"], PORT["signer_p_metrics"], [PORT["orch"]])

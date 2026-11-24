@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {ITicketBrokerV2} from "../../interfaces/ITicketBroker.sol";
+import {INetworkShareTicketBroker} from "../../interfaces/ITicketBroker.sol";
 import {IRoundClock} from "../../interfaces/IRoundClock.sol";
 import {IMockUSDC} from "../../interfaces/IMockUSDC.sol";
-import {IRegistryV3} from "../../interfaces/IRegistry.sol";
+import {IRegistry} from "../../interfaces/IRegistry.sol";
 import {IParameters} from "../../interfaces/IParameters.sol";
 
 /// Holds all USDC: payer accounts, used tickets, fees per round and node,
@@ -13,7 +13,7 @@ import {IParameters} from "../../interfaces/IParameters.sol";
 /// protocol's names, shapes and ticket hash. The network share leaves it
 /// only through drawNetwork, to the executor group 10 of the Parameters
 /// names for the round the draw runs in (R-16, R-25).
-contract Broker is ITicketBrokerV2 {
+contract Broker is INetworkShareTicketBroker {
     /// The fee group (R-25): the node cut over 10^6 is its first value.
     uint256 private constant FEE = 1;
     /// The executor group (R-25): the one address that may draw the network
@@ -29,7 +29,7 @@ contract Broker is ITicketBrokerV2 {
     uint256 private constant HALF_N = 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0;
 
     IMockUSDC private immutable usdc;
-    IRegistryV3 private immutable registry;
+    IRegistry private immutable registry;
     IRoundClock private immutable clock;
     /// Where the node cut is read, for the round a fee is redeemed in, and
     /// the executor, for the round a draw runs in (R-03, R-16, R-25).
@@ -56,7 +56,7 @@ contract Broker is ITicketBrokerV2 {
     mapping(uint256 => uint256) public totalFees;
     uint256 public networkHeld;
 
-    constructor(IMockUSDC usdc_, IRegistryV3 registry_, IRoundClock clock_, IParameters params_) {
+    constructor(IMockUSDC usdc_, IRegistry registry_, IRoundClock clock_, IParameters params_) {
         require(address(params_) != address(0), "zero address");
         usdc = usdc_;
         registry = registry_;

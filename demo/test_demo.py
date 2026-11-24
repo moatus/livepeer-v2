@@ -32,10 +32,10 @@ import ledgercase
 import validatorcases
 
 ROOT = Path(__file__).resolve().parent.parent
-MANIFEST = json.loads((ROOT / "deployments" / "stage-2-local.json").read_text())
+MANIFEST = json.loads((ROOT / "deployments" / "payments-local.json").read_text())
 VECTORS = json.loads((ROOT / MANIFEST["vectors"]).read_text())
 LEDGER = [c for c in VECTORS["cases"] if c["kind"] == "ledger"]
-MANIFEST3 = json.loads((ROOT / "deployments" / "stage-3-local.json").read_text())
+MANIFEST3 = json.loads((ROOT / "deployments" / "rewards-local.json").read_text())
 VECTORS3 = json.loads((ROOT / MANIFEST3["vectors"]).read_text())
 LEDGER3 = [c for c in VECTORS3["cases"] if c["kind"] == "ledger"]
 VALIDATORS3 = [c for c in VECTORS3["cases"] if c["kind"] == "validators"]
@@ -227,7 +227,7 @@ class ValidatorCaseWriter(unittest.TestCase):
     def test_section_one_claims_share_one_earning_round(self):
         """S-06 section 1's four claims are four nodes' rewards earned in one
         round. The demo's table rows, and the rule the run checks them by."""
-        tree = ast.parse((Path(common.__file__).parent / "stage3.py").read_text())
+        tree = ast.parse((Path(common.__file__).parent / "rewards.py").read_text())
         rows = next(ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign)
                     and any(getattr(t, "id", None) == "CLAIM_ROWS" for t in n.targets))
         self.assertEqual(validatorcases.one_earning_round(list(rows)), 4)
@@ -237,7 +237,7 @@ class ValidatorCaseWriter(unittest.TestCase):
         self.assertIsNone(validatorcases.one_earning_round([("A", "N", 4), ("B", "M", 4), ("C", "L", 4)]))
 
 
-STAGE2_STAND_INS = (["local chain"], ["mockusdc"], ["--wei-per-usd 1000000"], ["2^256 - 2", "price + 1"],
+PAYMENTS_STAND_INS = (["local chain"], ["mockusdc"], ["--wei-per-usd 1000000"], ["2^256 - 2", "price + 1"],
                     ["--max-ticket-ev", "--max-batch-ev", "micro-usdc"], ["50-block rounds"], ["tiny model"],
                     # S-10 phase 3: governance is Parameters whose authority's
                     # key nobody holds, so every value is the deployment's.
@@ -247,7 +247,7 @@ STAGE2_STAND_INS = (["local chain"], ["mockusdc"], ["--wei-per-usd 1000000"], ["
 # the start of its name, with the words its value must hold. They are
 # checked entry by entry because the names overlap ("test LPT" is also in
 # the genesis supply's name).
-STAGE3_STAND_INS = {"test lpt": ["testlpt.sol", "only claims"],
+REWARDS_STAND_INS = {"test lpt": ["testlpt.sol", "only claims"],
                     "genesis supply of 10,000,000 test lpt": ["outside every round's issuance"],
                     "treasury address": ["nobody holds"],
                     "scripted validators": ["programs/validators", "v1, v2 and v3", "and v4 with 6,000", "holder h"],
@@ -276,17 +276,17 @@ class Manifest(unittest.TestCase):
         # stage 2's manifest and, as stage 3 keeps them, in stage 3's.
         for manifest in (MANIFEST, MANIFEST3):
             text = " ".join(f"{s['stand_in']} {s['value']}" for s in manifest["stand_ins"]).lower()
-            for words in STAGE2_STAND_INS:
+            for words in PAYMENTS_STAND_INS:
                 for w in words:
                     with self.subTest(manifest=manifest["testnet"], word=w):
                         self.assertIn(w, text)
 
-    def test_every_stage_3_stand_in_is_named(self):
+    def test_every_rewards_stand_in_is_named(self):
         entries = [(s["stand_in"].lower(), s["value"].lower()) for s in MANIFEST3["stand_ins"]]
-        for name, words in STAGE3_STAND_INS.items():
+        for name, words in REWARDS_STAND_INS.items():
             with self.subTest(stand_in=name):
                 found = [value for n, value in entries if n.startswith(name)]
-                self.assertEqual(len(found), 1, f"no stand-in named {name!r} in stage-3-local.json")
+                self.assertEqual(len(found), 1, f"no stand-in named {name!r} in rewards-local.json")
                 for w in words:
                     self.assertIn(w, found[0])
 
@@ -306,7 +306,7 @@ class Manifest(unittest.TestCase):
         self.assertEqual(MANIFEST["chain"]["round_length_blocks"], int(VECTORS["parameters"]["round_length_blocks"]))
         self.assertEqual(MANIFEST["rulebook"], VECTORS["rulebook"])
 
-    def test_the_public_template_invents_no_address_and_runs_stage_3(self):
+    def test_the_public_template_invents_no_address_and_runs_rewards(self):
         # The public testnet's template names no address before a
         # run fills it, runs what stage 3 runs, and names its stand-ins.
         public = json.loads((ROOT / "deployments" / "public-arbitrum-sepolia.json").read_text())
@@ -336,7 +336,7 @@ class BuybackCase(unittest.TestCase):
             p = mock.patch.dict(d)
             p.start()
             self.addCleanup(p.stop)
-        common.use("stage-4-local.json")
+        common.use("full-local.json")
         import buyback
         self.b = buyback
         self.walk = common.CASES["buyback-walk"]
@@ -502,8 +502,8 @@ class PublicSteps(unittest.TestCase):
         self.assertIn("no code at this state's Broker", str(e.exception))
 
 
-class PublicStage4(unittest.TestCase):
-    """demo/public-run stage-4 and serve, with no chain: the template they
+class PublicFull(unittest.TestCase):
+    """demo/public-run full and serve, with no chain: the template they
     read, mission 11's manifest beside it, and the refusals that come before
     anything is made or sent. Importing them reads stage 4's shared examples
     into common's shared state, so each test puts that state back."""
@@ -513,10 +513,10 @@ class PublicStage4(unittest.TestCase):
             p = mock.patch.dict(d)
             p.start()
             self.addCleanup(p.stop)
-        import public4
-        self.p4 = public4
-        self.t4 = json.loads((ROOT / "deployments" / public4.TEMPLATE).read_text())
-        self.local4 = json.loads((ROOT / "deployments" / "stage-4-local.json").read_text())
+        import public_full
+        self.p4 = public_full
+        self.t4 = json.loads((ROOT / "deployments" / public_full.TEMPLATE).read_text())
+        self.local4 = json.loads((ROOT / "deployments" / "full-local.json").read_text())
         self.dir = Path(tempfile.mkdtemp()).resolve()
         self.addCleanup(shutil.rmtree, self.dir, True)
         # No test resolves a name on the network: the sender URL check's
@@ -528,7 +528,7 @@ class PublicStage4(unittest.TestCase):
             if name not in self.NAMES:
                 raise OSError(f"{host} is not in the test's names")
             return self.NAMES[name]
-        p = mock.patch.object(public4, "resolve", resolve)
+        p = mock.patch.object(public_full, "resolve", resolve)
         p.start()
         self.addCleanup(p.stop)
 
@@ -537,7 +537,7 @@ class PublicStage4(unittest.TestCase):
              "partly.example": ["93.184.215.14", "192.168.1.5"], "mapped.example": ["::ffff:127.0.0.1"],
              "localhost": ["127.0.0.1", "::1"]}
 
-    def test_the_stage_4_template_invents_no_address_and_runs_stage_4(self):
+    def test_the_full_template_invents_no_address_and_runs_full(self):
         t = self.t4
         self.assertEqual([c["address"] for c in t["contracts"]], [None] * len(self.local4["contracts"]))
         self.assertEqual([{k: v for k, v in c.items() if k not in ("address", "checks")} for c in t["contracts"]],
@@ -569,22 +569,22 @@ class PublicStage4(unittest.TestCase):
         self.assertTrue(1 <= int(change["values"][0]) <= 840)
         self.assertNotEqual(change["values"][0], params["unbonding_period_rounds"])
 
-    def test_mission_11s_manifest_reads_as_the_stage_3_template_filled_in(self):
+    def test_dated_manifest_reads_as_the_rewards_template_filled_in(self):
         # A dry read of the dated manifest of the first public deployment,
         # which the stage 4 template stands beside and does not replace: what
         # the stage 3 path reads from a template is the same in it, and its
         # contracts are the stage 3 template's, each with its address, but
         # Parameters, which that deployment predates.
         dated = json.loads((ROOT / "deployments" / "public-arbitrum-sepolia-2026-11-21.json").read_text())
-        stage3 = json.loads((ROOT / "deployments" / "public-arbitrum-sepolia.json").read_text())
+        rewards = json.loads((ROOT / "deployments" / "public-arbitrum-sepolia.json").read_text())
         for key in ("node", "model", "price", "signer_limits", "lpt", "rulebook", "vectors", "chain"):
             with self.subTest(key=key):
-                self.assertEqual(dated[key], stage3[key])
+                self.assertEqual(dated[key], rewards[key])
         self.assertEqual([c["contract"] for c in dated["contracts"]],
-                         [c["contract"] for c in stage3["contracts"] if c["contract"] != "Parameters"])
+                         [c["contract"] for c in rewards["contracts"] if c["contract"] != "Parameters"])
         self.assertTrue(all(c["address"].startswith("0x") and len(c["address"]) == 42 for c in dated["contracts"]))
         self.assertEqual((dated["deployment"]["deployed"], dated["deployment"]["chain_id"]), (True, 421614))
-        self.assertTrue(dated["about"].endswith(f"from {stage3['testnet']}.json. The addresses, accounts and "
+        self.assertTrue(dated["about"].endswith(f"from {rewards['testnet']}.json. The addresses, accounts and "
                                                 "source commit are this run's."))
 
     def env(self, **set_):
@@ -593,7 +593,7 @@ class PublicStage4(unittest.TestCase):
         env = {k: v for k, v in os.environ.items() if k not in keys}
         return mock.patch.dict(os.environ, {**env, **set_}, clear=True)
 
-    def test_the_stage_4_run_refuses_to_start_without_the_authority_keystore(self):
+    def test_the_full_run_refuses_to_start_without_the_authority_keystore(self):
         key, pw = self.dir / "deployer.json", self.dir / "deployer.pw"
         key.write_text("{}")
         pw.write_text("x")
@@ -1029,12 +1029,12 @@ class PublicStage4(unittest.TestCase):
 
     def test_serve_starts_the_faucet_from_the_first_block_with_a_kept_journal(self):
         import public
-        import stage3
+        import rewards
         started = []
         with mock.patch.object(common, "start", lambda name, argv: started.append((name, argv))), \
                 mock.patch.object(public, "note_holders", lambda: None), \
                 mock.patch.object(self.p4, "call", lambda *a: 10**24), \
-                mock.patch.dict(stage3.KEYS, {"Faucet": self.dir / "keys" / "Faucet" / "Faucet"}), \
+                mock.patch.dict(rewards.KEYS, {"Faucet": self.dir / "keys" / "Faucet" / "Faucet"}), \
                 mock.patch.dict(common.C, {"Controller": "0x" + "cc" * 20, "TestLPT": "0x" + "dd" * 20}), \
                 mock.patch.dict(common.ADDR, {"Faucet": "0x" + "05" * 20}):
             self.p4.start_faucet(self.dir, 1234)
@@ -1052,7 +1052,7 @@ class PublicStage4(unittest.TestCase):
         has `gas` (a function of the poll) transactions left, with a clock
         that moves 5 s a poll. Returns the exception and the polls made."""
         import public
-        import stage3
+        import rewards
         import types
         clock, polls = [1_000_000.0], [0]
 
@@ -1064,7 +1064,7 @@ class PublicStage4(unittest.TestCase):
         fake = types.SimpleNamespace(time=lambda: clock[0], sleep=sleep, strftime=time.strftime)
         keeper = mock.Mock()
         keeper.poll.return_value = None
-        with mock.patch.object(self.p4, "time", fake), mock.patch.object(stage3, "current_round", lambda: 5), \
+        with mock.patch.object(self.p4, "time", fake), mock.patch.object(rewards, "current_round", lambda: 5), \
                 mock.patch.object(self.p4, "keeper_gas", lambda: gas(polls[0])), \
                 mock.patch.object(self.p4, "call", lambda *a: 0), mock.patch.object(self.p4, "words", lambda *a: (0, 0, 0, 0)), \
                 mock.patch.object(common, "rpc", lambda *a: {"timestamp": "0x10"}), \
@@ -1151,7 +1151,7 @@ class Startup(unittest.TestCase):
         def start(name, argv, cwd=None):
             events.append(("start", name, argv))
 
-        common.use("stage-3-local.json")
+        common.use("rewards-local.json")
         run = self.run_dir
         with mock.patch.object(Path, "write_text", write_text), mock.patch.object(common, "RUN", run), \
                 mock.patch.object(common, "RPC_FILE", run / "rpc-url"), mock.patch.object(common, "start", start), \

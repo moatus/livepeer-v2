@@ -2,7 +2,7 @@
 pragma solidity 0.8.30;
 
 import {vm} from "./Vm.sol";
-import {LedgerRunnerV2} from "./LedgerRunnerV2.sol";
+import {RewardLedgerRunner} from "./RewardLedgerRunner.sol";
 import {StakeLedger} from "../src/money/StakeLedger.sol";
 import {TestLPT} from "../src/money/TestLPT.sol";
 import {Registry} from "../src/authority/Registry.sol";
@@ -11,55 +11,55 @@ import {Registry} from "../src/authority/Registry.sol";
 /// vectors/october-main-text-v5.json, with the holding checks of rulebook
 /// v2 after every step; then the refusals no case reaches, the mint
 /// refusals, and R-23's gas check. Claims.t.sol runs the cases with claims.
-contract StakeLedgerTest is LedgerRunnerV2 {
+contract StakeLedgerTest is RewardLedgerRunner {
     function setUp() external {
         loadVectors("october-main-text-v5");
     }
 
     function test_ledger_stake() external {
-        runV2("ledger-stake");
+        runRewardCase("ledger-stake");
     }
 
     // v1's ledger cases, unchanged in v2, on a stage 3 deployment.
     function test_v2_ledger_demo() external {
-        runV2("ledger-demo");
+        runRewardCase("ledger-demo");
     }
 
     function test_v2_ledger_reserve() external {
-        runV2("ledger-reserve");
+        runRewardCase("ledger-reserve");
     }
 
     function test_v2_ledger_partial() external {
-        runV2("ledger-partial");
+        runRewardCase("ledger-partial");
     }
 
     function test_v2_ledger_empty() external {
-        runV2("ledger-empty");
+        runRewardCase("ledger-empty");
     }
 
     function test_v2_ledger_replay() external {
-        runV2("ledger-replay");
+        runRewardCase("ledger-replay");
     }
 
     function test_v2_ledger_expired() external {
-        runV2("ledger-expired");
+        runRewardCase("ledger-expired");
     }
 
     function test_v2_ledger_unregistered() external {
-        runV2("ledger-unregistered");
+        runRewardCase("ledger-unregistered");
     }
 
     function test_v2_ledger_release() external {
-        runV2("ledger-release");
+        runRewardCase("ledger-release");
     }
 
     function test_v2_ledger_payout() external {
-        runV2("ledger-payout");
+        runRewardCase("ledger-payout");
     }
 
-    function runV2(string memory id) internal {
-        deployStage3();
-        stepsV2(id);
+    function runRewardCase(string memory id) internal {
+        deployRewards();
+        rewardSteps(id);
     }
 
     /// Every ledger case is run here or in Claims.t.sol. A new case fails
@@ -99,7 +99,7 @@ contract StakeLedgerTest is LedgerRunnerV2 {
     // --- refusals no shared case reaches ---------------------------------
 
     function test_transfer_and_rebond_to_an_unregistered_node_are_refused() external {
-        deployStage3();
+        deployRewards();
         address h = who("H");
         register("P");
         lpt.transfer(h, 100e18);
@@ -132,7 +132,7 @@ contract StakeLedgerTest is LedgerRunnerV2 {
     /// ledger keeps every amount and count in that range. A test LPT whose
     /// genesis exceeds 2**192 makes the boundary reachable.
     function deployWithSupply(uint256 supply) internal {
-        deployStage3(supply);
+        deployRewards(supply);
     }
 
     /// One holder bonds more than 2**192, then moves, unbonds, rebonds and
@@ -194,7 +194,7 @@ contract StakeLedgerTest is LedgerRunnerV2 {
     }
 
     function test_reward_cut_needs_the_node_and_a_cut_in_range() external {
-        deployStage3();
+        deployRewards();
         address n = who("N");
         register("N");
         expectEq(ledger.cutAt(n, 1), 0, "default cut");
@@ -237,7 +237,7 @@ contract StakeLedgerTest is LedgerRunnerV2 {
     }
 
     function test_withdrawal_with_nothing_unbonded_is_refused() external {
-        deployStage3();
+        deployRewards();
         expectRefused(
             as_(who("H"), address(ledger), abi.encodeCall(StakeLedger.withdrawUnbonded, ())),
             "UNBOND_NOT_READY",
@@ -250,7 +250,7 @@ contract StakeLedgerTest is LedgerRunnerV2 {
     /// The genesis supply is the deployer's, and the token's whole supply;
     /// nothing has been minted.
     function test_genesis_supply_is_the_deployers() external {
-        deployStage3();
+        deployRewards();
         expectEq(lpt.totalSupply(), GENESIS, "supply");
         expectEq(lpt.balanceOf(address(this)), GENESIS, "deployer");
         expectEq(lpt.decimals(), 18, "decimals");
@@ -259,7 +259,7 @@ contract StakeLedgerTest is LedgerRunnerV2 {
     /// S-05 3.2: a mint from the deployer, StakeLedger, a node or a holder
     /// is refused NOT_AUTHORIZED; Claims, fixed at deployment, mints.
     function test_mint_only_from_claims() external {
-        deployStage3();
+        deployRewards();
         register("N");
         lpt.transfer(who("H"), 10e18);
         address[4] memory callers = [address(this), address(ledger), who("N"), who("H")];
@@ -279,7 +279,7 @@ contract StakeLedgerTest is LedgerRunnerV2 {
 
     /// Any address but Claims's is refused, and nothing is minted.
     function testFuzz_mint_refused_from_any_other_address(address caller, address to, uint256 amount) external {
-        deployStage3();
+        deployRewards();
         if (caller == claimsAddress()) return;
         expectRefused(as_(caller, address(lpt), abi.encodeCall(TestLPT.mint, (to, amount))), "NOT_AUTHORIZED", "mint");
         expectEq(lpt.totalSupply(), GENESIS, "supply");
@@ -301,10 +301,10 @@ contract StakeLedgerTest is LedgerRunnerV2 {
     /// registrations as without them, and ledger-stake gives the same
     /// numbers.
     function test_gas_does_not_grow_with_registered_nodes() external {
-        deployStage3();
+        deployRewards();
         uint256[] memory few = gasOfEveryCall();
         resetRunner();
-        deployStage3();
+        deployRewards();
         for (uint256 i = 0; i < 999; i++) {
             vm.prank(address(uint160(0x10000 + i)));
             registry.register();
@@ -323,7 +323,7 @@ contract StakeLedgerTest is LedgerRunnerV2 {
     /// 840 rounds has 840 waiting unbonds, and a rebond walks them all. The
     /// holder's own calls stay under one transaction's gas cap.
     function test_gas_at_840_waiting_unbonds() external {
-        deployStage3();
+        deployRewards();
         address p = who("P");
         address h = who("H");
         register("P");

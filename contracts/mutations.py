@@ -35,7 +35,7 @@ LPT, USD = "src/money/TestLPT.sol", "src/money/MockUSDC.sol"
 M = [
  # name, [(file, old, new)], command ('check' or forge --match-test regex)
  ("abi: extra public function on Broker", [(B, "    // --- internals", "    function extra() external {}\n\n    // --- internals")], "check"),
- ("abi: extra error on Registry, never reached", [(R, "        if (payout_ == broker) revert PAYOUT_INVALID();", "        if (payout_ == broker) revert PAYOUT_INVALID();\n        if (payout_ == address(1)) revert EXTRA();"), (R, "contract Registry is IRegistryV3 {", "error EXTRA();\n\ncontract Registry is IRegistryV3 {")], "check"),
+ ("abi: extra error on Registry, never reached", [(R, "        if (payout_ == broker) revert PAYOUT_INVALID();", "        if (payout_ == broker) revert PAYOUT_INVALID();\n        if (payout_ == address(1)) revert EXTRA();"), (R, "contract Registry is IRegistry {", "error EXTRA();\n\ncontract Registry is IRegistry {")], "check"),
  ("abi: interface function dropped from Registry (compiler)", [(R, "    function isActiveTranscoder(address a) external view returns (bool) {\n        return registered[a];\n    }\n", "")], "check"),
  ("release wait 2", [(B, "RELEASE_WAIT = 3", "RELEASE_WAIT = 2")], "test_ledger_release"),
  ("redemption does not clamp pending", [(B, "        if (b.pending < left) {", "        if (true) {")], "test_ledger_release"),
@@ -48,7 +48,7 @@ M = [
     (R, "    mapping(address => bool) private registered;", "    mapping(address => bool) private registered;\n    uint256 public count;"),
     (R, "        registered[msg.sender] = true;", "        registered[msg.sender] = true;\n        count++;"),
     (B, "        uint256 fromEarmark = e.amount;", "        uint256 fromEarmark = Counted(address(registry)).count() > 100 ? 0 : e.amount;"),
-    (B, "contract Broker is ITicketBrokerV2 {", "interface Counted { function count() external view returns (uint256); }\n\ncontract Broker is ITicketBrokerV2 {")], "test_ledger_reserve"),
+    (B, "contract Broker is INetworkShareTicketBroker {", "interface Counted { function count() external view returns (uint256); }\n\ncontract Broker is INetworkShareTicketBroker {")], "test_ledger_reserve"),
  ("round started one block early", [(C, "block.number < startBlock + ROUND_LENGTH", "block.number < startBlock + ROUND_LENGTH - 1")], "test_round_starts_after_round_length"),
  ("round counted from blocks (skips rounds)", [(C, "        _start(round + 1);", "        _start(round + (block.number - startBlock) / ROUND_LENGTH);")], "test_ticket_signed_in_a_long_round_is_paid"),
  ("zero-address check removed", [(B, "        if (t.recipient == address(0) || t.sender == address(0)) revert TICKET_INVALID();\n", "")], "test_zero_"),

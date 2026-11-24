@@ -6,7 +6,7 @@ import time
 import urllib.error
 import urllib.request
 
-import stage3 as s3
+import rewards as s3
 import buyback as bb
 import common as c
 
@@ -230,7 +230,7 @@ def main():
     treasury = "0x" + os.urandom(20).hex()
     ADDR["Treasury"], NAMES[treasury.lower()] = treasury, "Treasury"
     first_block = c.block_number()
-    bb.deploy_stage4()
+    bb.deploy_full()
     vector = c.CASES["ledger-authority"]
     fixture = vector["inputs"]
     calc = s3.calculate("ledger", fixture)

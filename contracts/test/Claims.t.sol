@@ -2,7 +2,7 @@
 pragma solidity 0.8.30;
 
 import {vm, Vm} from "./Vm.sol";
-import {LedgerRunnerV2} from "./LedgerRunnerV2.sol";
+import {RewardLedgerRunner} from "./RewardLedgerRunner.sol";
 import {Claims} from "../src/money/Claims.sol";
 import {Scores} from "../src/scores/Scores.sol";
 import {StakeLedger} from "../src/money/StakeLedger.sol";
@@ -13,9 +13,9 @@ import {ITicketBroker} from "../interfaces/ITicketBroker.sol";
 /// Claims (S-05 phase 4, S-06 phase 4): the v2 `ledger` cases with claims,
 /// withdrawals, share mints and validator pots, from
 /// vectors/october-main-text-v5.json, with the after-step checks of the
-/// shared examples (LedgerRunnerV2); then the refusals and orders no case
+/// shared examples (RewardLedgerRunner); then the refusals and orders no case
 /// reaches, validator pay on the real Scores, and R-23's gas checks.
-contract ClaimsTest is LedgerRunnerV2 {
+contract ClaimsTest is RewardLedgerRunner {
     event log_named_uint(string key, uint256 val);
 
     /// The deployment's validator share of emission (R-07, R-25).
@@ -26,50 +26,50 @@ contract ClaimsTest is LedgerRunnerV2 {
     }
 
     function test_ledger_cycle() external {
-        runV2("ledger-cycle");
+        runRewardCase("ledger-cycle");
     }
 
     function test_ledger_window() external {
-        runV2("ledger-window");
+        runRewardCase("ledger-window");
     }
 
     function test_ledger_mint_order() external {
-        runV2("ledger-mint-order");
+        runRewardCase("ledger-mint-order");
     }
 
     function test_ledger_round_zero() external {
-        runV2("ledger-round-zero");
+        runRewardCase("ledger-round-zero");
     }
 
     function test_ledger_same_node() external {
-        runV2("ledger-same-node");
+        runRewardCase("ledger-same-node");
     }
 
     function test_refusal_order() external {
-        runV2("refusal-order");
+        runRewardCase("refusal-order");
     }
 
     function test_ledger_validator_pot() external {
-        runV2("ledger-validator-pot");
+        runRewardCase("ledger-validator-pot");
     }
 
     function test_ledger_mid_round() external {
-        runV2("ledger-mid-round");
+        runRewardCase("ledger-mid-round");
     }
 
     // R-25: Parameters' changes, read for the round each
     // part names. The section 1 table: round 5 claimed after round 11.
     function test_ledger_authority() external {
-        runV2("ledger-authority");
+        runRewardCase("ledger-authority");
     }
 
     function test_ledger_delays() external {
-        runV2("ledger-delays");
+        runRewardCase("ledger-delays");
     }
 
     /// A claim in round 13 reads the score source that counts from it.
     function test_ledger_score_source() external {
-        runV2("ledger-score-source");
+        runRewardCase("ledger-score-source");
     }
 
     /// R-26: N's key rotates N to K1 to K2, then K2 to K3
@@ -77,12 +77,12 @@ contract ClaimsTest is LedgerRunnerV2 {
     /// address are refused on every call for N, K2's claim pays W, and every
     /// ticket pays N's payout across the rotations.
     function test_ledger_rotation() external {
-        runV2("ledger-rotation");
+        runRewardCase("ledger-rotation");
     }
 
-    function runV2(string memory id) internal {
-        deployStage3();
-        stepsV2(id);
+    function runRewardCase(string memory id) internal {
+        deployRewards();
+        rewardSteps(id);
     }
 
     function claimAs(address caller, address node, uint256 round) internal returns (bytes memory) {
@@ -119,7 +119,7 @@ contract ClaimsTest is LedgerRunnerV2 {
     /// ledger-round-zero who before the round; refusal-order the round
     /// before the node, and the node before when. This shows the rest.
     function test_claim_refusals_come_in_d26_order() external {
-        deployStage3();
+        deployRewards();
         address n = who("N");
         register("N");
         scores.set(n, 1_000_001);
@@ -159,7 +159,7 @@ contract ClaimsTest is LedgerRunnerV2 {
     /// The claim window's two ends: round R is claimable in rounds R + 7
     /// to R + 28.
     function test_claim_window_ends() external {
-        deployStage3();
+        deployRewards();
         address n = who("N");
         address m = who("M");
         register("N");
@@ -180,7 +180,7 @@ contract ClaimsTest is LedgerRunnerV2 {
     /// Shares are minted only once their round has ended. There is no
     /// round 0 (ledger-round-zero shows it in rounds 1 and 500).
     function test_shares_wait_for_the_round_to_end() external {
-        deployStage3();
+        deployRewards();
         toRound(3);
         expectRefused(
             as_(who("Keeper"), address(claims), abi.encodeCall(Claims.mintRoundShares, (0))), "NO_SUCH_ROUND", "round 0"
@@ -207,7 +207,7 @@ contract ClaimsTest is LedgerRunnerV2 {
     /// one fee in round 2 and H's bond behind it, it claims round 2 in round
     /// 9. ledger-same-node pins the same rule with the examples' numbers.
     function test_claim_reads_the_cut_in_force_at_the_start_of_the_earned_round() external {
-        deployStage3();
+        deployRewards();
         address n = who("N");
         address h = who("H");
         register("N");
@@ -236,7 +236,7 @@ contract ClaimsTest is LedgerRunnerV2 {
     /// holds; a round whose shares are not minted; a round taken already. A
     /// refused list records nothing.
     function test_validator_parts_with_no_members() external {
-        deployStage3();
+        deployRewards();
         address h = who("H");
         address n = who("N");
         register("N");
@@ -264,7 +264,7 @@ contract ClaimsTest is LedgerRunnerV2 {
     /// 6,000 LPT, opts in during round 3 and displaces C from round 4. X
     /// mints round 3's shares in round 4, and round 4's in round 5.
     function test_a_node_seated_after_the_round_is_paid_nothing() external {
-        deployStage3WithScores();
+        deployRewardsWithScores();
         string[4] memory ns = ["A", "B", "C", "X"];
         uint256[4] memory amounts = [uint256(5_000e18), 3_000e18, 2_000e18, 6_000e18];
         for (uint256 i = 0; i < 4; i++) {
@@ -333,7 +333,7 @@ contract ClaimsTest is LedgerRunnerV2 {
     /// validator part first and its node part second; V's operator, the
     /// other way round, in round 40.
     function test_both_parts_of_a_round_withdrawn_once_each() external {
-        deployStage3WithScores();
+        deployRewardsWithScores();
         address v = who("V");
         address h = who("H");
         register("V");
@@ -444,7 +444,7 @@ contract ClaimsTest is LedgerRunnerV2 {
 
     function mintGasAt(uint256 holderCount, uint256 optedIn) internal returns (uint256) {
         resetRunner();
-        deployStage3WithScores();
+        deployRewardsWithScores();
         string[3] memory ns = ["A", "B", "C"];
         uint256[3] memory amounts = [uint256(1_000e18), 3_000e18, 2_000e18];
         for (uint256 i = 0; i < 3; i++) {
@@ -510,7 +510,7 @@ contract ClaimsTest is LedgerRunnerV2 {
     /// its own claim's pot, and a node that names Claims as its payout adds
     /// its cut to what is never paid.
     function test_lpt_sent_to_claims_is_never_paid() external {
-        deployStage3();
+        deployRewards();
         address n = who("N");
         address h = who("H");
         register("N");
@@ -531,10 +531,10 @@ contract ClaimsTest is LedgerRunnerV2 {
     /// Every Claims call, refusals and views included, costs the same gas
     /// after 999 more registrations as without them.
     function test_gas_does_not_grow_with_registered_nodes() external {
-        deployStage3();
+        deployRewards();
         uint256[] memory few = gasOfEveryClaimsCall();
         resetRunner();
-        deployStage3();
+        deployRewards();
         for (uint256 i = 0; i < 999; i++) {
             vm.prank(address(uint160(0x10000 + i)));
             registry.register();

@@ -29,7 +29,7 @@ interface ITestLPT {
 
 /// The test LPT as stage 4 reads it (rulebook october-main-text-v4, R-16):
 /// ITestLPT and a real burn.
-interface ITestLPTV2 is ITestLPT {
+interface IBurnableTestLPT is ITestLPT {
     /// Anyone burns from its own balance: the balance and totalSupply fall
     /// by amount, with Transfer(caller, address(0), amount). Refused as a
     /// transfer is refused when amount is above the balance.

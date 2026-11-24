@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {Stage2} from "../test/Stage2.sol";
+import {PaymentsFixture} from "../test/PaymentsFixture.sol";
 import {ITicketBroker} from "../interfaces/ITicketBroker.sol";
 
 /// Fuzz runs over the whole range of amounts a payer can fund, which the
 /// shared examples (all small) and the invariant runs (bounded, so their
 /// sums stay exact) do not reach. They run only under the `qualify`
 /// profile (contracts/qualify).
-contract AmountsFuzz is Stage2 {
+contract AmountsFuzz is PaymentsFixture {
     uint256 internal constant ONE = 1_000_000;
     uint256 internal nodeCut;
 

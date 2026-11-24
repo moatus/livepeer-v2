@@ -2,7 +2,7 @@
 pragma solidity 0.8.30;
 
 import {vm, Vm} from "./Vm.sol";
-import {Stage3} from "./Stage3.sol";
+import {RewardsFixture} from "./RewardsFixture.sol";
 import {Scores} from "../src/scores/Scores.sol";
 import {IScores} from "../interfaces/IScores.sol";
 import {StakeLedger} from "../src/money/StakeLedger.sol";
@@ -14,7 +14,7 @@ import {IParameters} from "../interfaces/IParameters.sol";
 /// input and expected number read from there.
 ///
 /// test_every_score_and_validators_case_is_run fails on a case left unrun.
-contract ScoresTest is Stage3 {
+contract ScoresTest is RewardsFixture {
     event log_named_uint(string key, uint256 val);
 
     uint256 internal constant ONE = 1_000_000;
@@ -44,7 +44,7 @@ contract ScoresTest is Stage3 {
     }
 
     function world() internal {
-        deployStage3();
+        deployRewards();
         vset = new Scores(registry, clock, ledger, params);
     }
 

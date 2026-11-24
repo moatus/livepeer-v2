@@ -3,9 +3,9 @@ pragma solidity 0.8.30;
 
 import {IBuyback} from "../../interfaces/IBuyback.sol";
 import {IBuybackValues} from "../../interfaces/IBuybackValues.sol";
-import {ITicketBrokerV2} from "../../interfaces/ITicketBroker.sol";
+import {INetworkShareTicketBroker} from "../../interfaces/ITicketBroker.sol";
 import {IRoundClock} from "../../interfaces/IRoundClock.sol";
-import {ITestLPTV2} from "../../interfaces/ITestLPT.sol";
+import {IBurnableTestLPT} from "../../interfaces/ITestLPT.sol";
 import {IMockUSDC} from "../../interfaces/IMockUSDC.sol";
 import {ITestPool} from "../../interfaces/ITestPool.sol";
 
@@ -21,9 +21,9 @@ contract Buyback is IBuyback {
     uint256 private constant ONE = 1_000_000;
 
     IBuybackValues private immutable source;
-    ITicketBrokerV2 private immutable broker_;
+    INetworkShareTicketBroker private immutable broker_;
     IRoundClock private immutable clock;
-    ITestLPTV2 private immutable lpt;
+    IBurnableTestLPT private immutable lpt;
     IMockUSDC private immutable usdc;
     bytes32 public immutable poolCodeHash;
 
@@ -48,9 +48,9 @@ contract Buyback is IBuyback {
 
     constructor(
         IBuybackValues values_,
-        ITicketBrokerV2 brokerAddress,
+        INetworkShareTicketBroker brokerAddress,
         IRoundClock clock_,
-        ITestLPTV2 lpt_,
+        IBurnableTestLPT lpt_,
         IMockUSDC usdc_,
         bytes32 poolCodeHash_
     ) {

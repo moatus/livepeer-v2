@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import {vm, Vm} from "./Vm.sol";
 import {LedgerRunner} from "./LedgerRunner.sol";
-import {Stage3, ScoreStub} from "./Stage3.sol";
+import {RewardsFixture, ScoreStub} from "./RewardsFixture.sol";
 import {StakeLedger} from "../src/money/StakeLedger.sol";
 import {Claims} from "../src/money/Claims.sol";
 import {IClaims} from "../interfaces/IClaims.sol";
@@ -33,7 +33,7 @@ import {IParameters} from "../interfaces/IParameters.sol";
 /// Each step also has an address form (doClaim, doWithdraw,
 /// doWithdrawValidator, doMintShares), so a test can take steps no case
 /// lists and hold the same checks after each with holdsEverything.
-abstract contract LedgerRunnerV2 is LedgerRunner, Stage3 {
+abstract contract RewardLedgerRunner is LedgerRunner, RewardsFixture {
     /// Names an LPT step gave, as holders and as nodes.
     string[] internal holders;
     string[] internal lptNodes;
@@ -370,7 +370,7 @@ abstract contract LedgerRunnerV2 is LedgerRunner, Stage3 {
     /// Runs a v2 ledger case. Its `members`, for each earning round it
     /// names, are given to the stand-in validator set first; a round it does
     /// not name has none.
-    function stepsV2(string memory id) internal {
+    function rewardSteps(string memory id) internal {
         string memory inputs = string.concat(".cases[", vm.toString(caseIndex(id)), "].inputs");
         loadCeilings();
         if (vm.keyExistsJson(vectors, string.concat(inputs, ".authority"))) {

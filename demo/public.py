@@ -51,7 +51,7 @@ import time
 from pathlib import Path
 
 import common
-import stage3
+import rewards
 from common import NotRun, Failed, say, check, call, rpc, money, lpt, C, ADDR, NAMES, RECORDS, FAILURES, PORT, MANIFEST
 
 # The chains this path may send to. Local development chains, and
@@ -144,7 +144,7 @@ def check_deployment() -> None:
 
 def save() -> None:
     STATE["records"] = RECORDS
-    STATE["vrecords"] = stage3.VRECORDS
+    STATE["vrecords"] = rewards.VRECORDS
     tmp = STATE_DIR / "state.json.tmp"
     tmp.write_text(json.dumps(STATE, indent=1, default=list))
     tmp.replace(STATE_DIR / "state.json")
@@ -173,7 +173,7 @@ def step(name: str, fn, sends: bool = True):
 def cast_signer(who: str) -> list[str]:
     if who == "deployer":
         return ["--keystore", STATE["deployer_keystore"], "--password-file", STATE["deployer_password_file"]]
-    return ["--keystore", str(private(stage3.KEYS[who])), "--password-file", str(private(STATE_DIR / "pw"))]
+    return ["--keystore", str(private(rewards.KEYS[who])), "--password-file", str(private(STATE_DIR / "pw"))]
 
 
 def ksend(who: str, to: str, *args: str, value: int | None = None) -> dict:
@@ -263,7 +263,7 @@ def open_state(stage: int = 3) -> int:
             raise NotRun(f"this state directory was deployed by {STATE['deployer']}, not {deployer}")
         if STATE.get("stage", 3) != stage:  # a state from before stages were recorded is stage 3's
             raise NotRun(f"this state directory holds the stage {STATE.get('stage', 3)} system; run "
-                         f"demo/public-run{' stage-4' if STATE.get('stage', 3) == 4 else ''} to resume it. Nothing was sent")
+                         f"demo/public-run{' full' if STATE.get('stage', 3) == 4 else ''} to resume it. Nothing was sent")
         if "deploy" in STATE["done"]:
             check_deployment()
         say(f"  resuming the run in this state directory: {len(STATE['done'])} steps done")
@@ -285,7 +285,7 @@ def open_state(stage: int = 3) -> int:
         if who not in STATE["accounts"]:
             STATE["accounts"][who] = new_role_key(who)
             save()
-        stage3.KEYS[who] = private(STATE_DIR / "keys" / who / who)
+        rewards.KEYS[who] = private(STATE_DIR / "keys" / who / who)
     if "Treasury" not in STATE["accounts"]:
         STATE["accounts"]["Treasury"] = "0x" + os.urandom(20).hex()
     STATE["accounts"]["deployer"] = deployer
@@ -293,7 +293,7 @@ def open_state(stage: int = 3) -> int:
         ADDR[who] = addr
         NAMES[addr.lower()] = who
     RECORDS[:] = STATE["records"]
-    stage3.VRECORDS[:] = STATE["vrecords"]
+    rewards.VRECORDS[:] = STATE["vrecords"]
     common.SENT = STATE["sent"]   # every transaction the run sends itself, saved with its steps
     save()
     return chain_id
@@ -301,9 +301,9 @@ def open_state(stage: int = 3) -> int:
 
 # --- the run -----------------------------------------------------------------------
 
-def deploy(create=stage3.deploy_stage3) -> dict:
+def deploy(create=rewards.deploy_rewards) -> dict:
     """Deploy once, with `create`, the system's own deployment function
-    (stage 3's, or stage 4's in demo/public4.py)."""
+    (stage 3's, or stage 4's in demo/public_full.py)."""
     if "deploy" not in STATE["done"] and STATE.get("sending") == "deploy":
         raise NotRun("a previous run was stopped during the deployment; its contracts are abandoned. "
                      "Start a new state directory to deploy afresh")
@@ -332,7 +332,7 @@ def deploy(create=stage3.deploy_stage3) -> dict:
 def wait_round(target: int, why: str, give_up=None) -> None:
     """Wait in real time for the keeper to start round `target`."""
     last = None
-    while (now := stage3.current_round()) < target:
+    while (now := rewards.current_round()) < target:
         if now != last:
             say(f"  {time.strftime('%H:%M:%S')} round {now}; waiting for round {target} ({why})")
             last = now
@@ -341,29 +341,29 @@ def wait_round(target: int, why: str, give_up=None) -> None:
         if "keeper" in common.PROCS and common.PROCS["keeper"].poll() is not None:
             raise Failed("the keeper exited; see logs/keeper.log in the state directory")
         time.sleep(5)
-    say(f"  {time.strftime('%H:%M:%S')} round {stage3.current_round()}")
+    say(f"  {time.strftime('%H:%M:%S')} round {rewards.current_round()}")
 
 
 def start_programs(node_bin: Path, model: Path | None, keeper: tuple[str, ...] = (), script: Path = SCRIPT,
                    payer: bool = True, runner: tuple[str, str, int] | None = None) -> None:
     """Start the model, the node, P's signer (with `payer`), the keeper with
     its `keeper` options and V's validator from `script`. With `runner`
-    and no model, the node serves that runner instead (demo/public4.py's
+    and no model, the node serves that runner instead (demo/public_full.py's
     services)."""
     if model:
         common.start_model(model)
-    common.start_orchestrator("orchestrator-N", "N", node_bin, stage3.KEYS["N"], STATE_DIR / "pw",
+    common.start_orchestrator("orchestrator-N", "N", node_bin, rewards.KEYS["N"], STATE_DIR / "pw",
                               PORT["orch"], PORT["orch_metrics"], runner=runner)
     if payer:
-        common.start_signer("P", node_bin, stage3.KEYS["P"], STATE_DIR / "pw", PORT["signer_p"], PORT["signer_p_metrics"],
+        common.start_signer("P", node_bin, rewards.KEYS["P"], STATE_DIR / "pw", PORT["signer_p"], PORT["signer_p_metrics"],
                             [PORT["orch"]])
-    stage3.start_keeper(*keeper)
+    rewards.start_keeper(*keeper)
     names = STATE_DIR / "names.json"
     names.write_text(json.dumps({n: ADDR[n] for n in ("N", "V")}))
     common.start("validators", [str(STATE_DIR / "bin" / "lp2-validators"), "--rpc-url", common.RPC,
                                 "--keystore-password-file", str(STATE_DIR / "pw"), "--controller-address", C["Controller"],
                                 "--scores-address", C["Scores"], "--script", str(script), "--names", str(names),
-                                "--poll", "5s", f"--keystore=V={stage3.KEYS['V']}"])
+                                "--poll", "5s", f"--keystore=V={rewards.KEYS['V']}"])
     note_holders()
     served = "the model server, " if model else "N's runner, "
     signer = "P's signer, " if payer else ""
@@ -376,7 +376,7 @@ def fund_p(face: int) -> None:
          and None)
 
     def fund():
-        argv = [str(STATE_DIR / "bin" / "lp2-fund"), "--rpc-url", common.RPC, "--keystore-file", str(stage3.KEYS["P"]),
+        argv = [str(STATE_DIR / "bin" / "lp2-fund"), "--rpc-url", common.RPC, "--keystore-file", str(rewards.KEYS["P"]),
                 "--keystore-password-file", str(STATE_DIR / "pw"), "--controller-address", C["Controller"],
                 "--usdc-address", C["MockUSDC"], "--deposit", str(deposit), "--earmark", str(earmark), "--node", ADDR["N"]]
         out = common.sh(argv)
@@ -398,7 +398,7 @@ def paid_job() -> dict:
     # is a step of its own below.
     sent = STATE.get("job")
     if not sent:
-        STATE["job"] = {"round": stage3.current_round()}
+        STATE["job"] = {"round": rewards.current_round()}
         save()
         answer = common.job("P", PORT["orch"], PORT["signer_p"])
         STATE["job"]["answer"] = answer
@@ -411,7 +411,7 @@ def paid_job() -> dict:
     say("\n5. N redeems its ticket, once 40 blocks of its clock have passed")
 
     def expired():
-        if stage3.current_round() > job_round + 2:
+        if rewards.current_round() > job_round + 2:
             raise Failed(f"no ticket was redeemed by round {job_round + 3}: the ticket of round {job_round} has expired "
                          f"(R-22). Not sending another job; see logs/orchestrator-N.log")
     while not (settled := common.settlements()):
@@ -471,8 +471,8 @@ def main() -> int:
                                                         "register()") and None)
     check("N is registered, with no stake", (call(C["Registry"], "isRegistered(address)", ADDR["N"]),
                                              call(C["StakeLedger"], "stakeAt(address,uint256)", ADDR["N"], 1)), (1, 0))
-    step("bond N", lambda: stage3.bond("N", "N", N_BOND))
-    step("bond V", lambda: stage3.bond("V", "V", V_BOND))
+    step("bond N", lambda: rewards.bond("N", "N", N_BOND))
+    step("bond V", lambda: rewards.bond("V", "V", V_BOND))
     say(f"  N bonds {lpt(N_BOND)} and V {lpt(V_BOND)} to themselves; each counts from the next round")
     fund_p(face)
     step("observe", lambda: common.observe("P", "N") and None, sends=False)
@@ -484,17 +484,17 @@ def main() -> int:
     say(f"\n6. Rounds {earned + 1} to {earned + 7}: the keeper starts each round and mints the ended one's shares")
     wait_round(earned + 7, f"N may claim round {earned} seven rounds later")
     give_up = time.time() + 300
-    while not stage3.shares_minted(earned + 6):
+    while not rewards.shares_minted(earned + 6):
         if common.PROCS["keeper"].poll() is not None or time.time() > give_up:
             raise Failed(f"the keeper started round {earned + 7} but did not mint round {earned + 6}'s shares; "
                          f"see logs/keeper.log in the state directory")
         time.sleep(5)
 
     say(f"\n7. Round {earned + 7}: N claims round {earned}'s reward and withdraws its part")
-    cn = step("claim", lambda: stage3.claim("N", "N", earned)["claimed"])
+    cn = step("claim", lambda: rewards.claim("N", "N", earned)["claimed"])
     say(f"  N claims at score {cn['score']:,}: paid {lpt(cn['paid'])}; cut {lpt(cn['cut'])} to {cn['payout']}, "
         f"pot {lpt(cn['pot'])} to Claims")
-    w = step("withdraw", lambda: stage3.withdraw("N", "N", [earned])["moved"])
+    w = step("withdraw", lambda: rewards.withdraw("N", "N", [earned])["moved"])
     say(f"  N withdraws its part of the pot: {lpt(w)}")
     check("N's claim paid more than nothing", cn["paid"] > 0, True)
     return reconcile(chain_id, started)
@@ -509,16 +509,16 @@ def reconcile(chain_id: int, started: float) -> int:
         raise Failed("the chain shows no redeemed ticket")
     last = settled[0]["round"] + 6
     check(f"rounds 1 to {last} whose shares the keeper did not mint",
-          [r for r in range(1, last + 1) if not stage3.shares_minted(r)], [])
+          [r for r in range(1, last + 1) if not rewards.shares_minted(r)], [])
     check(f"rounds 3 to {last} without V as their one validator",
-          [r for r in range(3, last + 1) if stage3.members_at(r) != ["V"]], [])
-    extra = stage3.keeper_steps()
-    m = stage3.members()
+          [r for r in range(3, last + 1) if rewards.members_at(r) != ["V"]], [])
+    extra = rewards.keeper_steps()
+    m = rewards.members()
     ordered, views, calc = common.reconcile("At the end of the run", extra, m)
-    pay = stage3.validator_pay_run_cases()
+    pay = rewards.validator_pay_run_cases()
     count = differ = 0
     for c in pay:
-        n, d = stage3.compare(c["id"], c["expected"], stage3.calculate("validator-pay", c["inputs"]))
+        n, d = rewards.compare(c["id"], c["expected"], rewards.calculate("validator-pay", c["inputs"]))
         count, differ = count + n, differ + d
     say(f"  the validator pay of rounds 1 to {len(pay)} (members {', '.join(sorted({x for v in m.values() for x in v})) or 'none'}): "
         f"{count} figures, {'all equal' if not differ else f'{differ} DIFFER'}")
@@ -601,12 +601,12 @@ def spending() -> None:
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(prog="demo/public-run", description="The public run (demo/PUBLIC.md).")
-    parser.add_argument("command", nargs="?", choices=("stage-4", "serve"),
-                        help="stage-4: deploy and run the stage 4 system; serve: start the services a finished "
+    parser.add_argument("command", nargs="?", choices=("full", "serve"),
+                        help="full: deploy and run the stage 4 system; serve: start the services a finished "
                              "stage 4 run handed over to. With none, the stage 3 run")
     command = parser.parse_args().command
     if command:
-        import public4  # the stage 4 run and its services, which read stage 4's shared examples
-        common.run_main(public4.main if command == "stage-4" else public4.serve)
+        import public_full  # the stage 4 run and its services, which read stage 4's shared examples
+        common.run_main(public_full.main if command == "full" else public_full.serve)
     else:
         common.run_main(main)

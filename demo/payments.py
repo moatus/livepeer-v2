@@ -1,4 +1,4 @@
-"""./dev demo stage-2: S-09 section 1 on a fresh local chain.
+"""./dev demo payments: S-09 section 1 on a fresh local chain.
 
 Starts a local chain, deploys the stage 2 contracts, and runs the
 unmodified node (orchestrator and signer) and a tiny model. A stake-free
@@ -14,7 +14,7 @@ case and `./calculator/check` reproduces it.
 Exit 0 every figure equal and every behaviour seen; 1 a figure differed or
 a behaviour was missing; 2 the demo could not run (a tool, a download or a
 port). What the node, model and chain are, and every stand-in, is read from
-deployments/stage-2-local.json.
+deployments/payments-local.json.
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ import os
 import time
 
 import common
-common.use("stage-2-local.json")
+common.use("payments-local.json")
 from common import *  # noqa: E402,F401,F403
 from common import RUN, ROOT, MANIFEST, PARAMS, CASES, VECTORS, PORT, RPC, C, ADDR, KEY, NAMES, sel  # noqa: E402
 
@@ -68,7 +68,7 @@ def main() -> int:
     open_log()
     started = time.time()
     say("Stage 2 demo (S-09 section 1): the unmodified node paid in mock USDC on a fresh local chain")
-    say(f"Stand-ins, from deployments/stage-2-local.json: {'; '.join(s['stand_in'] for s in MANIFEST['stand_ins'])}.")
+    say(f"Stand-ins, from deployments/payments-local.json: {'; '.join(s['stand_in'] for s in MANIFEST['stand_ins'])}.")
 
     say("\n1. Setting up")
     preflight(["chain", "orch", "orch_metrics", "signer_p", "signer_p_metrics", "signer_p2", "signer_p2_metrics", "model"])
@@ -94,7 +94,7 @@ def main() -> int:
     for who in ("deployer", "N", "P", "P2", "keeper", "anyone"):
         new_key(who)
     keys = {who: keystore(who, pw) for who in ("N", "P", "P2", "keeper")}
-    deploy_stage2()
+    deploy_payments()
     (RUN / "addresses.json").write_text(json.dumps({"contracts": C, "accounts": {k: v for k, v in ADDR.items()}}, indent=1))
     say(f"  local chain on {RPC} (chain id {chain['chain_id']}); throwaway keys for the node N, payers P and P2, the keeper")
     say("  contracts: " + ", ".join(f"{k} {v}" for k, v in C.items()))

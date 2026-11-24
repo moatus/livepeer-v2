@@ -2,14 +2,14 @@
 pragma solidity 0.8.30;
 
 import {vm} from "./Vm.sol";
-import {Stage2} from "./Stage2.sol";
+import {PaymentsFixture} from "./PaymentsFixture.sol";
 import {ITicketBroker} from "../interfaces/ITicketBroker.sol";
 
 /// The payout and release rules of R-01 and R-22 that no shared case
 /// exercises. Amounts here are inputs, not rule outputs: each expected
 /// figure follows from them by the rule the test names, and the release
 /// wait is read from the shared examples.
-contract AccountTest is Stage2 {
+contract AccountTest is PaymentsFixture {
     uint256 private constant DEPOSIT = 1_000_000;
     uint256 private constant EARMARK = 400_000;
     uint256 private wait;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {IRegistryV3} from "../../interfaces/IRegistry.sol";
+import {IRegistry} from "../../interfaces/IRegistry.sol";
 import {IRoundClock} from "../../interfaces/IRoundClock.sol";
 
 /// Who is a node, where its USDC half is paid (rulebook R-01), and which key
@@ -10,7 +10,7 @@ import {IRoundClock} from "../../interfaces/IRoundClock.sol";
 /// the name "BondingManager". It also answers the one authority check,
 /// mayActFor, which StakeLedger, Claims and Scores read at the moment they
 /// execute.
-contract Registry is IRegistryV3 {
+contract Registry is IRegistry {
     IRoundClock private immutable clock;
     /// The Broker's address, fixed at deployment. A payout there would keep
     /// the node's half inside the Broker, so it is refused. The Broker is

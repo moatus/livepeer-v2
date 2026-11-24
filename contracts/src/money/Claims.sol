@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import {IClaims} from "../../interfaces/IClaims.sol";
 import {ITestLPT} from "../../interfaces/ITestLPT.sol";
-import {IRegistryV3} from "../../interfaces/IRegistry.sol";
+import {IRegistry} from "../../interfaces/IRegistry.sol";
 import {IRoundClock} from "../../interfaces/IRoundClock.sol";
 import {ITicketBroker} from "../../interfaces/ITicketBroker.sol";
 import {IStakeLedger} from "../../interfaces/IStakeLedger.sol";
@@ -46,7 +46,7 @@ contract Claims is IClaims {
     uint256 private constant MAX_SCORE = 1_000_000;
 
     ITestLPT private immutable lpt;
-    IRegistryV3 private immutable registry;
+    IRegistry private immutable registry;
     IRoundClock private immutable clock;
     ITicketBroker private immutable broker;
     IStakeLedger private immutable ledger;
@@ -89,7 +89,7 @@ contract Claims is IClaims {
 
     constructor(
         ITestLPT lpt_,
-        IRegistryV3 registry_,
+        IRegistry registry_,
         IRoundClock clock_,
         ITicketBroker broker_,
         IStakeLedger ledger_,

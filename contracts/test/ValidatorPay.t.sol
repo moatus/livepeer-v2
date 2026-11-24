@@ -2,8 +2,8 @@
 pragma solidity 0.8.30;
 
 import {vm} from "./Vm.sol";
-import {LedgerRunnerV2} from "./LedgerRunnerV2.sol";
-import {ScoreStub} from "./Stage3.sol";
+import {RewardLedgerRunner} from "./RewardLedgerRunner.sol";
+import {ScoreStub} from "./RewardsFixture.sol";
 import {TestLPT} from "../src/money/TestLPT.sol";
 import {Claims} from "../src/money/Claims.sol";
 import {IScores} from "../interfaces/IScores.sol";
@@ -55,11 +55,11 @@ contract StakeStub {
 /// Scores.
 ///
 /// After the mint and after each withdrawal, the runner's checks hold (see
-/// LedgerRunnerV2): R-10's two amounts minted in full; one ValidatorPaid
+/// RewardLedgerRunner): R-10's two amounts minted in full; one ValidatorPaid
 /// for each member, agreeing with validatorPayOf; each payout, Claims and
 /// the treasury rising by what was paid them; Claims holding the pots less
 /// the parts withdrawn; the round's issuance at most its ceiling.
-contract ValidatorPayTest is LedgerRunnerV2 {
+contract ValidatorPayTest is RewardLedgerRunner {
     StakeStub internal stakes;
     /// test_validator_share_change: each member's LPT before a share mint.
     uint256[2] internal payoutBefore;

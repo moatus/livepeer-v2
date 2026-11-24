@@ -1,6 +1,6 @@
 {
-  "testnet": "public-arbitrum-sepolia-stage-4",
-  "about": "The template for the stage 4 public deployment: the stage 4 system, as stage-4-local.json describes it, deployed once to Arbitrum Sepolia (D-14) by demo/public-run stage-4 and left running by demo/public-run serve. Nothing is deployed yet: every address is null until a run fills it. The run reads the node, model, price, signer limits, LPT, pool, faucet and parameter change values below, so what runs is what this file says, and writes its own copy, with the chain id, the addresses, the source commit, the accounts and what the standing services need, to its state directory. That copy, once a run on Arbitrum Sepolia has reconciled, is the manifest to keep here. The stage 3 template, public-arbitrum-sepolia.json, still runs with demo/public-run.",
+  "testnet": "public-arbitrum-sepolia-full",
+  "about": "The template for the stage 4 public deployment: the stage 4 system, as full-local.json describes it, deployed once to Arbitrum Sepolia (D-14) by demo/public-run full and left running by demo/public-run serve. Nothing is deployed yet: every address is null until a run fills it. The run reads the node, model, price, signer limits, LPT, pool, faucet and parameter change values below, so what runs is what this file says, and writes its own copy, with the chain id, the addresses, the source commit, the accounts and what the standing services need, to its state directory. That copy, once a run on Arbitrum Sepolia has reconciled, is the manifest to keep here. The stage 3 template, public-arbitrum-sepolia.json, still runs with demo/public-run.",
   "spec": "S-07 and S-10",
   "rulebook": "rulebook/october-main-text-v5.md",
   "vectors": "vectors/october-main-text-v5.json",

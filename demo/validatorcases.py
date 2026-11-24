@@ -2,7 +2,7 @@
 chain's views show into `validators` and `validator-pay` cases (rulebook
 v2, the shared examples).
 
-Pure functions only, like `ledgercase.py`: `stage3.py` reads the chain and
+Pure functions only, like `ledgercase.py`: `rewards.py` reads the chain and
 hands the figures in; this file puts them in the form the calculator reads.
 The one figure it works out is a split's dust, its pot less the parts
 Claims states, which no view gives.

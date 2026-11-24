@@ -1,5 +1,5 @@
 {
-  "testnet": "stage-2-local",
+  "testnet": "payments-local",
   "about": "What the stage 2 testnet contains and every stand-in it uses. It is deployed fresh on a local chain by ./dev demo at every run, so no address is fixed here: the demo prints the addresses of its run and writes them to .cache/demo/run/addresses.json. The demo reads the node, model, chain and flag values below from this file, so what runs is what this file says.",
   "spec": "S-09",
   "rulebook": "rulebook/october-main-text-v1.md",

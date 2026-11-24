@@ -5,7 +5,7 @@ pragma solidity 0.8.30;
 /// a node and where its USDC half is paid (R-01), and each node's one
 /// operator key (R-26), the node itself until a proposed key accepts. Only
 /// that key acts for the node.
-interface IRegistryV3 {
+interface IRegistry {
     /// Anyone, at any time, free. Registration is permanent; registering
     /// again changes nothing and is not refused.
     function register() external;

@@ -2,7 +2,7 @@
 pragma solidity 0.8.30;
 
 import {vm} from "./Vm.sol";
-import {Stage2} from "./Stage2.sol";
+import {PaymentsFixture} from "./PaymentsFixture.sol";
 import {TestLPT} from "../src/money/TestLPT.sol";
 import {StakeLedger} from "../src/money/StakeLedger.sol";
 import {Claims} from "../src/money/Claims.sol";
@@ -44,9 +44,9 @@ contract ScoreStub is IScoreSource {
 /// the steps a holder takes. Claims is created at the address the token
 /// was given at deployment, as the Broker is at the Registry's. Claims
 /// reads scores and members from the stub, or, deployed with
-/// deployStage3WithScores, from the real Scores, as stage 3 deploys it:
+/// deployRewardsWithScores, from the real Scores, as stage 3 deploys it:
 /// one contract as both the score source and the validator set.
-abstract contract Stage3 is Stage2 {
+abstract contract RewardsFixture is PaymentsFixture {
     /// Test LPT's genesis supply, a test value outside every round's
     /// issuance. The test contract deploys the token, so it holds it.
     uint256 internal constant GENESIS = 1_000_000_000e18;
@@ -59,25 +59,25 @@ abstract contract Stage3 is Stage2 {
     IScores internal validatorSet;
     Claims internal claims;
 
-    function deployStage3() internal {
-        deployStage3(GENESIS);
+    function deployRewards() internal {
+        deployRewards(GENESIS);
     }
 
-    function deployStage3(uint256 genesis) internal {
-        deployStage3(genesis, false);
+    function deployRewards(uint256 genesis) internal {
+        deployRewards(genesis, false);
     }
 
-    /// As deployStage3, with the real Scores as the deployment's score
+    /// As deployRewards, with the real Scores as the deployment's score
     /// source and Claims' validator set.
-    function deployStage3WithScores() internal {
-        deployStage3(GENESIS, true);
+    function deployRewardsWithScores() internal {
+        deployRewards(GENESIS, true);
     }
 
     /// Stage 2's five contracts, then the token, StakeLedger, the stub or
     /// Scores, Parameters and Claims, in that order: the Broker, StakeLedger
     /// and Scores are given the address Parameters will have, and the token
     /// Claims'.
-    function deployStage3(uint256 genesis, bool real) internal {
+    function deployRewards(uint256 genesis, bool real) internal {
         uint256 n = vm.getNonce(address(this));
         address parameters = vm.computeCreateAddress(address(this), n + 8);
         address next = vm.computeCreateAddress(address(this), n + 9);

@@ -1,6 +1,6 @@
 {
   "testnet": "public-arbitrum-sepolia",
-  "about": "The template for the first public deployment (D-14): the stage 3 system, as stage-3-local.json describes it, on Arbitrum Sepolia, with the team's node and one scripted validator. Nothing is deployed yet: every address is null until a run fills it. demo/public-run reads the node, model, price, signer limits and LPT values below, so what runs is what this file says; it writes the run's own copy, with the chain id, the addresses, the source commit and the accounts, to its state directory. That copy, once a run on Arbitrum Sepolia has reconciled, is the manifest to keep here.",
+  "about": "The template for the first public deployment (D-14): the stage 3 system, as rewards-local.json describes it, on Arbitrum Sepolia, with the team's node and one scripted validator. Nothing is deployed yet: every address is null until a run fills it. demo/public-run reads the node, model, price, signer limits and LPT values below, so what runs is what this file says; it writes the run's own copy, with the chain id, the addresses, the source commit and the accounts, to its state directory. That copy, once a run on Arbitrum Sepolia has reconciled, is the manifest to keep here.",
   "spec": "S-05 and S-06",
   "rulebook": "rulebook/october-main-text-v2.md",
   "vectors": "vectors/october-main-text-v2.json",

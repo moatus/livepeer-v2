@@ -35,7 +35,7 @@ import (
 // decoder of the payment parameters, are those of the node the demo runs.
 func TestTheNodeModuleIsThePinnedNode(t *testing.T) {
 	var manifest struct{ Node struct{ Commit string } }
-	data, err := os.ReadFile("../../../deployments/stage-3-local.json")
+	data, err := os.ReadFile("../../../deployments/rewards-local.json")
 	if err != nil || json.Unmarshal(data, &manifest) != nil || len(manifest.Node.Commit) < 12 {
 		t.Fatalf("the stage 3 manifest's node commit: %v", err)
 	}

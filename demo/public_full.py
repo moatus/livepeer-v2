@@ -1,7 +1,7 @@
-"""demo/public-run stage-4 and demo/public-run serve: the stage 4 system on a
+"""demo/public-run full and demo/public-run serve: the stage 4 system on a
 chain the run does not control, and the services that keep it running.
 
-stage-4 deploys stage 4's contracts to the chain at LP2_RPC_URL by stage 4's
+full deploys stage 4's contracts to the chain at LP2_RPC_URL by stage 4's
 own deployment function (stage 3's contracts with the test pool, Parameters
 naming the Buyback as the buyback executor, then the Buyback), with the
 deployer's keystore and the authority's given by the environment: G, the
@@ -28,7 +28,7 @@ deployer's or G's keystore. It runs until it is stopped, and exits when one
 of its programs does, naming it.
 
 The path sends no anvil_* or evm_* call. Environment, as demo/public.py's,
-and for stage-4 also:
+and for full also:
   LP2_AUTHORITY_KEYSTORE       G's keystore file, outside the repository
   LP2_AUTHORITY_PASSWORD_FILE  its password file, outside the repository
   LP2_SENDER_URL               the sender's public URL, which deployment.json
@@ -56,12 +56,12 @@ from pathlib import Path
 
 import common
 import public
-import stage3
+import rewards
 import buyback as bb
 import ledgercase
 from common import NotRun, Failed, say, check, call, words, money, lpt, C, ADDR, NAMES, PORT, MANIFEST
 
-TEMPLATE = "public-arbitrum-sepolia-stage-4.json"
+TEMPLATE = "public-arbitrum-sepolia-full.json"
 ROLES = ("N", "P", "V", "Keeper", "Faucet")
 SERVICES = "services.json"
 OPERATORS = "deployment.json"   # the deployment file operators give their node container
@@ -121,7 +121,7 @@ def lp2_params(*argv: str) -> str:
 
 def deploy() -> None:
     bb.RUN = common.RUN  # the Buyback demo writes its addresses beside its run: here, the state directory
-    public.deploy(bb.deploy_stage4)
+    public.deploy(bb.deploy_full)
     for n in ("TestPool", "Buyback", "Broker", "Parameters"):
         NAMES[C[n].lower()] = n
 
@@ -135,7 +135,7 @@ def keeper_gas() -> int:
 
 
 def executor_in_force() -> str:
-    return f"0x{words(C['Parameters'], 'valuesAt(uint256,uint256)', 10, stage3.current_round())[2]:040x}"
+    return f"0x{words(C['Parameters'], 'valuesAt(uint256,uint256)', 10, rewards.current_round())[2]:040x}"
 
 
 def unbonding_now(at_round: int) -> list[int]:
@@ -226,8 +226,8 @@ def main() -> int:
                                                                       C["Registry"], "register()") and None)
     check("N is registered, with no stake", (call(C["Registry"], "isRegistered(address)", ADDR["N"]),
                                              call(C["StakeLedger"], "stakeAt(address,uint256)", ADDR["N"], 1)), (1, 0))
-    public.step("bond N", lambda: stage3.bond("N", "N", public.N_BOND))
-    public.step("bond V", lambda: stage3.bond("V", "V", public.V_BOND))
+    public.step("bond N", lambda: rewards.bond("N", "N", public.N_BOND))
+    public.step("bond V", lambda: rewards.bond("V", "V", public.V_BOND))
     say(f"  N bonds {lpt(public.N_BOND)} and V {lpt(public.V_BOND)} to themselves; each counts from the next round")
     public.fund_p(face)
     public.step("observe", lambda: common.observe("P", "N") and None, sends=False)
@@ -252,7 +252,7 @@ def validator_script() -> Path:
     if not opted:
         return public.SCRIPT
     script = public.STATE_DIR / "validators-resumed.script"
-    script.write_text(f"# Written by demo/public-run stage-4: V opted in at block {int(opted[0]['blockNumber'], 16)}, "
+    script.write_text(f"# Written by demo/public-run full: V opted in at block {int(opted[0]['blockNumber'], 16)}, "
                       "so it has nothing left to send.\n")
     return script
 
@@ -282,7 +282,7 @@ def wait_both(change: dict) -> None:
     last, filled_at = None, None
     seen_round, round_at = None, time.time()
     while True:
-        now = stage3.current_round()
+        now = rewards.current_round()
         if now != seen_round:
             seen_round, round_at = now, time.time()
         if now >= cf - 1 and "change before" not in public.STATE["done"]:
@@ -368,7 +368,7 @@ def reconcile(chain_id: int, started: float) -> int:
         [(state["done"]["buy"]["block"], None)])[0])) - 1
     if "keeper" in common.PROCS:
         give_up = time.time() + 300
-        while not stage3.shares_minted(last):
+        while not rewards.shares_minted(last):
             if common.PROCS["keeper"].poll() is not None or time.time() > give_up:
                 raise Failed(f"the keeper did not mint round {last}'s shares; see logs/keeper.log in the state directory")
             time.sleep(5)
@@ -376,21 +376,21 @@ def reconcile(chain_id: int, started: float) -> int:
         common.stop(p)
     say("\n7. Every figure, read from the chain, beside the calculator's")
     check(f"rounds 1 to {last} whose shares the keeper did not mint",
-          [r for r in range(1, last + 1) if not stage3.shares_minted(r)], [])
+          [r for r in range(1, last + 1) if not rewards.shares_minted(r)], [])
     check(f"rounds 3 to {last} without V as their one validator",
-          [r for r in range(3, last + 1) if stage3.members_at(r) != ["V"]], [])
+          [r for r in range(3, last + 1) if rewards.members_at(r) != ["V"]], [])
     buys = common.logs(C["Buyback"], bb.BOUGHT)
     figures = [bb.bought_of({"logs": [lg]}, C["Buyback"]) for lg in buys]
     seeded = int(MANIFEST["pool"]["seed_usdc_micro_usdc"])
     moved = {"spent_micro_usdc": sum(int(f["usdc_in_micro_usdc"]) for f in figures),
              "burned_wei": sum(int(f["burned_wei"]) for f in figures), "seeded_micro_usdc": seeded}
-    m = stage3.members()
-    ordered, views, calc = common.reconcile("The payment, the stake and each round's shares", stage3.keeper_steps(), m,
+    m = rewards.members()
+    ordered, views, calc = common.reconcile("The payment, the stake and each round's shares", rewards.keeper_steps(), m,
                                             moved)
-    pay = stage3.validator_pay_run_cases()
+    pay = rewards.validator_pay_run_cases()
     count = differ = 0
     for c in pay:
-        n, d = stage3.compare(c["id"], c["expected"], stage3.calculate("validator-pay", c["inputs"]))
+        n, d = rewards.compare(c["id"], c["expected"], rewards.calculate("validator-pay", c["inputs"]))
         count, differ = count + n, differ + d
     say(f"  the validator pay of rounds 1 to {len(pay)} (members {', '.join(sorted({x for v in m.values() for x in v})) or 'none'}): "
         f"{count} figures, {'all equal' if not differ else f'{differ} DIFFER'}")
@@ -445,7 +445,7 @@ def buyback_case(buys: list[dict], minted: int, block: int) -> dict:
              "lpt_supply_wei": str(call(C["TestLPT"], "totalSupply()", block=block))}
     the_case = {"id": "public-run-buyback", "kind": "buyback",
                 "inputs": {"lpt_supply_wei": str(supply), "steps": steps}, "expected": chain}
-    calc = stage3.calculate("buyback", the_case["inputs"])
+    calc = rewards.calculate("buyback", the_case["inputs"])
     say(f"  {len(steps)} steps: the seed, {len(pokes)} poke(s), {len(jobs)} job(s) and {len(buys)} buy(s), "
         f"supply before any burn {lpt(supply)} LPT (genesis and every round's mint)")
     for got, want in zip(bought, calc.get("bought", [])):
@@ -459,7 +459,7 @@ def buyback_case(buys: list[dict], minted: int, block: int) -> dict:
                             ("reserve_usdc_micro_usdc", "the pool's USDC (micro-USDC)", money),
                             ("reserve_lpt_wei", "the pool's LPT", lpt), ("lpt_supply_wei", "LPT supply after the burn", lpt)):
         side(label, int(chain[key]), int(calc[key]), fmt)
-    n, d = stage3.compare("the buyback case", chain, calc)
+    n, d = rewards.compare("the buyback case", chain, calc)
     say(f"  every figure of the buyback case: {n}, {'all equal' if not d else f'{d} DIFFER'}")
     return the_case
 
@@ -487,25 +487,25 @@ def parameters_case() -> dict:
     chain = {"announced": [{"step": "1", "counts_from": str(a["counts_from"])}], "observed": observed, "refused": []}
     the_case = {"id": "public-run-parameters", "kind": "parameters", "inputs": {"authority": "G", "steps": steps},
                 "expected": chain}
-    calc = stage3.calculate("parameters", the_case["inputs"])
+    calc = rewards.calculate("parameters", the_case["inputs"])
     side(f"announced in round {a['round']}: counts from round", a["counts_from"],
                 int(calc["announced"][0]["counts_from"]) if calc.get("announced") else None)
     for got, want, r in zip(observed, calc.get("observed", []), (before, after)):
         side(f"{pc['name']} in round {r['at_round']} (read in round {r['round']})",
                     " ".join(got["values"]), " ".join(want["values"]))
-    n, d = stage3.compare("the parameters case", chain, calc)
+    n, d = rewards.compare("the parameters case", chain, calc)
     say(f"  every figure of the parameters case: {n}, {'all equal' if not d else f'{d} DIFFER'}")
     return the_case
 
 
 def write_cases(cases: list[dict]) -> None:
-    out = public.STATE_DIR / "stage-4-cases.json"
+    out = public.STATE_DIR / "full-cases.json"
     out.write_text(json.dumps(ledgercase.document(common.VECTORS, cases), indent=1) + "\n")
     done = subprocess.run([str(common.ROOT / "calculator" / "check"), str(out)], capture_output=True, text=True)
-    say(f"\n  wrote stage-4-cases.json: the buyback and parameters cases, as the chain shows them")
+    say(f"\n  wrote full-cases.json: the buyback and parameters cases, as the chain shows them")
     said = [ln for ln in (done.stdout + done.stderr).splitlines() if any(c["id"] in ln for c in cases)]
     for line in said or (done.stdout + done.stderr).strip().splitlines()[-2:]:
-        say(f"  ./calculator/check stage-4-cases.json: {line[:150]}{' ...' if len(line) > 150 else ''}")
+        say(f"  ./calculator/check full-cases.json: {line[:150]}{' ...' if len(line) > 150 else ''}")
     check("the calculator reproduces the run's buyback and parameters cases", done.returncode, 0)
 
 
@@ -782,7 +782,7 @@ def start_sender(listen: str, local: bool) -> None:
     each node that joins, once a round. Its list is in the state directory.
     Node URLs on private addresses are allowed on a local chain only."""
     common.start("sender", [str(public.STATE_DIR / "bin" / "lp2-sender"), "--rpc-url", common.RPC,
-                            "--keystore-file", str(stage3.KEYS["P"]),
+                            "--keystore-file", str(rewards.KEYS["P"]),
                             "--keystore-password-file", str(public.STATE_DIR / "pw"),
                             "--controller-address", C["Controller"], "--usdc-address", C["MockUSDC"],
                             "--signer-url", f"http://127.0.0.1:{PORT['signer_p']}",
@@ -806,7 +806,7 @@ def start_faucet(state_dir: Path, from_block: int) -> None:
     journal = state_dir / "faucet"
     journal.mkdir(mode=0o700, exist_ok=True)
     common.start("faucet", [str(state_dir / "bin" / "lp2-faucet"), "--rpc-url", common.RPC,
-                            "--keystore-file", str(stage3.KEYS["Faucet"]),
+                            "--keystore-file", str(rewards.KEYS["Faucet"]),
                             "--keystore-password-file", str(state_dir / "pw"),
                             "--controller-address", C["Controller"], "--lpt-address", C["TestLPT"],
                             "--state-dir", str(journal), "--from-block", str(from_block)])
@@ -850,7 +850,7 @@ def join_n(listen: str, chain_id: int) -> None:
         # until then the sender answers UNREACHABLE.
         issued = int(time.time())
         msg = f"lp2-join:v1:{chain_id}:{C['Registry'].lower()}:{ADDR['N'].lower()}:{node_url}:{issued}"
-        sig = common.sh(["cast", "wallet", "sign", "--keystore", str(stage3.KEYS["N"]),
+        sig = common.sh(["cast", "wallet", "sign", "--keystore", str(rewards.KEYS["N"]),
                          "--password-file", str(public.STATE_DIR / "pw"), msg])
         status, text = common.post("http://127.0.0.1:" + listen.rsplit(":", 1)[1] + "/join",
                                    {"node": ADDR["N"].lower(), "url": node_url, "issuedAt": issued, "signature": sig})
@@ -867,7 +867,7 @@ def serve() -> int:
     state_dir = public.outside_repo("LP2_STATE_DIR", False)
     if not (state_dir / SERVICES).is_file() or not (state_dir / OPERATORS).is_file():
         raise NotRun(f"{state_dir} holds no {SERVICES} and {OPERATORS}: no stage 4 run has passed and handed over to "
-                     "services there (demo/public-run stage-4)")
+                     "services there (demo/public-run full)")
     public.STATE_DIR = state_dir
     public.lock()
     common.RUN = state_dir
@@ -896,8 +896,8 @@ def serve() -> int:
     for who, addr in svc["accounts"].items():
         ADDR[who], NAMES[addr.lower()] = addr, who
     for who in ("N", "P", "V", "Keeper", "Faucet"):
-        stage3.KEYS[who] = public.private(state_dir / svc["keys"][who])
-        if not stage3.KEYS[who].is_file():
+        rewards.KEYS[who] = public.private(state_dir / svc["keys"][who])
+        if not rewards.KEYS[who].is_file():
             raise NotRun(f"the state directory holds no key file for {who} ({svc['keys'][who]})")
     say("The standing services of the stage 4 deployment: N's node with the light responder, the keeper, the "
         "scripted validator V, lp2-sender with P's signer, and lp2-faucet")
@@ -915,7 +915,7 @@ def serve() -> int:
     common.build_ours()
     # V votes the full score for N in the round after the services start,
     # which leaves every score as it was: a validator call each start.
-    first = stage3.current_round()
+    first = rewards.current_round()
     script = state_dir / "serve-validators.script"
     script.write_text("# Written by demo/public-run serve: V votes the full score for N in the round after the\n"
                       f"# services started (round {first}), which leaves every score as it was.\n{first + 1} V N 1000000\n")
@@ -937,7 +937,7 @@ def serve() -> int:
             for name, p in common.PROCS.items():
                 if p.poll() is not None:
                     raise Failed(f"{name} exited with status {p.returncode}; see logs/{name}.log in the state directory")
-            now = stage3.current_round()
+            now = rewards.current_round()
             if now != last:
                 left = keeper_gas()
                 low = (f"; the keeper can pay for about {left} more transactions: send its address {ADDR['Keeper']} "

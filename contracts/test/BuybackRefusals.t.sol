@@ -2,7 +2,7 @@
 pragma solidity 0.8.30;
 
 import {vm, Vm} from "./Vm.sol";
-import {Stage4, ValuesStub, LyingPool, OtherExecutor} from "./Stage4.sol";
+import {FullFixture, ValuesStub, LyingPool, OtherExecutor} from "./FullFixture.sol";
 import {TestPool} from "../src/money/TestPool.sol";
 import {TestLPT} from "../src/money/TestLPT.sol";
 import {Broker} from "../src/money/Broker.sol";
@@ -16,7 +16,7 @@ import {IBuybackValues} from "../interfaces/IBuybackValues.sol";
 /// another pair under its own hash, a pool that delivers short or over,
 /// each refusal of rule 11 in its order, a change of pool, a bound whose
 /// product passes 2^256, the draw, the burn and the values' ranges.
-contract BuybackRefusalsTest is Stage4 {
+contract BuybackRefusalsTest is FullFixture {
     uint256 private constant GENESIS = 10_000_000e18;
     uint256 private constant HOUR = 3600;
     uint256 private constant T0 = 1_000_000;
@@ -32,7 +32,7 @@ contract BuybackRefusalsTest is Stage4 {
     /// cumulatives, TestPool's code over another token, and an address
     /// with no code are refused POOL_INVALID by buy and poke, held or not.
     function test_lying_pools_are_refused() external {
-        deployStage4(GENESIS, STUB);
+        deployFull(GENESIS, STUB);
         seed(pool, 500_000e6, 100_000e18);
         job(1000e6);
 
@@ -67,7 +67,7 @@ contract BuybackRefusalsTest is Stage4 {
     /// but not the pair. Both a pool of USDC and another token and a pool of
     /// another token and LPT are refused POOL_INVALID by poke and buy.
     function test_a_pool_of_another_pair_is_refused_under_its_own_hash() external {
-        deployStage4(GENESIS, STUB);
+        deployFull(GENESIS, STUB);
         job(1000e6);
         TestLPT other = new TestLPT(who("Claims"), GENESIS);
         TestPool[2] memory foreign =
@@ -107,7 +107,7 @@ contract BuybackRefusalsTest is Stage4 {
     /// Buyback pinned to its hash: LPT_SHORT, and the held share, the pool
     /// and the LPT sent to the Buyback beforehand are as they were.
     function test_short_delivery_is_refused_and_moves_nothing() external {
-        deployStage4(GENESIS, SHORT);
+        deployFull(GENESIS, SHORT);
         require(lpt.transfer(address(shortPool), 200e18), "the short pool's LPT");
         require(lpt.transfer(address(buyback), 3e18), "LPT sent beforehand");
         require(poke().length == 0, "poke");
@@ -139,7 +139,7 @@ contract BuybackRefusalsTest is Stage4 {
     /// arrived, the quote and the extra wei, not the quote; the LPT sent
     /// to the Buyback beforehand stays.
     function test_over_delivery_burns_what_arrived() external {
-        deployStage4(GENESIS, OVER);
+        deployFull(GENESIS, OVER);
         require(lpt.transfer(address(shortPool), 200e18), "the pool's LPT");
         require(lpt.transfer(address(buyback), 3e18), "LPT sent beforehand");
         require(poke().length == 0, "poke");
@@ -165,7 +165,7 @@ contract BuybackRefusalsTest is Stage4 {
 
     /// Buy: each refusal, and where two apply, the earlier one.
     function test_buy_refusals_in_order() external {
-        deployStage4(GENESIS, STUB);
+        deployFull(GENESIS, STUB);
         LyingPool empty = new LyingPool(address(usdc), address(lpt));
 
         // NOTHING_HELD before POOL_INVALID.
@@ -204,7 +204,7 @@ contract BuybackRefusalsTest is Stage4 {
 
     /// Poke: POOL_INVALID, NO_LIQUIDITY, NOT_DUE with the time it is due.
     function test_poke_refusals_in_order() external {
-        deployStage4(GENESIS, STUB);
+        deployFull(GENESIS, STUB);
         LyingPool empty = new LyingPool(address(usdc), address(lpt));
         usePool(address(empty));
         expectRefused(poke(), poolInvalid(address(empty)), "a lying pool with no reserves");
@@ -230,7 +230,7 @@ contract BuybackRefusalsTest is Stage4 {
     /// from O1, over the second hour alone. Both buys are from the same
     /// state, with 100,000 USDC held, more than either bound allows.
     function test_the_twap_switches_from_o0_to_o1_when_o1_is_an_interval_old() external {
-        deployStage4(GENESIS, STUB);
+        deployFull(GENESIS, STUB);
         seed(pool, 500_000e6, 100_000e18);
         require(poke().length == 0, "poke at T0");
         job(200_000e6);
@@ -283,7 +283,7 @@ contract BuybackRefusalsTest is Stage4 {
     /// Draw: NOT_AUTHORIZED from any address but group 10's, the amount
     /// aside; then AMOUNT_TOO_LARGE above what is held.
     function test_draw_refusals_in_order() external {
-        deployStage4(GENESIS, STUB);
+        deployFull(GENESIS, STUB);
         job(1000e6);
         uint256 held = broker.networkHeld();
         bytes memory over = abi.encodeCall(Broker.drawNetwork, (held + 1, who("anyone")));
@@ -321,7 +321,7 @@ contract BuybackRefusalsTest is Stage4 {
     /// NOT_AUTHORIZED, and no balance moves; X3 refuses P. From A + 8 X3
     /// draws all that is held to Q.
     function test_the_draw_follows_the_executor_of_its_round() external {
-        deployStage4(GENESIS, 0);
+        deployFull(GENESIS, 0);
         seed(pool, 500_000e6, 100_000e18);
         require(poke().length == 0, "poke P");
         vm.warp(block.timestamp + HOUR);
@@ -394,7 +394,7 @@ contract BuybackRefusalsTest is Stage4 {
     /// pool, and a buy at once. The buy takes effect, and maxIn and the
     /// buy's figures equal ones computed here without a 512-bit product.
     function test_the_bound_is_taken_at_full_width() external {
-        deployStage4(GENESIS, STUB);
+        deployFull(GENESIS, STUB);
         seed(pool, 2 ** 110, 2 ** 10);
         require(poke().length == 0, "poke");
         job(1000e6);
@@ -452,7 +452,7 @@ contract BuybackRefusalsTest is Stage4 {
     /// the balance it is refused as a transfer is. A transfer to 0xdEaD
     /// leaves supply as it was.
     function test_burn() external {
-        deployStage4(GENESIS, STUB);
+        deployFull(GENESIS, STUB);
         require(lpt.transfer(who("H"), 5e18), "give");
         vm.recordLogs();
         vm.prank(who("H"));
@@ -479,7 +479,7 @@ contract BuybackRefusalsTest is Stage4 {
     /// (v)'s range, and group 8's one value (10^6, 0, 0), and refuses one
     /// past either end with VALUE_OUT_OF_RANGE (R-25).
     function test_values_ranges() external {
-        deployStage4(GENESIS, 0);
+        deployFull(GENESIS, 0);
         uint256 p = uint256(uint160(address(pool)));
         uint256[4][4] memory ok =
             [[p, 1800, 5000, 1], [p, 7200, 50_000, 840], [p, 3600, 10_000, 1], [p, 1800, 50_000, 840]];
@@ -515,7 +515,7 @@ contract BuybackRefusalsTest is Stage4 {
     /// follows the new interval, pool and TWAP window. Group 8 can
     /// hold only (10^6, 0, 0), so its reading shows as the whole buy burnt.
     function test_a_buy_reads_the_values_of_its_round() external {
-        deployStage4(GENESIS, 0);
+        deployFull(GENESIS, 0);
         require(address(source) == address(params), "the values are Parameters'");
         seed(pool, 500_000e6, 100_000e18);
         require(poke().length == 0, "poke");

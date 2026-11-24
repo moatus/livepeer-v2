@@ -5,7 +5,7 @@ and runs the team's node through one paid job and one full reward cycle in
 real time. Then it reads every figure from the chain and prints it beside
 the independent calculator's figure. It is the path for the first public
 deployment (Arbitrum Sepolia, D-14). It uses the demo's code: the same node,
-programs, steps and reconciliation. `demo/public-run stage-4` does the same
+programs, steps and reconciliation. `demo/public-run full` does the same
 for the stage 4 system and hands it over to services that keep it running;
 see "Stage 4" below.
 
@@ -142,8 +142,8 @@ sent has a receipt.
 
 ## Stage 4
 
-`demo/public-run stage-4` deploys the stage 4 system once, from
-`deployments/public-arbitrum-sepolia-stage-4.json`, and shows stage 4's two
+`demo/public-run full` deploys the stage 4 system once, from
+`deployments/public-arbitrum-sepolia-full.json`, and shows stage 4's two
 public exit items in real time: test LPT bought with the network's share
 of a fee and burned, and an announced parameter change that counts seven
 rounds later. It then hands the deployment over to services that run
@@ -187,7 +187,7 @@ The run does the following, in order:
      value in the two rounds read.
 
    The run writes the cases into `ledger-case.json` and
-   `stage-4-cases.json`, and `./calculator/check` reproduces both files.
+   `full-cases.json`, and `./calculator/check` reproduces both files.
 8. The handover, only when every figure is equal. The run writes two
    files into the state directory. Its manifest gets neither file: it
    records the services, the faucet, the change and the first buy:
@@ -227,7 +227,7 @@ of its own. `LP2_ROLE_GAS_WEI` now applies to five accounts.
 ### The services
 
 ```sh
-export LP2_STATE_DIR=~/lp2-testnet/stage-4    # the state directory the run handed over
+export LP2_STATE_DIR=~/lp2-testnet/full    # the state directory the run handed over
 demo/public-run serve
 ```
 
@@ -285,7 +285,7 @@ It runs until it gets SIGTERM or Ctrl-C, then stops its programs and exits
 so a supervisor such as systemd can start it again. It holds the state
 directory's lock as the run does, so the run and the services never run at
 once. To read the run's figures again, stop the services. Then run
-`demo/public-run stage-4` with the run's variables set, and it sends
+`demo/public-run full` with the run's variables set, and it sends
 nothing. Once the sender has paid a node, a re-read is refused: the
 sender's funding is not a step of the run. So is a re-read once the
 faucet has granted a node. The run reconciled its figures at the
@@ -302,9 +302,9 @@ export LP2_DEPLOYER_KEYSTORE=~/lp2-testnet/deployer.json
 export LP2_DEPLOYER_PASSWORD_FILE=~/lp2-testnet/deployer.pw
 export LP2_AUTHORITY_KEYSTORE=~/lp2-testnet/authority.json
 export LP2_AUTHORITY_PASSWORD_FILE=~/lp2-testnet/authority.pw
-export LP2_STATE_DIR=~/lp2-testnet/stage-4
+export LP2_STATE_DIR=~/lp2-testnet/full
 export LP2_SENDER_URL=https://...             # where operators' nodes will reach the sender
-demo/public-run stage-4
+demo/public-run full
 ```
 
 The run ends with `DEMO PASSED` and exit 0 when every figure is equal. Then
@@ -320,7 +320,7 @@ URL of the testnet's deployment file. The owner publishes `deployment.json`
 from the state directory unchanged, through a pull request, in the same
 change that adds the dated manifest. It goes in `deployments/` beside the
 manifest, named for it with `.operator.json` in place of `.json`, for
-example `deployments/public-arbitrum-sepolia-stage-4-<date>.operator.json`.
+example `deployments/public-arbitrum-sepolia-full-<date>.operator.json`.
 Operators are given the raw URL of that file on the repository's host,
 which serves it over HTTPS. A new deployment gets a new file. If the
 sender moves, `serve` writes its new URL into `deployment.json`, and the
@@ -404,6 +404,6 @@ send. Its script's opt-in line would otherwise be sent again, late, since
 the contract takes a second opt-in.
 
 A state directory records which system it holds. `demo/public-run` refuses
-a stage 4 state directory, and `demo/public-run stage-4` refuses a stage 3
+a stage 4 state directory, and `demo/public-run full` refuses a stage 3
 one, mission 11's included. A state directory also records G's address, and
 a run given another authority key is refused.

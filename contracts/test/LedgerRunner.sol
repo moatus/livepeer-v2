@@ -2,14 +2,14 @@
 pragma solidity 0.8.30;
 
 import {vm} from "./Vm.sol";
-import {Stage2} from "./Stage2.sol";
+import {PaymentsFixture} from "./PaymentsFixture.sol";
 import {ITicketBroker} from "../interfaces/ITicketBroker.sol";
 
 /// Runs a shared `ledger` case through the contracts: its steps in order,
 /// a holding check after each, then every expected figure. Every input and
 /// expected number is read from the examples file. A profile that adds
 /// steps extends `act`, `holdsEverything` and `checkExpected`.
-abstract contract LedgerRunner is Stage2 {
+abstract contract LedgerRunner is PaymentsFixture {
     string internal path;
     string[] internal payers;
     string[] internal nodes;

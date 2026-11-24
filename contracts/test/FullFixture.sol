@@ -2,14 +2,14 @@
 pragma solidity 0.8.30;
 
 import {vm, Vm} from "./Vm.sol";
-import {Stage2} from "./Stage2.sol";
+import {PaymentsFixture} from "./PaymentsFixture.sol";
 import {TestLPT} from "../src/money/TestLPT.sol";
 import {TestPool} from "../src/money/TestPool.sol";
 import {Buyback} from "../src/money/Buyback.sol";
 import {IBuyback} from "../interfaces/IBuyback.sol";
 import {IBuybackExecutor} from "../interfaces/IBuybackExecutor.sol";
 import {IBuybackValues} from "../interfaces/IBuybackValues.sol";
-import {ITicketBroker, ITicketBrokerV2} from "../interfaces/ITicketBroker.sol";
+import {ITicketBroker, INetworkShareTicketBroker} from "../interfaces/ITicketBroker.sol";
 import {IRoundClock} from "../interfaces/IRoundClock.sol";
 
 /// A values source a test can change, so a test can name another pool or
@@ -34,12 +34,12 @@ contract ValuesStub is IBuybackValues {
 /// accepts the pools it is told to, whatever their code, and its buy draws
 /// all that is held to its round's pool and buys nothing. No exchange.
 contract OtherExecutor is IBuybackExecutor {
-    ITicketBrokerV2 private immutable broker;
+    INetworkShareTicketBroker private immutable broker;
     IBuybackValues private immutable source;
     IRoundClock private immutable clock;
     mapping(address => bool) public acceptsPool;
 
-    constructor(ITicketBrokerV2 broker_, IBuybackValues source_, IRoundClock clock_) {
+    constructor(INetworkShareTicketBroker broker_, IBuybackValues source_, IRoundClock clock_) {
         (broker, source, clock) = (broker_, source_, clock_);
     }
 
@@ -125,7 +125,7 @@ contract OverPool is ShortPool {
 /// Stage 2's contracts, then the test LPT, the pool, a values source,
 /// Parameters naming the Buyback as the executor (group 10), and the
 /// Buyback; and the steps of a `buyback` case (rulebook v5, R-16).
-abstract contract Stage4 is Stage2 {
+abstract contract FullFixture is PaymentsFixture {
     TestLPT internal lpt;
     TestPool internal pool;
     IBuybackValues internal source;
@@ -133,7 +133,7 @@ abstract contract Stage4 is Stage2 {
     ShortPool internal shortPool;
     uint256 private jobs;
 
-    /// deployStage4's options. With none, the deployment the demo makes:
+    /// deployFull's options. With none, the deployment the demo makes:
     /// Parameters as the values source, with the deployment's values, and
     /// USDC as the pool's token0.
     uint256 internal constant STUB = 1; // the values source is a ValuesStub a test may change
@@ -142,7 +142,7 @@ abstract contract Stage4 is Stage2 {
     uint256 internal constant LPT_FIRST = 8; // TestLPT's address sorts below MockUSDC's: LPT is token0
 
     /// A ShortPool or OverPool holds 1,000 USDC and 200 LPT of reserves.
-    function deployStage4(uint256 genesis, uint256 opts) internal {
+    function deployFull(uint256 genesis, uint256 opts) internal {
         bool misdelivers = opts & (SHORT | OVER) != 0;
         bool stub = opts & STUB != 0;
         // deployBase creates five contracts; then the token, the pool, the

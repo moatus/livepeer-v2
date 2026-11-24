@@ -209,9 +209,9 @@ def not_run(kind, value, tb):
     sys.exit(2)
 sys.excepthook = not_run
 
-PAIRS = [("Controller", "IController"), ("Registry", "IRegistryV3"), ("RoundClock", "IRoundClock"),
-         ("Broker", "ITicketBrokerV2"), ("MockUSDC", "IMockUSDC"), ("StakeLedger", "IStakeLedger"),
-         ("TestLPT", "ITestLPTV2"), ("Claims", "IClaims"), ("Scores", "IScores"),
+PAIRS = [("Controller", "IController"), ("Registry", "IRegistry"), ("RoundClock", "IRoundClock"),
+         ("Broker", "INetworkShareTicketBroker"), ("MockUSDC", "IMockUSDC"), ("StakeLedger", "IStakeLedger"),
+         ("TestLPT", "IBurnableTestLPT"), ("Claims", "IClaims"), ("Scores", "IScores"),
          ("Buyback", "IBuyback"), ("TestPool", "ITestPool"), ("Parameters", "IParameters")]
 
 # A struct's fields always carry their names; top-level parameters only

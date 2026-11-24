@@ -2,8 +2,8 @@
 pragma solidity 0.8.30;
 
 import {vm, Vm} from "./Vm.sol";
-import {Stage3} from "./Stage3.sol";
-import {IRegistryV3} from "../interfaces/IRegistry.sol";
+import {RewardsFixture} from "./RewardsFixture.sol";
+import {IRegistry} from "../interfaces/IRegistry.sol";
 import {Broker} from "../src/money/Broker.sol";
 import {Claims} from "../src/money/Claims.sol";
 import {MockUSDC} from "../src/money/MockUSDC.sol";
@@ -24,7 +24,7 @@ import {ITicketBroker} from "../interfaces/ITicketBroker.sol";
 ///                      test_proposal_events below
 ///   holder funds       test_holder_funds_move_only_the_callers_own (aimedAt
 ///                      builds a call for every entry)
-contract RotationTest is Stage3 {
+contract RotationTest is RewardsFixture {
     uint256 internal constant ONE = 1_000_000;
 
     /// The six lists, each function named Part.signature, as the compiler's
@@ -203,7 +203,7 @@ contract RotationTest is Stage3 {
 
     function setUp() external {
         loadVectors("october-main-text-v5");
-        deployStage3WithScores();
+        deployRewardsWithScores();
     }
 
     /// N proposes K1 and K1 accepts: K1 is N's operator key.
@@ -224,13 +224,13 @@ contract RotationTest is Stage3 {
         vm.recordLogs();
         expectDone(setOperatorAs(who("K1"), n, who("K1")), "K1 proposes itself");
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        require(logs.length == 1 && logs[0].topics[0] == IRegistryV3.OperatorProposed.selector, "one OperatorProposed");
+        require(logs.length == 1 && logs[0].topics[0] == IRegistry.OperatorProposed.selector, "one OperatorProposed");
         require(logs[0].topics[2] == bytes32(0), "the event names no proposed key");
         expectDone(setOperatorAs(who("K1"), n, who("K2")), "K1 proposes K2 again");
         vm.recordLogs();
         expectDone(acceptOperatorAs(who("K2"), n), "K2 accepts");
         logs = vm.getRecordedLogs();
-        require(logs.length == 1 && logs[0].topics[0] == IRegistryV3.OperatorSet.selector, "one OperatorSet");
+        require(logs.length == 1 && logs[0].topics[0] == IRegistry.OperatorSet.selector, "one OperatorSet");
         require(logs[0].topics[1] == bytes32(uint256(uint160(n))), "OperatorSet names N");
         require(logs[0].topics[2] == bytes32(uint256(uint160(who("K2")))), "OperatorSet names K2");
     }

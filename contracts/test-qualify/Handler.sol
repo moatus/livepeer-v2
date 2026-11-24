@@ -2,7 +2,7 @@
 pragma solidity 0.8.30;
 
 import {vm} from "../test/Vm.sol";
-import {Stage2} from "../test/Stage2.sol";
+import {PaymentsFixture} from "../test/PaymentsFixture.sol";
 import {Registry} from "../src/authority/Registry.sol";
 import {Broker} from "../src/money/Broker.sol";
 import {ITicketBroker} from "../interfaces/ITicketBroker.sol";
@@ -17,7 +17,7 @@ import {ITicketBroker} from "../interfaces/ITicketBroker.sol";
 /// start and 3 and 4 only when a run registers them, so payments to an
 /// address that is not a node happen too. Two wallets that are neither
 /// payers nor nodes can be named as payouts.
-contract Handler is Stage2 {
+contract Handler is PaymentsFixture {
     uint256 internal constant ACTORS = 5;
     uint256 internal constant WALLETS = 2;
     uint256 internal constant ONE = 1_000_000;

@@ -2,13 +2,13 @@
 pragma solidity 0.8.30;
 
 import {vm} from "./Vm.sol";
-import {Stage2} from "./Stage2.sol";
+import {PaymentsFixture} from "./PaymentsFixture.sol";
 import {ITicketBroker} from "../interfaces/ITicketBroker.sol";
 
 /// What the node relies on beyond the ledger cases: the names it looks up,
 /// what it is shown of a payer, the round clock it signs against, and the
 /// ticket checks it treats as final.
-contract Stage2Test is Stage2 {
+contract PaymentsTest is PaymentsFixture {
     function setUp() external {
         loadVectors();
         deploy();

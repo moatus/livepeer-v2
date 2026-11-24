@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {ITestLPTV2} from "../../interfaces/ITestLPT.sol";
+import {IBurnableTestLPT} from "../../interfaces/ITestLPT.sol";
 
 /// Stand-in for LPT: an ERC-20 with 18 decimals. The constructor creates the
 /// genesis supply for the deployer, outside every round's issuance (R-09);
@@ -9,7 +9,7 @@ import {ITestLPTV2} from "../../interfaces/ITestLPT.sol";
 /// deployment and never changed. Any holder may burn from its own balance
 /// (R-16), which lowers totalSupply. The deployment manifest names it as a
 /// stand-in.
-contract TestLPT is ITestLPTV2 {
+contract TestLPT is IBurnableTestLPT {
     string public constant name = "Test LPT";
     string public constant symbol = "tLPT";
     uint8 public constant decimals = 18;

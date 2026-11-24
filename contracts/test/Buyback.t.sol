@@ -2,13 +2,13 @@
 pragma solidity 0.8.30;
 
 import {vm} from "./Vm.sol";
-import {Stage4} from "./Stage4.sol";
+import {FullFixture} from "./FullFixture.sol";
 import {IBuyback} from "../interfaces/IBuyback.sol";
 
 /// The buyback (rulebook v5, R-16): every `buyback` case of the shared
 /// examples run step by step against the deployment the demo makes. What
 /// the cases cannot show is in BuybackRefusals.t.sol.
-contract BuybackTest is Stage4 {
+contract BuybackTest is FullFixture {
     /// LPT sent to the Buyback before a case runs: never counted or burned.
     uint256 private constant DONATION = 7e18;
 
@@ -73,7 +73,7 @@ contract BuybackTest is Stage4 {
     function runCase(string memory id, uint256 opts) internal {
         Run memory r;
         r.c = string.concat(".cases[", vm.toString(caseIndex(id)), "]");
-        deployStage4(num(string.concat(r.c, ".inputs.lpt_supply_wei")), opts);
+        deployFull(num(string.concat(r.c, ".inputs.lpt_supply_wei")), opts);
         require(lpt.transfer(address(buyback), DONATION), "donation");
         uint256 supply = lpt.totalSupply();
         for (uint256 k = 0; vm.keyExistsJson(vectors, stepPath(r.c, k)); k++) {

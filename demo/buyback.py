@@ -20,7 +20,7 @@ a `buyback` case into a copy of the shared examples, and
 Exit 0 every figure equal and every behaviour seen; 1 a figure differed or
 a behaviour was missing; 2 the demo could not run (a tool or a port). The
 chain, the LPT, the pool and the buyback values are read from
-deployments/stage-4-local.json.
+deployments/full-local.json.
 """
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ import time
 import urllib.error
 
 import common
-common.use("stage-4-local.json")
+common.use("full-local.json")
 from common import *  # noqa: E402,F401,F403
 from common import RUN, ROOT, MANIFEST, PARAMS, CASES, VECTORS, PORT, RPC, C, ADDR, KEY, NAMES, FAILURES  # noqa: E402
 import ledgercase  # noqa: E402
@@ -124,7 +124,7 @@ def keeper_once(keystore_file: Path, password_file: Path) -> tuple[int, str]:
 
 # --- deployment -------------------------------------------------------------------
 
-def deploy_stage4() -> None:
+def deploy_full() -> None:
     """Stage 3's contracts with the pool, and Parameters naming the Buyback's
     predicted address as the executor (group 10), then the Buyback, which
     reads its values from Parameters and is pinned to the pool's code."""
@@ -132,7 +132,7 @@ def deploy_stage4() -> None:
     # (the token, StakeLedger, Scores, the pool, Parameters and Claims).
     # The Buyback is the twelfth.
     buyback_at = next_address(11)
-    deploy_stage3(buyback_at, pool=True)
+    deploy_rewards(buyback_at, pool=True)
     code_hash = sh(["cast", "keccak", rpc("eth_getCode", [C["TestPool"], "latest"])])
     C["Buyback"] = forge_create("src/money/Buyback.sol:Buyback", C["Parameters"], C["Broker"],
                                 C["RoundClock"], C["TestLPT"], C["MockUSDC"], code_hash)
@@ -325,7 +325,7 @@ def main() -> int:
     open_log()
     started = time.time()
     say("Buyback demo (S-07 section 1): the network share buys test LPT from a test pool and burns it, on a fresh local chain")
-    say(f"Stand-ins, from deployments/stage-4-local.json: {'; '.join(s['stand_in'] for s in MANIFEST['stand_ins'])}.")
+    say(f"Stand-ins, from deployments/full-local.json: {'; '.join(s['stand_in'] for s in MANIFEST['stand_ins'])}.")
 
     say("\n1. Setting up")
     preflight()
@@ -340,7 +340,7 @@ def main() -> int:
         new_key(n)
     treasury = "0x" + os.urandom(20).hex()
     ADDR["Treasury"], NAMES[treasury.lower()] = treasury, "Treasury"
-    deploy_stage4()
+    deploy_full()
     send(KEY["N"], C["Registry"], "register()")
     send(KEY["deployer"], C["TestLPT"], "transfer(address,uint256)", C["Buyback"], DONATION)
     say(f"  N registered; {lpt(DONATION)} LPT sent to the Buyback beforehand")

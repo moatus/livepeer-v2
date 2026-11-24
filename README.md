@@ -26,7 +26,7 @@ once. Stage 4 has yet to be deployed on a public test chain.
 | Independent calculator | Computes every shared example from the rulebook alone |
 | Contracts | Stage 2: Controller, Registry, RoundClock, Broker, MockUSDC. Stage 3: TestLPT, StakeLedger, Scores, Claims. Stage 4: Parameters, TestPool, Buyback |
 | Node integration | The unmodified node, configured by flags alone; no fork |
-| One-command demo | `./dev demo` (stage 3); `./dev demo stage-2` still runs stage 2's; `./dev demo stage-4` runs stage 4's; `./dev demo buyback` runs the buyback's walk; `./dev demo light` runs the services that pay each node that joins and grant each registered node test LPT; `./dev demo container` runs the operator container against them |
+| One-command demo | `./dev demo` (stage 3); `./dev demo payments` still runs stage 2's; `./dev demo full` runs stage 4's; `./dev demo buyback` runs the buyback's walk; `./dev demo light` runs the services that pay each node that joins and grant each registered node test LPT; `./dev demo container` runs the operator container against them |
 
 ## Run the demo
 
@@ -80,7 +80,7 @@ an opt-in), not whenever stake moves.
 
 ### Stage 2: paid jobs with no stake
 
-`./dev demo stage-2` runs stage 2's demo against stage 2's rulebook. What it
+`./dev demo payments` runs stage 2's demo against stage 2's rulebook. What it
 does, in this order, printing each step:
 
 1. Starts a fresh local chain, deploys the five contracts, and starts the
@@ -122,7 +122,7 @@ for example the 40 blocks before the node redeems a ticket.
 
 ### Stage 4: buyback, authority changes and settlement recovery
 
-`./dev demo stage-4` starts a fresh local chain and runs paid jobs through
+`./dev demo full` starts a fresh local chain and runs paid jobs through
 the node. It shows an announced parameter change taking effect seven
 rounds later, a withdrawn change leaving the old value in force, and a
 new operator key claiming while the old key is refused. It restarts the
@@ -156,7 +156,7 @@ Broker and the first one's succeeds. From the round it counts, the
 running keeper pokes and buys at the second Buyback, whose buy has the
 walk's first buy's figures, and the first Buyback's buy is refused at the
 Broker with nothing moved. Its stand-ins are named in
-`deployments/stage-4-local.json`.
+`deployments/full-local.json`.
 
 ### The standing services: a node joins and is paid
 
@@ -267,7 +267,7 @@ key (so every value is the deployment's) and no buyback, and from stage 3
 test LPT and its genesis supply, the treasury address, the scripted
 validators, three validator seats for the paper's 33 and the keeper) is
 named in its manifest,
-`deployments/stage-3-local.json` or `deployments/stage-2-local.json`, which
+`deployments/rewards-local.json` or `deployments/payments-local.json`, which
 it reads its settings from.
 
 ## What else you can run
@@ -283,7 +283,7 @@ it reads its settings from.
 control, such as Arbitrum Sepolia, from an RPC URL and a deployer keystore
 you give it. It runs the team's node through one paid job and one reward
 cycle in real time, then reconciles every figure against the calculator.
-`demo/public-run stage-4` does the same for the stage 4 system: the
+`demo/public-run full` does the same for the stage 4 system: the
 network's share of a paid job buys test LPT and burns it, and a parameter
 change announced by an authority key you give it counts seven rounds
 later. When every figure is equal, it hands the deployment over to

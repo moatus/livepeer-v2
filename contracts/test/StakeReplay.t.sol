@@ -2,7 +2,7 @@
 pragma solidity 0.8.30;
 
 import {vm} from "./Vm.sol";
-import {Stage3} from "./Stage3.sol";
+import {RewardsFixture} from "./RewardsFixture.sol";
 import {StakeLedger} from "../src/money/StakeLedger.sol";
 
 /// S-05's hard core, stake at the start of a past round: bonds, unbonds,
@@ -15,7 +15,7 @@ import {StakeLedger} from "../src/money/StakeLedger.sol";
 /// last round every bondAt, stakeAt and totalStakeAt of every round is
 /// checked against those snapshots, so a ledger that rewrites a past round,
 /// or knows only the current one, fails.
-contract StakeReplayTest is Stage3 {
+contract StakeReplayTest is RewardsFixture {
     uint256 private constant ROUNDS = 40;
     uint256 private constant HOLDERS = 3;
     /// Registered nodes are 0 to NODES - 1; node NODES never registers.
@@ -224,7 +224,7 @@ contract StakeReplayTest is Stage3 {
     }
 
     function start() internal {
-        deployStage3();
+        deployRewards();
         for (uint256 j = 0; j < NODES; j++) {
             vm.prank(nodeAt(j));
             registry.register();

@@ -50,7 +50,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import common
-common.use("stage-3-local.json")
+common.use("rewards-local.json")
 from common import *  # noqa: E402,F401,F403
 from common import PORT, C, ADDR, KEY, BASE, MANIFEST, FAILURES  # noqa: E402
 
@@ -369,7 +369,7 @@ def main() -> int:
             KEYS[who] = keystore(who, pw)
     ADDR["Treasury"] = "0x" + os.urandom(20).hex()
     common.NAMES[ADDR["Treasury"].lower()] = "Treasury"
-    deploy_stage3()
+    deploy_rewards()
     send(KEY["deployer"], C["TestLPT"], "transfer(address,uint256)", ADDR["F"], FAUCET_LPT)
     for n in ("N", "M", "S", "X"):
         send(KEY[n], C["Registry"], "register()")
