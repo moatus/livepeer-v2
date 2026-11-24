@@ -4,6 +4,7 @@ pragma solidity 0.8.30;
 import {vm} from "./Vm.sol";
 import {FullFixture} from "./FullFixture.sol";
 import {IBuyback} from "../interfaces/IBuyback.sol";
+import {IUpgrades} from "../interfaces/IUpgrades.sol";
 
 /// The buyback (rulebook v5, R-16): every `buyback` case of the shared
 /// examples run step by step against the deployment the demo makes. What
@@ -61,6 +62,49 @@ contract BuybackTest is FullFixture {
     /// Rule 6, third case: a dust pool, 859 µUSDC for 863 wei.
     function test_rule6_dust_pool() external {
         runCase("buyback-dust-pool", 0);
+    }
+
+    /// The walk's first buy (step 6), otherwise executable, under the USDC
+    /// stop alone: the Buyback is not stopped, but the Broker's draw is, so
+    /// the buy is refused with exactly STOPPED() and nothing it would touch
+    /// changes. Once the upgrade key lifts the stop, the same buy is made in
+    /// the same round and second, with the case's figures (R-27, R-16).
+    function test_a_ready_buy_waits_for_the_usdc_stop() external {
+        Run memory r;
+        r.c = string.concat(".cases[", vm.toString(caseIndex("buyback-walk")), "]");
+        deployFull(num(string.concat(r.c, ".inputs.lpt_supply_wei")), 0);
+        for (uint256 k = 0; k < 5; k++) {
+            runStep(r, stepPath(r.c, k));
+        }
+        string memory six = stepPath(r.c, 5);
+        require(eq(str(six, ".step"), "6") && eq(str(six, ".action"), "buy"), "step 6 is the first buy");
+        toRound(num(string.concat(six, ".round")));
+        vm.warp(num(string.concat(six, ".time")));
+        vm.prank(who("S"));
+        upgrades.setStop(IUpgrades.Side.USDC);
+        require(!upgrades.stopped(IUpgrades.Side.LPT), "the Buyback's own side is not stopped");
+
+        bytes memory before = touched();
+        expectRefused(buy(), abi.encodeWithSignature("STOPPED()"), "buy under the USDC stop");
+        require(keccak256(touched()) == keccak256(before), "nothing the buy touches changed");
+
+        vm.prank(who("U"));
+        upgrades.liftStop(IUpgrades.Side.USDC);
+        runStep(r, six);
+        require(r.bought == 1, "the same buy made after the lift");
+    }
+
+    /// What a buy reads or writes: the pool's reserves and balances, the
+    /// supply, the Buyback's LPT, last buy round and observations, and the
+    /// Broker's USDC and network share.
+    function touched() internal view returns (bytes memory) {
+        (uint256 ru, uint256 rl,) = reserves(pool);
+        (uint256 c0, uint256 t0, uint256 c1, uint256 t1) = buyback.observations();
+        return abi.encode(
+            abi.encode(ru, rl, usdc.balanceOf(address(pool)), lpt.balanceOf(address(pool)), lpt.totalSupply()),
+            abi.encode(lpt.balanceOf(address(buyback)), buyback.lastBuyRound(), c0, t0, c1, t1),
+            abi.encode(usdc.balanceOf(address(broker)), broker.networkHeld())
+        );
     }
 
     struct Run {

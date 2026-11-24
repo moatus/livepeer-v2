@@ -12,6 +12,7 @@ import {Registry} from "../src/authority/Registry.sol";
 import {Parameters} from "../src/authority/Parameters.sol";
 import {RoundClock} from "../src/clock/RoundClock.sol";
 import {Scores} from "../src/scores/Scores.sol";
+import {Upgrades} from "../src/authority/Upgrades.sol";
 import {ITicketBroker} from "../interfaces/ITicketBroker.sol";
 import {IUpgrades} from "../interfaces/IUpgrades.sol";
 import {IParameters} from "../interfaces/IParameters.sol";
@@ -220,6 +221,53 @@ contract UpgradesTest is RewardsFixture {
             require(clock.currentRound() == round && round < a, "in the round announced, before its notice ends");
             require(params.valuesAt(4, round)[0] == delay, "Parameters' values kept");
         }
+    }
+
+    /// Upgrades' creation refuses KEY_INVALID, with exactly that error's
+    /// bytes, when U is zero, S is zero, or U and S are one key (R-27 rule
+    /// 5): no Upgrades is left at the address.
+    function test_creation_refuses_a_missing_or_shared_key() external {
+        deploySystem();
+        (address u, address s) = (who("U"), who("S"));
+        address[2][3] memory pairs = [[address(0), s], [u, address(0)], [u, u]];
+        for (uint256 i = 0; i < pairs.length; i++) {
+            address at = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
+            (bool ok, bytes memory ret) =
+                address(this).call(abi.encodeCall(this.newUpgradesWith, (pairs[i][0], pairs[i][1])));
+            require(
+                !ok && keccak256(ret) == keccak256(abi.encodeWithSelector(IUpgrades.KEY_INVALID.selector)),
+                "KEY_INVALID()"
+            );
+            require(at.code.length == 0, "no Upgrades left");
+        }
+        require(this.newUpgradesWith(u, s) != address(0), "two distinct keys are accepted");
+    }
+
+    function newUpgradesWith(address u, address s) external returns (address) {
+        return address(new Upgrades(address(clock), u, s, proxies, sides));
+    }
+
+    /// Only the upgrade key removes the pause key: S itself, G and an
+    /// outsider are refused NOT_AUTHORIZED, and the pause key and a pending
+    /// naming are kept.
+    function test_only_the_upgrade_key_removes_the_pause_key() external {
+        deploySystem();
+        vm.prank(who("U"));
+        uint256 from = upgrades.namePauser(who("S2"));
+        address[3] memory callers = [who("S"), who("G"), who("Outsider")];
+        for (uint256 i = 0; i < callers.length; i++) {
+            (bool ok, bytes memory ret) = send(callers[i], abi.encodeCall(IUpgrades.removePauser, ()));
+            require(
+                !ok && keccak256(ret) == keccak256(abi.encodeWithSelector(IUpgrades.NOT_AUTHORIZED.selector)),
+                "removePauser: NOT_AUTHORIZED"
+            );
+            require(upgrades.pauser() == who("S"), "the pause key kept");
+            (address next, uint256 counts) = upgrades.pauserNamed();
+            require(next == who("S2") && counts == from, "the naming kept");
+        }
+        vm.prank(who("U"));
+        upgrades.removePauser();
+        require(upgrades.pauser() == address(0), "U removes it");
     }
 
     /// pending and sideOf refuse NOT_UPGRADEABLE, with the address, for an

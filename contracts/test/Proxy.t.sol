@@ -28,6 +28,17 @@ contract Tripwire {
     }
 }
 
+/// Test code that writes any address into the proxy's ERC-1967 admin slot.
+contract AdminSlotWriter {
+    bytes32 private constant ADMIN = 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103;
+
+    function writeAdmin(address a) external {
+        assembly {
+            sstore(ADMIN, a)
+        }
+    }
+}
+
 /// The proxy (rulebook R-27, IProxy): only its admin's upgradeToAndCall is
 /// its own; every other call, a colliding selector included, runs the code
 /// in force with its calldata, value and bytes unchanged. Its refusals and
@@ -99,6 +110,26 @@ contract ProxyTest is RewardsFixture {
         require(ok && ret.length == 0, "the proxy's own call returns nothing");
         require(vm.load(proxy, IMPLEMENTATION) == slot(next), "the new code in force");
         upgradedOnce(proxy, next);
+    }
+
+    /// The proxy authorises against the admin fixed in its code, not the
+    /// slot's copy: code in force that writes another address into the
+    /// admin slot gives that address no upgrade (its call runs the code in
+    /// force), and Upgrades still replaces the code.
+    function test_the_admin_is_the_fixed_one_not_the_slots_copy() external {
+        address writer = address(new AdminSlotWriter());
+        address proxy = address(new Proxy(writer, address(upgrades), ""));
+        address usurper = who("Usurper");
+        AdminSlotWriter(proxy).writeAdmin(usurper);
+        require(vm.load(proxy, ADMIN) == slot(usurper), "the slot now names another address");
+        address other = address(new Tripwire());
+        vm.prank(usurper);
+        (bool ok,) = proxy.call(abi.encodeCall(IProxy.upgradeToAndCall, (other, "")));
+        require(!ok, "the slot's address runs the code in force, which has no upgradeToAndCall");
+        require(vm.load(proxy, IMPLEMENTATION) == slot(writer), "the code in force unchanged");
+        vm.prank(address(upgrades));
+        (ok,) = proxy.call(abi.encodeCall(IProxy.upgradeToAndCall, (other, "")));
+        require(ok && vm.load(proxy, IMPLEMENTATION) == slot(other), "Upgrades still replaces the code");
     }
 
     // --- creation and replacement --------------------------------------------------
