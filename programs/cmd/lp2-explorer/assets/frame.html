@@ -42,4 +42,11 @@
 </body>
 </html>
 {{end}}
+{{define "fees"}}<div class="card">{{if .Read}}{{if .Rows}}{{bars (.Recent .Rows 48)}}<div class="axis"><span>Round {{(index (.Recent .Rows 48) 0).Round}}</span><span>Round {{(index (.Newest .Rows 1) 0).Round}}</span></div>{{end}}{{end}}
+<table><tr><th>Round</th><th class="n">Fees</th><th class="n">Node amount</th><th class="n">Network amount</th></tr>
+{{if .Read}}{{range .Newest .Rows 30}}<tr><td>{{.Round}}</td><td class="n">{{$.USDC .Fees}}</td><td class="n">{{$.USDC .Node}}</td><td class="n">{{$.USDC .Network}}</td></tr>
+{{else}}<tr><td colspan="4" class="empty">No fees yet</td></tr>
+{{end}}{{else}}<tr><td colspan="4" class="empty">{{.Missing}}</td></tr>
+{{end}}</table></div>{{end}}
+{{define "address"}}{{if .Label}}{{str .Label}} {{end}}<span class="mono{{if .Label}} dim{{end}}">{{.Address.Hex}}</span>{{if .Simulated}}<span class="badge sim">simulated</span>{{end}}{{end}}
 {{define "who"}}{{if .Label}}{{str .Label}} <span class="mono dim" title="{{.Address.Hex}}">{{short .Address}}</span>{{else}}<span class="mono" title="{{.Address.Hex}}">{{short .Address}}</span>{{end}}{{if .Simulated}}<span class="badge sim">simulated</span>{{end}}{{end}}

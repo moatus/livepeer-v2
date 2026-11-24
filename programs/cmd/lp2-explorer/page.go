@@ -167,6 +167,7 @@ type frame struct {
 	Mine    *common.Address // the node / opens on
 	Missing string
 	Now     time.Time
+	names   *labelSet // the labels the page is served with
 }
 
 func (f frame) figure(n *Int, decimals int, unit string) string {
@@ -176,9 +177,58 @@ func (f frame) figure(n *Int, decimals int, unit string) string {
 	return units(n.big(), decimals) + unit
 }
 
-func (f frame) USDC(n *Int) string { return f.figure(n, 6, " USDC") }
-func (f frame) LPT(n *Int) string  { return f.figure(n, 18, " LPT") }
-func (f frame) ETH(n *Int) string  { return f.figure(n, 18, " ETH") }
+// readPlaces is how many decimals an LPT or ETH figure is shown to.
+const readPlaces = 4
+
+// rounded is a figure of 18 decimals rounded to readPlaces for reading,
+// with the exact figure as its title; exact when it has no more decimals.
+// The JSON keeps every figure exact.
+func (f frame) rounded(n *Int, unit string) template.HTML {
+	if n == nil {
+		return template.HTML(template.HTMLEscapeString(f.Missing))
+	}
+	exact := units(n.big(), 18) + unit
+	shown, ok := roundUnits(n.big(), 18, readPlaces)
+	if ok {
+		return template.HTML(template.HTMLEscapeString(exact))
+	}
+	return template.HTML(`<span title="` + template.HTMLEscapeString(exact) + `">` + template.HTMLEscapeString(shown+unit) + `</span>`)
+}
+
+// roundUnits writes n base units of a token of decimals to places, half
+// away from zero, and says whether that is exact. A figure that is not 0
+// but rounds to it is "< 0.0001".
+func roundUnits(n *big.Int, decimals, places int) (string, bool) {
+	step := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(decimals-places)), nil)
+	q, r := new(big.Int).QuoRem(new(big.Int).Abs(n), step, new(big.Int))
+	if r.Sign() == 0 {
+		return units(n, decimals), true
+	}
+	if new(big.Int).Lsh(r, 1).Cmp(step) >= 0 {
+		q.Add(q, big.NewInt(1))
+	}
+	if q.Sign() == 0 {
+		return "< " + units(big.NewInt(1), places), false
+	}
+	if n.Sign() < 0 {
+		q.Neg(q)
+	}
+	return units(q, places), false
+}
+
+func (f frame) USDC(n *Int) string       { return f.figure(n, 6, " USDC") }
+func (f frame) LPT(n *Int) template.HTML { return f.rounded(n, " LPT") }
+func (f frame) ETH(n *Int) template.HTML { return f.rounded(n, " ETH") }
+
+// Who is an address shown, with the name and the mark the page's labels
+// give it; nil for an address not read.
+func (f frame) Who(a *common.Address) *Named {
+	if a == nil {
+		return nil
+	}
+	n := f.names.named(*a)
+	return &n
+}
 
 // Cut is a reward cut, in millionths, as a percentage.
 func (f frame) Cut(n *Int) string { return f.figure(n, 4, "%") }
@@ -188,13 +238,6 @@ func (f frame) Score(n *Int) string {
 		return f.Missing
 	}
 	return scorePercent(n)
-}
-
-func (f frame) Addr(a *common.Address) string {
-	if a == nil {
-		return f.Missing
-	}
-	return a.Hex()
 }
 
 func (f frame) Num(n *uint64) string {
@@ -342,16 +385,38 @@ func (f frame) Newest(rows []RoundFlow, n int) []RoundFlow {
 	return out
 }
 
-// sum is the sum of figures, or nil if one was not read.
-func sum(ns ...*Int) *Int {
-	s := new(big.Int)
-	for _, n := range ns {
-		if n == nil {
-			return nil
-		}
-		s.Add(s, n.big())
+// total sums figures: nil once one was not read, 0 for none.
+type total struct {
+	s      big.Int
+	unread bool
+}
+
+func (t *total) add(n *Int) {
+	if n == nil {
+		t.unread = true
+		return
 	}
-	return newInt(s)
+	t.s.Add(&t.s, n.big())
+}
+
+func (t *total) sum() *Int {
+	if t.unread {
+		return nil
+	}
+	return newInt(new(big.Int).Set(&t.s))
+}
+
+// feesTable is the fees-per-round card: a chart of the last rounds and a
+// table of them, newest first.
+type feesTable struct {
+	frame
+	Rows []RoundFlow
+	Read bool
+}
+
+// FeesTable is the fees-per-round card of rows.
+func (f frame) FeesTable(rows []RoundFlow, read bool) feesTable {
+	return feesTable{frame: f, Rows: rows, Read: read}
 }
 
 // The pages' own figures, besides the frame.
@@ -416,107 +481,102 @@ func render(w io.Writer, name string, data any) error {
 	return pages[name].ExecuteTemplate(w, "frame", data)
 }
 
-// frame is the frame of a page from what the loop last published, with
-// the snapshot it shows.
-func (e *explorer) frame(title, nav, json string, crumbs ...crumb) (frame, *snapshot) {
-	h, s := e.head()
-	f := frame{Title: title, Nav: nav, JSON: json, Crumbs: crumbs, Head: h, Mine: e.cfg.node, Now: e.now(), Missing: unavailable}
+// frame is the frame of a page of v.
+func (e *explorer) frame(v served, title, nav, json string, crumbs ...crumb) frame {
+	f := frame{Title: title, Nav: nav, JSON: json, Crumbs: crumbs, Head: v.Head, Mine: e.cfg.node, Now: e.now(), Missing: unavailable, names: v.names}
 	switch {
-	case s != nil:
-		n := s.network
+	case v.snap != nil:
+		n := v.snap.network
 		f.Net = &n
-	case h.Index.Newest != nil && !h.Index.CaughtUp:
+	case v.Index.Newest != nil && !v.Index.CaughtUp:
 		f.Missing = catchingUp
 	default:
 		f.Missing = notRead
 	}
-	return f, s
+	return f
+}
+
+// name is how a page names an account: its label, or its short address.
+func name(n Named) string {
+	if n.Label != nil {
+		return *n.Label
+	}
+	return short(n.Address)
 }
 
 func (e *explorer) networkPage(w http.ResponseWriter) {
-	f, s := e.frame("Network", "network", "/network.json", crumb{Label: "Network"})
-	p := networkPage{frame: f}
-	if s != nil {
-		p.Doc, p.Read = s.network, true
-		if d := s.network.FeesByRound; d != nil {
-			p.Fees = *d
-		}
-		if d := s.network.Buys; d != nil {
-			p.Buys = slices.Clone(*d)
-			slices.Reverse(p.Buys)
-		}
-		if d := s.network.Validators; d != nil {
-			p.Validators = *d
-		}
+	v := e.served()
+	doc := v.networkDoc()
+	p := networkPage{frame: e.frame(v, "Network", "network", "/network.json", crumb{Label: "Network"}), Doc: doc, Read: v.snap != nil}
+	if d := doc.FeesByRound; d != nil {
+		p.Fees = *d
+	}
+	if d := doc.Buys; d != nil {
+		p.Buys = slices.Clone(*d)
+		slices.Reverse(p.Buys)
+	}
+	if d := doc.Validators; d != nil {
+		p.Validators = *d
 	}
 	writePage(w, http.StatusOK, "network", p)
 }
 
 func (e *explorer) orchestratorsPage(w http.ResponseWriter) {
-	f, s := e.frame("Orchestrators", "orchestrators", "/orchestrators.json", crumb{Label: "Orchestrators"})
-	p := orchestratorsPage{frame: f}
-	if s != nil {
-		p.Rows, p.Read = s.orchestrators, true
-		var this, all, paid []*Int
-		for _, r := range s.orchestrators {
-			this, all, paid = append(this, r.FeesThisRound), append(all, r.Fees), append(paid, r.LPTPaid)
+	v := e.served()
+	p := orchestratorsPage{frame: e.frame(v, "Orchestrators", "orchestrators", "/orchestrators.json", crumb{Label: "Orchestrators"})}
+	if rows := v.orchestratorsDoc().Orchestrators; rows != nil {
+		p.Rows, p.Read = *rows, true
+		var this, all, paid total
+		for _, r := range p.Rows {
+			this.add(r.FeesThisRound)
+			all.add(r.Fees)
+			paid.add(r.LPTPaid)
 		}
-		p.FeesThisRound, p.FeesAll, p.LPTPaid = sum(this...), sum(all...), sum(paid...)
+		p.FeesThisRound, p.FeesAll, p.LPTPaid = this.sum(), all.sum(), paid.sum()
 	}
 	writePage(w, http.StatusOK, "orchestrators", p)
 }
 
 // nodePage writes a node's page; mine is the page at /.
 func (e *explorer) nodePage(w http.ResponseWriter, n common.Address, mine bool) {
-	crumbs := []crumb{{Label: "Orchestrators", Href: "/orchestrators"}, {Label: short(n)}}
+	v := e.served()
+	doc, known := v.nodeDoc(n)
+	title := name(Named{Address: n, Label: doc.Label})
+	crumbs := []crumb{{Label: "Orchestrators", Href: "/orchestrators"}, {Label: title}}
 	nav := "orchestrators"
 	if mine {
 		crumbs, nav = []crumb{{Label: "Your node"}}, "node"
 	}
-	f, s := e.frame(short(n), nav, "/orchestrators/"+n.Hex()+".json", crumbs...)
-	doc, held := e.nodeDoc(n)
-	if !held && !mine && (e.cfg.node == nil || *e.cfg.node != n) {
+	f := e.frame(v, title, nav, "/orchestrators/"+n.Hex()+".json", crumbs...)
+	if !known && !mine && (e.cfg.node == nil || *e.cfg.node != n) {
 		e.missing(w, f, "No node is registered at "+n.Hex()+".")
 		return
 	}
-	p := nodePage{frame: f, Doc: *doc, Read: s != nil}
-	if v := doc.Testnet.Validators; v != nil {
-		named := map[common.Address]Named{}
-		if s != nil && s.network.Validators != nil {
-			for _, n := range *s.network.Validators {
-				named[n.Address] = n
-			}
+	p := nodePage{frame: f, Doc: *doc, Read: v.snap != nil}
+	if vs := doc.Testnet.Validators; vs != nil {
+		for _, a := range *vs {
+			p.Validators = append(p.Validators, v.names.named(a))
 		}
-		for _, a := range *v {
-			if n, ok := named[a]; ok {
-				p.Validators = append(p.Validators, n)
-			} else {
-				p.Validators = append(p.Validators, e.labels.named(a))
-			}
-		}
-	}
-	if doc.Label != nil {
-		p.Title = *doc.Label
 	}
 	if d := doc.FeesByPayer; d != nil {
 		p.ByPayer = *d
 	}
 	if d := doc.FeesByRound; d != nil {
 		p.Fees = *d
-		var all []*Int
+		var all total
 		for _, r := range *d {
-			all = append(all, r.Fees)
+			all.add(r.Fees)
 		}
-		p.FeesAll = sum(all...)
+		p.FeesAll = all.sum()
 	}
 	if d := doc.Claims; d != nil {
 		p.Claims = slices.Clone(*d)
 		slices.Reverse(p.Claims)
-		var paid []*Int
+		var paid total
 		for _, c := range *d {
-			paid = append(paid, c.Paid)
+			paid.add(c.Paid)
 		}
-		p.LPTPaid = sum(paid...)
+		p.LPTPaid = paid.sum()
 	}
 	if r := doc.Testnet.Round; r != nil {
 		for _, row := range doc.Node.Rounds {
@@ -529,35 +589,32 @@ func (e *explorer) nodePage(w http.ResponseWriter, n common.Address, mine bool) 
 }
 
 func (e *explorer) appsPage(w http.ResponseWriter) {
-	f, s := e.frame("Apps", "apps", "/apps.json", crumb{Label: "Apps"})
-	p := appsPage{frame: f}
-	if s != nil {
-		p.Rows, p.Read = s.apps, true
-		var deposits, funded, fees, network []*Int
-		for _, r := range s.apps {
-			deposits, funded = append(deposits, r.Deposit), append(funded, r.Funded)
-			fees, network = append(fees, r.Fees), append(network, r.Network)
+	v := e.served()
+	p := appsPage{frame: e.frame(v, "Apps", "apps", "/apps.json", crumb{Label: "Apps"})}
+	if rows := v.appsDoc().Apps; rows != nil {
+		p.Rows, p.Read = *rows, true
+		var deposits, funded, fees, network total
+		for _, r := range p.Rows {
+			deposits.add(r.Deposit)
+			funded.add(r.Funded)
+			fees.add(r.Fees)
+			network.add(r.Network)
 		}
-		p.Deposits, p.Funded, p.Fees, p.Network = sum(deposits...), sum(funded...), sum(fees...), sum(network...)
+		p.Deposits, p.Funded, p.Fees, p.Network = deposits.sum(), funded.sum(), fees.sum(), network.sum()
 	}
 	writePage(w, http.StatusOK, "apps", p)
 }
 
 func (e *explorer) appPage(w http.ResponseWriter, a common.Address) {
-	f, s := e.frame(short(a), "apps", "/apps/"+a.Hex()+".json", crumb{Label: "Apps", Href: "/apps"}, crumb{Label: short(a)})
-	p := appPage{frame: f, Doc: AppDoc{AppRow: AppRow{Named: e.labels.named(a)}}}
-	if s != nil {
-		d, ok := s.payers[a]
-		if !ok {
-			e.missing(w, f, "No payer has funded or paid from "+a.Hex()+".")
-			return
-		}
-		p.Doc, p.Read = *d, true
+	v := e.served()
+	title := name(v.names.named(a))
+	f := e.frame(v, title, "apps", "/apps/"+a.Hex()+".json", crumb{Label: "Apps", Href: "/apps"}, crumb{Label: title})
+	doc, known := v.appDoc(a)
+	if !known {
+		e.missing(w, f, "No payer has funded or paid from "+a.Hex()+".")
+		return
 	}
-	if l := p.Doc.Label; l != nil {
-		p.Title = *l
-	}
-	writePage(w, http.StatusOK, "app", p)
+	writePage(w, http.StatusOK, "app", appPage{frame: f, Doc: *doc, Read: v.snap != nil})
 }
 
 func (e *explorer) missing(w http.ResponseWriter, f frame, what string) {

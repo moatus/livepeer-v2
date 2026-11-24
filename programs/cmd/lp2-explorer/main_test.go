@@ -360,7 +360,7 @@ func TestReadsTheNodeAndTheTestnet(t *testing.T) {
 	f.logs = deployment()
 	e := newTestExplorer(t, f, testConfig)
 	e.cycle(context.Background())
-	s, _ := e.nodeDoc(nodeAt)
+	s, _ := e.served().nodeDoc(nodeAt)
 	if len(s.Unavailable) != 0 {
 		t.Fatalf("unavailable: %v", s.Unavailable)
 	}
@@ -401,7 +401,7 @@ func TestReadsTheNodeAndTheTestnet(t *testing.T) {
 	f.claimedOnly = map[common.Address]uint64{nodeAt: 2}
 	e = newTestExplorer(t, f, testConfig)
 	e.cycle(context.Background())
-	s, _ = e.nodeDoc(nodeAt)
+	s, _ = e.served().nodeDoc(nodeAt)
 	if r2 := s.Node.Rounds[10]; r2.ClaimScore != nil || len(s.Unavailable) != 1 || !strings.Contains(s.Unavailable[0], "round 2's claim score") ||
 		!*r2.Claimed || *r2.State != stateClaimed || r2.Paid.big().String() != "300551889676665523465" || r2.Part.big().String() != "46961232761978988041" {
 		t.Errorf("round 2 with no Claimed event: %+v, unavailable %v", r2, s.Unavailable)
@@ -607,7 +607,7 @@ func TestBuysCountTheExecutorInForce(t *testing.T) {
 }
 
 // The labels file names accounts and marks the simulated ones, and names
-// the scenario; a change to it shows at the next cycle, and a file that
+// the scenario; a change to it shows once the file is read again, and a file that
 // cannot be read keeps the labels it had and says so.
 func TestLabelsNameAccounts(t *testing.T) {
 	f := newFake()
@@ -631,13 +631,13 @@ func TestLabelsNameAccounts(t *testing.T) {
 		t.Errorf("labels: %v, %v", app, node)
 	}
 	write(`{"scenario": null, "accounts": {"` + payerAt.Hex() + `": {"name": "P2"}}}`)
-	e.cycle(context.Background())
+	e.readLabels()
 	app = getJSON(t, h, "/apps.json")["apps"].([]any)[0].(map[string]any)
 	if app["label"] != "P2" || app["simulated"] != false || getJSON(t, h, "/network.json")["scenario"] != nil {
 		t.Errorf("after the file changed: %v", app)
 	}
 	write(`{"accounts": `)
-	e.cycle(context.Background())
+	e.readLabels()
 	m := getJSON(t, h, "/apps.json")
 	if m["apps"].([]any)[0].(map[string]any)["label"] != "P2" || !strings.Contains(fmt.Sprint(m["unavailable"]), "the labels file") {
 		t.Errorf("a file that cannot be read: %v", m)
@@ -718,8 +718,8 @@ func TestTheNodesPage(t *testing.T) {
 		"<td>claimable now, until round 30</td><td class=\"n\">50% (now)</td>",
 		"<td>claimed</td><td class=\"n\">100%</td>",
 		"1.5 USDC", // payout USDC and the buy
-		"0.000000000000000001 ETH <span class=\"warn\">low: under 0.001 ETH</span>",
-		"300.551889676665523465 LPT",
+		`<span title="0.000000000000000001 ETH">&lt; 0.0001 ETH</span> <span class="warn">low: under 0.001 ETH</span>`,
+		`<span title="300.551889676665523465 LPT">300.5519 LPT</span>`, // LPT rounded to read, exact in its title
 		"<dd>block 990, unavailable</dd>", // a start block without its time
 		validatorAt.Hex(),
 		"<dt>Own bond this round</dt><dd>unavailable</dd>", // the bond, not read
@@ -730,6 +730,31 @@ func TestTheNodesPage(t *testing.T) {
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("the page lacks %q", want)
+		}
+	}
+}
+
+// A page writes LPT and ETH to four decimals, rounded half away from 0,
+// exact when it has no more, and a figure that rounds to 0 as under the
+// last place.
+func TestRoundUnits(t *testing.T) {
+	for _, c := range []struct {
+		n     string
+		shown string
+		exact bool
+	}{
+		{"300551889676665523465", "300.5519", false},
+		{"1000050000000000000", "1.0001", false},
+		{"1000049999999999999", "1", false},
+		{"4200000000000000000000", "4200", true},
+		{"1500000000000000", "0.0015", true},
+		{"1", "< 0.0001", false},
+		{"0", "0", true},
+		{"-1000050000000000000", "-1.0001", false},
+	} {
+		shown, exact := roundUnits(wei(c.n), 18, 4)
+		if shown != c.shown || exact != c.exact {
+			t.Errorf("%s: %q, %v", c.n, shown, exact)
 		}
 	}
 }

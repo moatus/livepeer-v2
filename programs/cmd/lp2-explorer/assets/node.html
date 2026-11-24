@@ -11,8 +11,8 @@
 <section><div class="head"><h2>The node</h2></div>
 <div class="card"><dl class="facts">
 <dt>Registered</dt><dd>{{$.Yes $n.Registered}}</dd>
-<dt>Operator key</dt><dd class="mono">{{$.Addr $n.Operator}}</dd>
-<dt>Payout address</dt><dd class="mono">{{$.Addr $n.Payout}}</dd>
+<dt>Operator key</dt><dd>{{with $.Who $n.Operator}}{{template "address" .}}{{else}}{{$.Missing}}{{end}}</dd>
+<dt>Payout address</dt><dd>{{with $.Who $n.Payout}}{{template "address" .}}{{else}}{{$.Missing}}{{end}}</dd>
 <dt>Own bond this round</dt><dd>{{$.LPT $n.Bond}}</dd>
 <dt>Stake this round</dt><dd>{{$.LPT $n.Stake}}</dd>
 <dt>Score a claim made now reads</dt><dd>{{$.Score $n.ScoreNow}}</dd>
@@ -32,12 +32,7 @@
 {{end}}{{else}}<tr><td colspan="4" class="empty">{{$.Missing}}</td></tr>
 {{end}}</table></div></section>
 <section><div class="head"><h2>Fees per round</h2></div>
-<div class="card">{{if $.Fees}}{{bars ($.Recent $.Fees 48)}}<div class="axis"><span>Round {{(index ($.Recent $.Fees 48) 0).Round}}</span><span>Round {{(index ($.Newest $.Fees 1) 0).Round}}</span></div>{{end}}
-<table><tr><th>Round</th><th class="n">Fees</th><th class="n">Node amount</th><th class="n">Network amount</th></tr>
-{{if $.Read}}{{range $.Newest $.Fees 30}}<tr><td>{{.Round}}</td><td class="n">{{$.USDC .Fees}}</td><td class="n">{{$.USDC .Node}}</td><td class="n">{{$.USDC .Network}}</td></tr>
-{{else}}<tr><td colspan="4" class="empty">No fees yet</td></tr>
-{{end}}{{else}}<tr><td colspan="4" class="empty">{{$.Missing}}</td></tr>
-{{end}}</table></div></section>
+{{template "fees" ($.FeesTable $.Fees $.Read)}}</section>
 <section><div class="head"><h2>Claims</h2><p>Each Claimed event of the node, newest first: the score it applied and what it paid.</p></div>
 <div class="card"><table><tr><th>Round</th><th class="n">Score</th><th class="n">Paid</th><th class="n">Cut</th><th class="n">Pot</th><th class="n">Block</th><th>Transaction</th></tr>
 {{if $.Read}}{{range $.Claims}}<tr><td>{{.Round}}</td><td class="n">{{$.Score .Score}}</td><td class="n">{{$.LPT .Paid}}</td><td class="n">{{$.LPT .Cut}}</td><td class="n">{{$.LPT .Pot}}</td><td class="n">{{.Block}}</td><td class="mono" title="{{.Tx.Hex}}">{{tx .Tx}}</td></tr>
@@ -49,8 +44,8 @@
 <dt>Current round</dt><dd>{{$.Num $t.Round}}</dd>
 <dt>It started</dt><dd>block {{$.Num $t.RoundStartBlock}}, {{$.When $t.RoundStartTime}}</dd>
 <dt>Total fees this round</dt><dd>{{$.USDC $t.TotalFees}}</dd>
-<dt>Validator set</dt><dd>{{if $t.Validators}}{{range $.Validators}}{{template "who" .}} <span class="mono dim">{{.Address.Hex}}</span><br>{{else}}none{{end}}{{else}}{{$.Missing}}{{end}}</dd>
-<dt>Buyback executor in force</dt><dd class="mono">{{$.Addr $t.Executor}}</dd>
+<dt>Validator set</dt><dd>{{if $t.Validators}}{{range $.Validators}}{{template "address" .}}<br>{{else}}none{{end}}{{else}}{{$.Missing}}{{end}}</dd>
+<dt>Buyback executor in force</dt><dd>{{with $.Who $t.Executor}}{{template "address" .}}{{else}}{{$.Missing}}{{end}}</dd>
 </dl></div></section>
 <section><div class="head"><h2>Latest buys and burns</h2></div>
 <div class="card"><table><tr><th>Round</th><th class="n">Block</th><th class="n">USDC spent</th><th class="n">LPT bought</th><th class="n">LPT burned</th><th>Transaction</th></tr>

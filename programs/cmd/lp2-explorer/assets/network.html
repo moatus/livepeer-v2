@@ -11,18 +11,13 @@
 </div>
 </section>
 <section><div class="head"><h2>Fees per round</h2><p>The gross of each round's settled tickets, and the node and network amounts they were split into.</p></div>
-<div class="card">{{if $.Read}}{{if $.Fees}}{{bars ($.Recent $.Fees 48)}}<div class="axis"><span>Round {{(index ($.Recent $.Fees 48) 0).Round}}</span><span>Round {{(index ($.Newest $.Fees 1) 0).Round}}</span></div>{{end}}{{end}}
-<table><tr><th>Round</th><th class="n">Fees</th><th class="n">Node amount</th><th class="n">Network amount</th></tr>
-{{if $.Read}}{{range $.Newest $.Fees 30}}<tr><td>{{.Round}}</td><td class="n">{{$.USDC .Fees}}</td><td class="n">{{$.USDC .Node}}</td><td class="n">{{$.USDC .Network}}</td></tr>
-{{else}}<tr><td colspan="4" class="empty">No fees yet</td></tr>
-{{end}}{{else}}<tr><td colspan="4" class="empty">{{$.Missing}}</td></tr>
-{{end}}</table></div></section>
+{{template "fees" ($.FeesTable $.Fees $.Read)}}</section>
 <section><div class="head"><h2>Validator set</h2><p>The validators this round, and the buyback executor in force.</p></div>
 <div class="card"><table><tr><th>Validator</th><th>Address</th></tr>
 {{if $.Doc.Validators}}{{range $.Validators}}<tr><td>{{template "who" .}}</td><td class="mono">{{.Address.Hex}}</td></tr>
 {{else}}<tr><td colspan="2" class="empty">None</td></tr>
 {{end}}{{else}}<tr><td colspan="2" class="empty">{{$.Missing}}</td></tr>
-{{end}}<tr><th>Buyback executor in force</th><td class="mono">{{$.Addr $.Doc.Executor}}</td></tr>
+{{end}}<tr><th>Buyback executor in force</th><td>{{with $.Who $.Doc.Executor}}{{template "address" .}}{{else}}{{$.Missing}}{{end}}</td></tr>
 </table></div></section>
 <section><div class="head"><h2>Buys and burns</h2><p>Every buy of the executor in force for its round, newest first.</p></div>
 <div class="card"><table><tr><th>Round</th><th class="n">Block</th><th class="n">USDC spent</th><th class="n">LPT bought</th><th class="n">LPT burned</th><th>Transaction</th></tr>

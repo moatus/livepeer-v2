@@ -6,6 +6,7 @@ require (
 	github.com/ethereum/go-ethereum v1.17.8
 	github.com/gorilla/websocket v1.5.4-0.20240701034025-d67f41855da4
 	github.com/livepeer/node v1.0.7-0.20261103081012-e2b331958a57
+	golang.org/x/net v0.58.0
 )
 
 require (
@@ -36,7 +37,6 @@ require (
 	go.opentelemetry.io/otel/metric v1.47.0 // indirect
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	golang.org/x/crypto v0.55.0 // indirect
-	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect

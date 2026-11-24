@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/rpc"
+	xhtml "golang.org/x/net/html"
 
 	"lp2core/programs/chain"
 	"lp2core/programs/index"
@@ -33,9 +34,44 @@ func bannered(page, category, provider string) bool {
 		strings.Contains(page, ">"+provider+"<")
 }
 
-// A reference out of the page: an attribute that loads or links to
-// something, or a url() or @import in a style.
-var references = regexp.MustCompile(`(?i)\b(href|src|srcset|action|formaction|poster|data|background|xlink:href)\s*=\s*"([^"]*)"|url\(|@import`)
+// A reference in a style: a url() or an @import.
+var styleReferences = regexp.MustCompile(`(?i)url\(|@import`)
+
+// The attributes that load or link to something.
+var linking = map[string]bool{"href": true, "src": true, "srcset": true, "action": true, "formaction": true, "poster": true,
+	"data": true, "background": true, "xlink:href": true, "cite": true, "ping": true, "manifest": true, "codebase": true}
+
+// references is every reference out of the explorer a page makes: an
+// attribute that links to something not a path of the explorer's own,
+// whatever its quoting, a refresh that names a URL, or a reference in a
+// style.
+func references(page string) []string {
+	var out []string
+	z := xhtml.NewTokenizer(strings.NewReader(page))
+	for {
+		switch z.Next() {
+		case xhtml.ErrorToken:
+			return out
+		case xhtml.StartTagToken, xhtml.SelfClosingTagToken:
+			tok := z.Token()
+			for _, a := range tok.Attr {
+				k := strings.ToLower(a.Key)
+				if a.Namespace != "" {
+					k = a.Namespace + ":" + k
+				}
+				v := strings.TrimSpace(a.Val)
+				switch {
+				case linking[k] && (!strings.HasPrefix(v, "/") || strings.HasPrefix(v, "//") || strings.HasPrefix(v, "/\\")):
+					out = append(out, tok.Data+" "+k+"="+a.Val)
+				case k == "content" && strings.Contains(strings.ToLower(v), "url"):
+					out = append(out, tok.Data+" "+k+"="+a.Val)
+				case styleReferences.MatchString(a.Val):
+					out = append(out, tok.Data+" "+k+"="+a.Val)
+				}
+			}
+		}
+	}
+}
 
 // Every page is served with no script and nothing from outside the
 // explorer, its stylesheet and templates from the binary: the explorer
@@ -70,10 +106,8 @@ func TestEveryPageIsServedFromTheBinaryAlone(t *testing.T) {
 				if regexp.MustCompile(`(?i)<[^>]*\son[a-z]+\s*=`).MatchString(page) {
 					t.Errorf("%s (node %v, read %v) carries an event handler", path, mine, read)
 				}
-				for _, m := range references.FindAllStringSubmatch(page, -1) {
-					if m[2] == "" || !strings.HasPrefix(m[2], "/") || strings.HasPrefix(m[2], "//") {
-						t.Errorf("%s (node %v, read %v) refers outside the explorer: %s", path, mine, read, m[0])
-					}
+				for _, r := range references(page) {
+					t.Errorf("%s (node %v, read %v) refers outside the explorer: %s", path, mine, read, r)
 				}
 				if !strings.Contains(page, `<link rel="stylesheet" href="/style.css">`) {
 					t.Errorf("%s (node %v, read %v) does not load the stylesheet", path, mine, read)
@@ -83,7 +117,7 @@ func TestEveryPageIsServedFromTheBinaryAlone(t *testing.T) {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, httptest.NewRequest("GET", "/style.css", nil))
 		if w.Code != http.StatusOK || w.Header().Get("Content-Type") != "text/css; charset=utf-8" ||
-			w.Body.String() != string(stylesheet) || len(stylesheet) == 0 || references.MatchString(w.Body.String()) {
+			w.Body.String() != string(stylesheet) || len(stylesheet) == 0 || styleReferences.MatchString(w.Body.String()) {
 			t.Errorf("the stylesheet: %d %s, %d bytes", w.Code, w.Header().Get("Content-Type"), w.Body.Len())
 		}
 	}
@@ -97,7 +131,7 @@ func TestEveryPageIsServedFromTheBinaryAlone(t *testing.T) {
 func TestTheStylesheetTakesTheBetasLook(t *testing.T) {
 	css := string(stylesheet)
 	for _, want := range []string{"Copyright (c) 2022 Livepeer Inc", "--green-bright: #40bf86;", "--panel: oklch(0.17 0 0);",
-		"--hairline: oklch(1 0 0 / 8%);", "--series-1: #3987e5;", "@media (prefers-color-scheme: light)", "--panel: oklch(0.993 0.001 286);"} {
+		"--hairline: oklch(1 0 0 / 8%);", "--series-1: #3987e5;", ".chart rect { fill: var(--green-fill); }", "@media (prefers-color-scheme: light)", "--panel: oklch(0.993 0.001 286);"} {
 		if !strings.Contains(css, want) {
 			t.Errorf("the stylesheet lacks %q", want)
 		}
@@ -215,7 +249,7 @@ func waitPages(t *testing.T, h http.Handler, what string, within time.Duration, 
 // With the provider unreachable, silent, or answering 429 to everything,
 // from the start and after it had answered, every page answers at once and
 // shows the banner within one cycle and one request's timeout; once the
-// provider answers again the banner goes within a cycle.
+// provider answers again the banner goes within a cycle of its first answer.
 func TestTheBannerShowsWithinACycleAndATimeout(t *testing.T) {
 	down := closedHost(t)
 	keyed := func(host string) string {
@@ -257,13 +291,43 @@ func TestTheBannerShowsWithinACycleAndATimeout(t *testing.T) {
 				return shows(page) && strings.Contains(page, "The figures below are as of block 1000")
 			})
 			t.Logf("after an answer: the banner in %v", took)
-			sw.set(f)
-			took = waitPages(t, h, "the banner cleared", testWithin, func(page string) bool {
+			// Recovery is timed from the provider's first answer.
+			back := &firstAnswer{Caller: f}
+			sw.set(back)
+			waitPages(t, h, "the banner cleared", testWithin, func(page string) bool {
 				return !strings.Contains(page, `class="banner"`)
 			})
-			t.Logf("recovered: the banner cleared in %v", took)
+			cleared := time.Now()
+			first := back.at()
+			if first.IsZero() || cleared.Sub(first) > testCycle {
+				t.Fatalf("the banner cleared %v after the provider's first answer (%v), more than a cycle", cleared.Sub(first), first)
+			}
+			t.Logf("recovered: the banner cleared within %v of the first answer", cleared.Sub(first))
 		})
 	}
+}
+
+// firstAnswer is a provider that notes when it first answered.
+type firstAnswer struct {
+	index.Caller
+	mu    sync.Mutex
+	first time.Time
+}
+
+func (a *firstAnswer) BatchCallContext(ctx context.Context, b []rpc.BatchElem) error {
+	err := a.Caller.BatchCallContext(ctx, b)
+	a.mu.Lock()
+	if err == nil && a.first.IsZero() {
+		a.first = time.Now()
+	}
+	a.mu.Unlock()
+	return err
+}
+
+func (a *firstAnswer) at() time.Time {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.first
 }
 
 // closedHost is a host where nothing listens: a connection is refused.
@@ -340,7 +404,7 @@ func TestPagesShowTheIndexCatchingUp(t *testing.T) {
 	h := handler(e)
 
 	through := func() uint64 {
-		hd, _ := e.head()
+		hd := e.served().Head
 		if hd.Index.Through == nil {
 			return 0
 		}
@@ -430,13 +494,105 @@ func TestLabelsShowOnEveryPage(t *testing.T) {
 		}
 	}
 
-	write(`{"scenario": null, "accounts": {"` + payerAt.Hex() + `": {"name": "Payer-renamed"}}}`)
-	e.cycle(context.Background())
-	for _, path := range []string{"/", node, "/apps", payer} {
+	// Every address a page shows is named: the payout address, the
+	// operator key (the node's own here) and the buyback executor too.
+	write(`{"accounts": {"` + payoutAt.Hex() + `": {"name": "Payout-label"}, "` + executorAt.Hex() + `": {"name": "Executor-label", "simulated": true}, "` +
+		nodeAt.Hex() + `": {"name": "Node-label"}}}`)
+	e.readLabels()
+	for path, want := range map[string][]string{
+		node: {`<dt>Payout address</dt><dd>Payout-label <span class="mono dim">` + payoutAt.Hex(),
+			`<dt>Operator key</dt><dd>Node-label <span class="mono dim">` + nodeAt.Hex(),
+			`<dt>Buyback executor in force</dt><dd>Executor-label <span class="mono dim">` + executorAt.Hex() + `</span><span class="badge sim">simulated</span>`},
+		"/network": {`<th>Buyback executor in force</th><td>Executor-label <span class="mono dim">` + executorAt.Hex() + `</span><span class="badge sim">simulated</span>`},
+	} {
 		page := get(t, h, path)
-		if !strings.Contains(page, "Payer-renamed") || strings.Contains(page, "Payer-label") || strings.Contains(page, "Node-label") ||
-			strings.Contains(page, "Scenario:") || strings.Contains(page, `badge sim`) {
-			t.Errorf("%s after the labels changed:\n%s", path, page)
+		for _, w := range want {
+			if !strings.Contains(page, w) {
+				t.Errorf("%s lacks %q:\n%s", path, w, page)
+			}
+		}
+	}
+}
+
+// A changed labels file shows within one cycle on every page, the names and
+// the scenario together, while the provider answers 429 to everything: the
+// labels are read on their own, not with the chain.
+func TestARenameShowsWithinACycleWhileTheProviderFails(t *testing.T) {
+	labels := filepath.Join(t.TempDir(), "labels.json")
+	write := func(body string) {
+		if err := os.WriteFile(labels, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(`{"scenario": "Before", "accounts": {"` + payerAt.Hex() + `": {"name": "Before-payer"}, "` + nodeAt.Hex() + `": {"name": "Before-node"}}}`)
+	url := "http://" + answering(t, "429 Too Many Requests")
+	limited, err := chain.DialRPC(context.Background(), url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(limited.Close)
+	f := newFake()
+	f.logs = deployment()
+	sw := &switching{c: f}
+	cfg := testConfig
+	cfg.labels, cfg.rpcURL = labels, url
+	_, h := running(t, sw, cfg)
+	waitPages(t, h, "the first snapshot", testWithin, func(page string) bool {
+		return strings.Contains(page, "Read at block 1000") && strings.Contains(page, "Scenario: Before")
+	})
+	sw.set(limited)
+	waitPages(t, h, "the banner", testWithin, func(page string) bool { return strings.Contains(page, "HTTP 429") })
+
+	write(`{"scenario": "After", "accounts": {"` + payerAt.Hex() + `": {"name": "After-payer"}, "` + nodeAt.Hex() + `": {"name": "After-node"}}}`)
+	took := waitPages(t, h, "the rename", testCycle*11/10, func(page string) bool {
+		after := strings.Contains(page, "Scenario: After")
+		if after && strings.Contains(page, "Before-") || !after && strings.Contains(page, "After-") {
+			t.Fatalf("a page of two labels files:\n%s", page)
+		}
+		return after && strings.Contains(page, "HTTP 429")
+	})
+	t.Logf("the rename shown in %v", took)
+	for path, names := range map[string][]string{"/": {"After-payer", "After-node"}, "/orchestrators/" + nodeAt.Hex(): {"After-payer", "After-node"},
+		"/orchestrators": {"After-node"}, "/apps": {"After-payer"}, "/apps/" + payerAt.Hex(): {"After-payer", "After-node"}} {
+		page := get(t, h, path)
+		for _, name := range names {
+			if !strings.Contains(page, name) {
+				t.Errorf("%s after the rename lacks %s:\n%s", path, name, page)
+			}
+		}
+	}
+}
+
+// A page is of one block: a snapshot published while the page is written
+// shows on the next page, not in part of this one.
+func TestAPageIsOfOneBlock(t *testing.T) {
+	f := newFake()
+	f.logs = deployment()
+	e := newTestExplorer(t, f, testConfig)
+	h := handler(e)
+	e.cycle(context.Background())
+	first := e.snap
+	f.head = 1001
+	f.logs = append(f.logs, settled(1001, 12, nodeAt, 4_321_000, 2_000_000, 2_321_000))
+	e.cycle(context.Background())
+	next := e.snap
+	if next == first || next.block != 1001 || next.network.TotalFees.big().Int64() < 4_321_000 {
+		t.Fatalf("no second snapshot: %d", next.block)
+	}
+	for _, path := range htmlPaths {
+		e.mu.Lock()
+		e.snap = first
+		e.mu.Unlock()
+		// The loop publishes the next snapshot while the page is written.
+		e.now = func() time.Time {
+			e.mu.Lock()
+			e.snap = next
+			e.mu.Unlock()
+			return time.Now()
+		}
+		page := get(t, h, path)
+		if !strings.Contains(page, "Read at block 1000") || strings.Contains(page, "4.321") || strings.Contains(page, "2.321") {
+			t.Errorf("%s mixes two blocks:\n%s", path, page)
 		}
 	}
 }

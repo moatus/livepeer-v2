@@ -23,6 +23,8 @@ const keepBuys = 5
 
 // snapshot is every document at one block, the index's last checkpoint:
 // views read at that block by its hash, sums from the index through it.
+// It names no account: a response names them from the labels it is served
+// with (served).
 type snapshot struct {
 	block, time   uint64
 	unavailable   []string
@@ -263,7 +265,7 @@ func (e *explorer) read(ctx context.Context, through uint64, hash common.Hash) (
 			validators = &m
 			named := make([]Named, len(m))
 			for i, a := range m {
-				named[i] = e.labels.named(a)
+				named[i] = Named{Address: a}
 			}
 			net.Validators = &named
 		} else {
@@ -359,12 +361,11 @@ func (e *explorer) read(ctx context.Context, through uint64, hash common.Hash) (
 			}
 			node.Rounds = append(node.Rounds, out)
 		}
-		named := e.labels.named(n)
-		doc := &NodeDoc{Label: named.Label, Simulated: named.Simulated, Node: node, Testnet: testnet}
+		doc := &NodeDoc{Node: node, Testnet: testnet}
 		byPayer, byRound, claims := []NamedFlow{}, []RoundFlow{}, []ClaimRow{}
 		for _, p := range t.Payers {
 			if f, ok := t.PayerOf[p].ByNode[n]; ok {
-				byPayer = append(byPayer, NamedFlow{Named: e.labels.named(p), Flow: flow(f)})
+				byPayer = append(byPayer, NamedFlow{Named: Named{Address: p}, Flow: flow(f)})
 			}
 		}
 		for k, m := range t.Fees {
@@ -392,7 +393,7 @@ func (e *explorer) read(ctx context.Context, through uint64, hash common.Hash) (
 		} else {
 			all = flow(nil)
 		}
-		s.orchestrators = append(s.orchestrators, NodeRow{Named: named, RegisteredRound: &reg, Stake: node.Stake, Cut: node.Cut,
+		s.orchestrators = append(s.orchestrators, NodeRow{Named: Named{Address: n}, RegisteredRound: &reg, Stake: node.Stake, Cut: node.Cut,
 			ScoreNow: node.ScoreNow, FeesThisRound: feesOf(t, now, &n), Flow: all, Claims: len(claims), LPTPaid: newInt(paid)})
 	}
 	if s.orchestrators == nil {
@@ -402,7 +403,7 @@ func (e *explorer) read(ctx context.Context, through uint64, hash common.Hash) (
 	// The payers.
 	for _, p := range t.Payers {
 		pt := t.PayerOf[p]
-		row := AppRow{Named: e.labels.named(p), Funded: newInt(pt.Funded), Released: newInt(pt.Released), Flow: flow(pt.Fees)}
+		row := AppRow{Named: Named{Address: p}, Funded: newInt(pt.Funded), Released: newInt(pt.Released), Flow: flow(pt.Fees)}
 		if v := deposits[p]; v.err == nil {
 			row.Deposit, row.DepositPending = newInt(v.out[0].(*big.Int)), newInt(v.out[1].(*big.Int))
 		} else {
@@ -415,7 +416,7 @@ func (e *explorer) read(ctx context.Context, through uint64, hash common.Hash) (
 		slices.SortFunc(doc.FeesByRound, func(a, b RoundFlow) int { return int(a.Round) - int(b.Round) })
 		for _, n := range t.Nodes {
 			if f, ok := pt.ByNode[n]; ok {
-				doc.ByNode = append(doc.ByNode, NamedFlow{Named: e.labels.named(n), Flow: flow(f)})
+				doc.ByNode = append(doc.ByNode, NamedFlow{Named: Named{Address: n}, Flow: flow(f)})
 			}
 		}
 		s.apps = append(s.apps, row)

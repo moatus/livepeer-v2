@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -69,7 +70,6 @@ type explorer struct {
 	progress Progress
 	failed   map[string]string // each step failing, with its reason
 	snap     *snapshot
-	scenario *string
 }
 
 func newExplorer(cfg config, src *index.Source, ix *index.Index) *explorer {
@@ -81,6 +81,7 @@ func newExplorer(cfg config, src *index.Source, ix *index.Index) *explorer {
 		e.progress.Through = &through
 	}
 	src.Seen = e.seen
+	e.readLabels()
 	return e
 }
 
@@ -122,8 +123,23 @@ func (e *explorer) note(step string, err error) {
 // run starts a cycle every e.every, counted from the start of the last
 // (one that takes longer is followed by the next at once), until ctx ends.
 // So a provider that starts failing is asked again within one cycle, and
-// the banner shows within a cycle and a request's timeout.
+// the banner shows within a cycle and a request's timeout. The labels file
+// is read every e.every on its own, so a change to it shows within a cycle
+// whatever the provider does.
 func (e *explorer) run(ctx context.Context) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(e.every):
+				e.readLabels()
+			}
+		}
+	}()
+	defer func() { <-done }()
 	for {
 		start := time.Now()
 		e.cycle(ctx)
@@ -135,19 +151,16 @@ func (e *explorer) run(ctx context.Context) {
 	}
 }
 
+// readLabels reads the labels file again if it changed, and publishes
+// whether it could.
+func (e *explorer) readLabels() {
+	e.note(stepLabels, e.labels.reload())
+}
+
 // cycle reads the newest block, commits the index's pages up to it,
 // publishing its progress after each, then reads the snapshot at the last
 // checkpoint and publishes it once all of it is read.
 func (e *explorer) cycle(ctx context.Context) {
-	if err := e.labels.reload(); err != nil {
-		e.note(stepLabels, err)
-	} else {
-		e.note(stepLabels, nil)
-	}
-	e.mu.Lock()
-	e.scenario = e.labels.scenario
-	e.mu.Unlock()
-
 	var newest struct {
 		Number hexutil.Uint64 `json:"number"`
 		Time   hexutil.Uint64 `json:"timestamp"`
@@ -242,12 +255,23 @@ func (e *explorer) resolve(ctx context.Context) error {
 	return nil
 }
 
-// head is the Head every document starts with, from what was last
-// published: the snapshot's block and reasons, with each step failing now.
-func (e *explorer) head() (Head, *snapshot) {
+// served is what one response shows, taken at once: the Head every document
+// starts with, the snapshot its figures come from (nil before the first),
+// and the labels that name its accounts. A response takes one, so
+// every figure on it is of the block its Head names.
+type served struct {
+	Head
+	snap  *snapshot
+	names *labelSet
+}
+
+// served is what was last published: the snapshot's block and
+// reasons, with each step failing now, and the labels read last.
+func (e *explorer) served() served {
+	names := e.labels.now()
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	h := Head{RPC: e.rpc, Index: e.progress, Scenario: e.scenario, Unavailable: []string{}}
+	h := Head{RPC: e.rpc, Index: e.progress, Scenario: names.scenario, Unavailable: []string{}}
 	for _, s := range steps {
 		if why, ok := e.failed[s]; ok {
 			h.Unavailable = append(h.Unavailable, why)
@@ -262,29 +286,87 @@ func (e *explorer) head() (Head, *snapshot) {
 			}
 			h.Unavailable = append(h.Unavailable, why)
 		}
-		return h, nil
+		return served{Head: h, names: names}
 	}
 	block, t := s.block, s.time
 	h.Block, h.BlockTime = &block, &t
 	h.Unavailable = append(h.Unavailable, s.unavailable...)
-	return h, s
+	return served{Head: h, snap: s, names: names}
+}
+
+// The documents of what is served, each account named by its labels. A document
+// copies what it names: the snapshot is shared and never changed.
+
+func (v served) networkDoc() NetworkDoc {
+	var doc NetworkDoc
+	if v.snap != nil {
+		doc = v.snap.network
+		if d := doc.Validators; d != nil {
+			named := all(v.names, *d, func(n *Named) *Named { return n })
+			doc.Validators = &named
+		}
+	}
+	doc.Head = v.Head
+	return doc
+}
+
+func (v served) orchestratorsDoc() OrchestratorsDoc {
+	doc := OrchestratorsDoc{Head: v.Head}
+	if v.snap != nil {
+		rows := all(v.names, v.snap.orchestrators, func(r *NodeRow) *Named { return &r.Named })
+		doc.Orchestrators = &rows
+	}
+	return doc
 }
 
 // nodeDoc is the node's document, with every figure null before the first
-// snapshot or for a node it does not hold.
-func (e *explorer) nodeDoc(n common.Address) (*NodeDoc, bool) {
-	h, s := e.head()
-	if s != nil {
-		if d, ok := s.nodes[n]; ok {
-			doc := *d
-			doc.Head = h
-			return &doc, true
+// snapshot or for a node it does not hold; known is false for a node the
+// snapshot does not hold.
+func (v served) nodeDoc(n common.Address) (doc *NodeDoc, known bool) {
+	doc = &NodeDoc{Node: Node{Address: n, LowGasWei: newInt(lowGasWei)}}
+	if v.snap != nil {
+		d, ok := v.snap.nodes[n]
+		if ok {
+			c := *d
+			doc = &c
+			if p := doc.FeesByPayer; p != nil {
+				named := all(v.names, *p, func(f *NamedFlow) *Named { return &f.Named })
+				doc.FeesByPayer = &named
+			}
 		}
+		known = ok
+	} else {
+		known = true
 	}
-	named := e.labels.named(n)
-	doc := &NodeDoc{Head: h, Label: named.Label, Simulated: named.Simulated,
-		Node: Node{Address: n, LowGasWei: newInt(lowGasWei)}}
-	return doc, s == nil
+	named := v.names.named(n)
+	doc.Head, doc.Label, doc.Simulated = v.Head, named.Label, named.Simulated
+	return doc, known
+}
+
+func (v served) appsDoc() AppsDoc {
+	doc := AppsDoc{Head: v.Head}
+	if v.snap != nil {
+		rows := all(v.names, v.snap.apps, func(r *AppRow) *Named { return &r.Named })
+		doc.Apps = &rows
+	}
+	return doc
+}
+
+// appDoc is the payer's document, with every figure null before the first
+// snapshot; known is false for a payer the snapshot does not hold.
+func (v served) appDoc(p common.Address) (doc *AppDoc, known bool) {
+	doc = &AppDoc{}
+	if v.snap != nil {
+		d, ok := v.snap.payers[p]
+		if !ok {
+			return nil, false
+		}
+		c := *d
+		doc = &c
+		doc.ByNode = all(v.names, doc.ByNode, func(f *NamedFlow) *Named { return &f.Named })
+	}
+	doc.Head, doc.Named = v.Head, v.names.named(p)
+	return doc, true
 }
 
 // handler serves the documents. The page at / is the node's when the
@@ -321,28 +403,16 @@ func handler(e *explorer) http.Handler {
 	mux.HandleFunc("GET /orchestrators", func(w http.ResponseWriter, r *http.Request) { e.orchestratorsPage(w) })
 	mux.HandleFunc("GET /apps", func(w http.ResponseWriter, r *http.Request) { e.appsPage(w) })
 	mux.HandleFunc("GET /network.json", func(w http.ResponseWriter, r *http.Request) {
-		h, s := e.head()
-		var doc NetworkDoc
-		if s != nil {
-			doc = s.network
-		}
-		doc.Head = h
-		writeJSON(w, http.StatusOK, doc)
+		writeJSON(w, http.StatusOK, e.served().networkDoc())
 	})
 	mux.HandleFunc("GET /orchestrators.json", func(w http.ResponseWriter, r *http.Request) {
-		h, s := e.head()
-		doc := OrchestratorsDoc{Head: h}
-		if s != nil {
-			doc.Orchestrators = &s.orchestrators
-		}
-		writeJSON(w, http.StatusOK, doc)
+		writeJSON(w, http.StatusOK, e.served().orchestratorsDoc())
 	})
 	mux.HandleFunc("GET /orchestrators/{file}", func(w http.ResponseWriter, r *http.Request) {
 		n, json, ok := address(r)
 		if !json {
 			if !ok {
-				f, _ := e.frame("Not found", "orchestrators", "/orchestrators.json")
-				e.missing(w, f, "Not a node's address.")
+				e.missing(w, e.frame(e.served(), "Not found", "orchestrators", "/orchestrators.json"), "Not a node's address.")
 				return
 			}
 			e.nodePage(w, n, false)
@@ -352,27 +422,21 @@ func handler(e *explorer) http.Handler {
 			notFound(w, "not a node's address")
 			return
 		}
-		doc, held := e.nodeDoc(n)
-		if !held && (e.cfg.node == nil || *e.cfg.node != n) {
+		doc, known := e.served().nodeDoc(n)
+		if !known && (e.cfg.node == nil || *e.cfg.node != n) {
 			notFound(w, "no node registered at "+n.Hex())
 			return
 		}
 		writeJSON(w, http.StatusOK, doc)
 	})
 	mux.HandleFunc("GET /apps.json", func(w http.ResponseWriter, r *http.Request) {
-		h, s := e.head()
-		doc := AppsDoc{Head: h}
-		if s != nil {
-			doc.Apps = &s.apps
-		}
-		writeJSON(w, http.StatusOK, doc)
+		writeJSON(w, http.StatusOK, e.served().appsDoc())
 	})
 	mux.HandleFunc("GET /apps/{file}", func(w http.ResponseWriter, r *http.Request) {
 		p, json, ok := address(r)
 		if !json {
 			if !ok {
-				f, _ := e.frame("Not found", "apps", "/apps.json")
-				e.missing(w, f, "Not a payer's address.")
+				e.missing(w, e.frame(e.served(), "Not found", "apps", "/apps.json"), "Not a payer's address.")
 				return
 			}
 			e.appPage(w, p)
@@ -382,18 +446,11 @@ func handler(e *explorer) http.Handler {
 			notFound(w, "not a payer's address")
 			return
 		}
-		h, s := e.head()
-		if s == nil {
-			writeJSON(w, http.StatusOK, AppDoc{Head: h, AppRow: AppRow{Named: e.labels.named(p)}})
-			return
-		}
-		d, ok := s.payers[p]
-		if !ok {
+		doc, known := e.served().appDoc(p)
+		if !known {
 			notFound(w, "no payer at "+p.Hex())
 			return
 		}
-		doc := *d
-		doc.Head = h
 		writeJSON(w, http.StatusOK, doc)
 	})
 	return mux
@@ -401,12 +458,20 @@ func handler(e *explorer) http.Handler {
 
 // labels is the labels file: a scenario's name and, by address, a name
 // and whether the account is simulated. It is read again when it changes;
-// a file that cannot be read keeps the labels it had.
+// a file that cannot be read keeps the labels it had. What it last read is
+// published whole, as one labelSet, and never changed after.
 type labels struct {
-	path     string
-	mu       sync.Mutex
-	mod      time.Time
-	size     int64
+	path    string
+	reading sync.Mutex // one read at a time
+	mod     time.Time
+	size    int64
+
+	mu  sync.Mutex
+	set *labelSet
+}
+
+// labelSet is one reading of the labels file.
+type labelSet struct {
 	scenario *string
 	accounts map[common.Address]label
 }
@@ -420,14 +485,13 @@ func (l *labels) reload() error {
 	if l.path == "" {
 		return nil
 	}
+	l.reading.Lock()
+	defer l.reading.Unlock()
 	info, err := os.Stat(l.path)
 	if err != nil {
 		return err
 	}
-	l.mu.Lock()
-	same := info.ModTime().Equal(l.mod) && info.Size() == l.size
-	l.mu.Unlock()
-	if same {
+	if info.ModTime().Equal(l.mod) && info.Size() == l.size {
 		return nil
 	}
 	raw, err := os.ReadFile(l.path)
@@ -448,19 +512,41 @@ func (l *labels) reload() error {
 		}
 		accounts[common.HexToAddress(a)] = v
 	}
+	l.mod, l.size = info.ModTime(), info.Size()
 	l.mu.Lock()
-	l.mod, l.size, l.scenario, l.accounts = info.ModTime(), info.Size(), f.Scenario, accounts
+	l.set = &labelSet{scenario: f.Scenario, accounts: accounts}
 	l.mu.Unlock()
 	return nil
 }
 
-func (l *labels) named(a common.Address) Named {
+// now is the labels last read; none before the file is.
+func (l *labels) now() *labelSet {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.set == nil {
+		return &labelSet{}
+	}
+	return l.set
+}
+
+func (s *labelSet) named(a common.Address) Named {
 	out := Named{Address: a}
-	if v, ok := l.accounts[a]; ok {
+	if s == nil {
+		return out
+	}
+	if v, ok := s.accounts[a]; ok {
 		name := v.Name
 		out.Label, out.Simulated = &name, v.Simulated
+	}
+	return out
+}
+
+// all is a copy of rows with the account each names named.
+func all[T any](s *labelSet, rows []T, account func(*T) *Named) []T {
+	out := slices.Clone(rows)
+	for i := range out {
+		n := account(&out[i])
+		*n = s.named(n.Address)
 	}
 	return out
 }
