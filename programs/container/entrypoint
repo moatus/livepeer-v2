@@ -157,15 +157,10 @@ mv "$DATA/deployment.new" "$DATA/deployment.json"
 # explorer has taken it, its copy is removed, so the explorer shows the
 # labels it had and its pages say the labels file could not be read. Only
 # the URL's scheme and host are logged: the rest may carry a credential.
-# labels_file holds when $1 is what the explorer takes as a labels file:
-# one object, a scenario that is a string or null, accounts by address,
-# each a name and a simulated mark.
+# labels_file holds when the explorer takes $1 as a labels file: it asks
+# the explorer, so the container keeps no file the explorer cannot read.
 labels_file() {
-    jq -se 'length == 1 and (.[0] | (.scenario | type == "null" or type == "string")
-        and ((.accounts // {}) | type == "object")
-        and all((.accounts // {}) | to_entries[]; (.key | test("^(0[xX])?[0-9a-fA-F]{40}$"))
-            and (.value | type == "null" or (type == "object" and (.name | type == "null" or type == "string")
-                and (.simulated | type == "null" or type == "boolean")))))' "$1" >/dev/null 2>&1
+    lp2-explorer --check-labels "$1" >/dev/null 2>&1
 }
 set --
 LABELS_UNREAD=

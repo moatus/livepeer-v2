@@ -80,7 +80,10 @@
 //
 //	{"scenario": "name or null", "accounts": {"0x…": {"name": "…", "simulated": true}}}
 //
-// read again when it changes.
+// read again when it changes. lp2-explorer --check-labels FILE reads FILE
+// as the explorer reads its labels file and does nothing else: it exits 0
+// when the explorer would take it, and 1, saying why, when not. The
+// container uses it to keep a labels file only once the explorer can read it.
 package main
 
 import (
@@ -112,10 +115,21 @@ func main() {
 	indexDir := flag.String("index-dir", "", "the folder the index of events is kept in")
 	node := flag.String("node", "", "the node / opens on (optional: without it, / is the Network page)")
 	labelsFile := flag.String("labels", "", "a labels file naming accounts and the scenario (optional)")
+	checkLabels := flag.String("check-labels", "", "only check that FILE is a labels file the explorer takes, and exit")
 	pageBlocks := flag.Uint64("log-page-blocks", 5000, "the most blocks one eth_getLogs asks for")
 	perSecond := flag.Int("requests-per-second", 5, "the most request elements sent to the provider in one second")
 	listen := flag.String("listen", "127.0.0.1:8080", "the address to serve on")
 	flag.Parse()
+	if *checkLabels != "" {
+		raw, err := os.ReadFile(*checkLabels)
+		if err == nil {
+			_, err = decodeLabels(raw)
+		}
+		if err != nil {
+			fail(fmt.Errorf("%s is not a labels file: %w", *checkLabels, err))
+		}
+		return
+	}
 
 	addresses := map[string]string{"--controller-address": *controller, "--parameters-address": *params,
 		"--stake-ledger-address": *ledger, "--claims-address": *claims, "--usdc-address": *usdc}

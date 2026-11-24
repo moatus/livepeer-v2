@@ -495,25 +495,35 @@ func (l *labels) reload() error {
 	if l.raw != nil && bytes.Equal(raw, l.raw) {
 		return nil
 	}
+	set, err := decodeLabels(raw)
+	if err != nil {
+		return err
+	}
+	l.raw = raw
+	l.mu.Lock()
+	l.set = set
+	l.mu.Unlock()
+	return nil
+}
+
+// decodeLabels reads the contents of a labels file, or says why they are
+// not one. It is the only reading of the format: --check-labels uses it too.
+func decodeLabels(raw []byte) (*labelSet, error) {
 	var f struct {
 		Scenario *string          `json:"scenario"`
 		Accounts map[string]label `json:"accounts"`
 	}
 	if err := json.Unmarshal(raw, &f); err != nil {
-		return err
+		return nil, err
 	}
 	accounts := map[common.Address]label{}
 	for a, v := range f.Accounts {
 		if !common.IsHexAddress(a) {
-			return errors.New(a + " is not an address")
+			return nil, errors.New(a + " is not an address")
 		}
 		accounts[common.HexToAddress(a)] = v
 	}
-	l.raw = raw
-	l.mu.Lock()
-	l.set = &labelSet{scenario: f.Scenario, accounts: accounts}
-	l.mu.Unlock()
-	return nil
+	return &labelSet{scenario: f.Scenario, accounts: accounts}, nil
 }
 
 // now is the labels last read; none before the file is.
