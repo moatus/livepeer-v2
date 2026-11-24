@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -27,6 +28,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 
 	"lp2core/programs/chain"
+	"lp2core/programs/index"
 )
 
 var (
@@ -40,41 +42,54 @@ var (
 	usdcAt       = common.HexToAddress("0xc7")
 	scoresAt     = common.HexToAddress("0xc8")
 	executorAt   = common.HexToAddress("0xc9")
+	lptAt        = common.HexToAddress("0xca")
 	nodeAt       = common.HexToAddress("0xa1")
 	payoutAt     = common.HexToAddress("0xa2")
 	validatorAt  = common.HexToAddress("0xa3")
+	payerAt      = common.HexToAddress("0xb1")
 )
 
 var testConfig = config{controller: controllerAt, params: paramsAt, ledger: ledgerAt, claims: claimsAt,
-	usdc: usdcAt, node: nodeAt, first: 100}
+	usdc: usdcAt, lpt: &lptAt, node: &nodeAt, first: 100}
 
 // fakeChain answers the JSON-RPC requests the explorer makes, from a
 // deployment where node 0xa1 earned in round 2 and claimed it, in round
 // 12. down makes every request fail, as an endpoint that does not answer;
 // revert makes every call to the contracts it names fail.
 type fakeChain struct {
+	mu       sync.Mutex
 	head     uint64
 	round    uint64
-	executor common.Address
+	chainID  uint64
+	executor func(round uint64) common.Address // valuesAt(10, round)
+	score    map[common.Address]int64
+	deposit  [2]int64 // earmarkOf(payer, 0): the amount and its pending release
 	logs     []types.Log
 	down     bool
 	revert   map[common.Address]bool // calls to these contracts fail
-	failLogs map[uint64]bool         // a getLogs from this block fails
-	asked    [][2]uint64             // each getLogs range of the clock and executor, in order
-	claimsQ  []map[string]any        // each getLogs of Claims, in order
+	requests int                     // request elements answered
+	stake    string                  // every stakeAt
+	// Blocks from fork on have hashes salted by branch: a new branch is a
+	// reorganisation from fork.
+	fork, branch uint64
 }
 
 func newFake() *fakeChain {
-	return &fakeChain{head: 1000, round: 12, executor: executorAt, failLogs: map[uint64]bool{}, revert: map[common.Address]bool{}}
+	return &fakeChain{head: 1000, round: 12, chainID: 1337, executor: func(uint64) common.Address { return executorAt },
+		stake: "3200000000000000000000", fork: 1 << 31,
+		score: map[common.Address]int64{nodeAt: 500_000}, deposit: [2]int64{3_000_000, 0}, revert: map[common.Address]bool{}}
 }
 
 var errDown = errors.New("connection refused")
 
 func (f *fakeChain) BatchCallContext(_ context.Context, b []rpc.BatchElem) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.down {
 		return errDown
 	}
 	for i := range b {
+		f.requests++
 		v, err := f.answer(b[i].Method, b[i].Args)
 		if err != nil {
 			b[i].Error = err
@@ -88,40 +103,54 @@ func (f *fakeChain) BatchCallContext(_ context.Context, b []rpc.BatchElem) error
 	return nil
 }
 
+// hashOf is block n's hash on the fake's chain: its number, and the
+// branch for a block from fork on.
+func (f *fakeChain) hashOf(n uint64) common.Hash {
+	v := new(big.Int).SetUint64(0xb10c<<32 + n)
+	if n >= f.fork {
+		v.Or(v, new(big.Int).Lsh(new(big.Int).SetUint64(f.branch), 64))
+	}
+	return common.BigToHash(v)
+}
+
+func (f *fakeChain) block(n uint64) any {
+	if n > f.head {
+		return nil
+	}
+	return map[string]any{"number": hexutil.Uint64(n), "hash": f.hashOf(n), "timestamp": hexutil.Uint64(1_795_000_000 + n)}
+}
+
 func (f *fakeChain) answer(method string, args []any) (any, error) {
 	switch method {
-	case "eth_blockNumber":
-		return hexutil.Uint64(f.head), nil
+	case "eth_chainId":
+		return hexutil.Uint64(f.chainID), nil
 	case "eth_getBalance":
 		return hexutil.Big(*big.NewInt(2_000_000_000_000_000)), nil
 	case "eth_getBlockByNumber":
+		if args[0] == "latest" {
+			return f.block(f.head), nil
+		}
 		n, _ := hexutil.DecodeUint64(args[0].(string))
-		return map[string]any{"timestamp": hexutil.Uint64(1_795_000_000 + n)}, nil
+		return f.block(n), nil
+	case "eth_getBlockByHash":
+		h := args[0].(common.Hash)
+		n := new(big.Int).SetBytes(h[24:]).Uint64() - 0xb10c<<32
+		if f.hashOf(n) != h {
+			return nil, nil
+		}
+		return f.block(n), nil
 	case "eth_getLogs":
 		q := args[0].(map[string]any)
 		from, _ := hexutil.DecodeUint64(q["fromBlock"].(string))
 		to, _ := hexutil.DecodeUint64(q["toBlock"].(string))
 		want := q["address"].([]common.Address)
-		if slices.Contains(want, claimsAt) {
-			f.claimsQ = append(f.claimsQ, q)
-		} else {
-			f.asked = append(f.asked, [2]uint64{from, to})
-		}
-		if f.failLogs[from] {
-			return nil, errors.New("rate limited")
-		}
 		topics := q["topics"].([][]common.Hash)
 		var out []types.Log
-	logs:
-		for _, l := range f.logs {
-			if l.BlockNumber < from || l.BlockNumber > to || !slices.Contains(want, l.Address) {
+		for i, l := range f.logs {
+			if l.BlockNumber < from || l.BlockNumber > to || !slices.Contains(want, l.Address) || !slices.Contains(topics[0], l.Topics[0]) {
 				continue
 			}
-			for i, any := range topics {
-				if len(any) > 0 && (i >= len(l.Topics) || !slices.Contains(any, l.Topics[i])) {
-					continue logs
-				}
-			}
+			l.BlockHash, l.Index = f.hashOf(l.BlockNumber), uint(i)
 			out = append(out, l)
 		}
 		return out, nil
@@ -158,8 +187,8 @@ func (f *fakeChain) call(to common.Address, data []byte) (any, error) {
 		out = []any{named[id]}
 	case to == clockAt && m.Name == "currentRound":
 		out = []any{new(big.Int).SetUint64(f.round)}
-	case to == registryAt && m.Name == "isRegistered":
-		out = []any{args[0] == nodeAt}
+	case to == clockAt && m.Name == "roundLength":
+		out = []any{n(50)}
 	case to == registryAt && m.Name == "operatorOf":
 		out = []any{args[0]}
 	case to == registryAt && m.Name == "payoutOf":
@@ -169,28 +198,22 @@ func (f *fakeChain) call(to common.Address, data []byte) (any, error) {
 		case groupScoreSource:
 			out = []any{[]*big.Int{new(big.Int).SetBytes(scoresAt.Bytes())}}
 		case groupExecutor:
-			out = []any{[]*big.Int{new(big.Int).SetBytes(f.executor.Bytes())}}
+			out = []any{[]*big.Int{new(big.Int).SetBytes(f.executor(args[1].(*big.Int).Uint64()).Bytes())}}
 		case groupRewardDelay:
 			out = []any{[]*big.Int{n(7)}}
 		}
 	case to == ledgerAt && m.Name == "stakeAt":
-		out = []any{wei("3200000000000000000000")}
+		out = []any{wei(f.stake)}
+	case to == ledgerAt && m.Name == "totalStakeAt":
+		out = []any{wei("9600000000000000000000")}
+	case to == ledgerAt && m.Name == "cutAt":
+		out = []any{n(100_000)}
 	case to == ledgerAt && m.Name == "bondAt":
 		out = []any{wei("1000000000000000000")}
-	case to == brokerAt && m.Name == "feesOf":
-		fee := n(0)
-		if args[0].(*big.Int).Int64() == 2 {
-			fee = n(1_000_000)
-		}
-		out = []any{fee}
-	case to == brokerAt && m.Name == "totalFees":
-		out = []any{n(3_000_000)}
-	case to == claimsAt && m.Name == "entitlementOf":
-		if args[1].(*big.Int).Int64() == 2 {
-			out = []any{true, wei("300551889676665523465"), wei("150275944838332761733")}
-		} else {
-			out = []any{false, n(0), n(0)}
-		}
+	case to == brokerAt && m.Name == "networkHeld":
+		out = []any{n(1_500_000)}
+	case to == brokerAt && m.Name == "earmarkOf":
+		out = []any{n(f.deposit[0]), n(f.deposit[1]), n(0)}
 	case to == claimsAt && m.Name == "partOf":
 		out = []any{n(0), false}
 		if args[2].(*big.Int).Int64() == 2 {
@@ -198,8 +221,10 @@ func (f *fakeChain) call(to common.Address, data []byte) (any, error) {
 		}
 	case to == usdcAt && m.Name == "balanceOf":
 		out = []any{n(1_500_000)}
+	case to == lptAt && m.Name == "totalSupply":
+		out = []any{wei("10000000000000000000000000")}
 	case to == scoresAt && m.Name == "scoreOf":
-		out = []any{n(500_000)}
+		out = []any{n(f.score[args[0].(common.Address)])}
 	case to == scoresAt && m.Name == "membersAt":
 		out = []any{[]common.Address{validatorAt}}
 	default:
@@ -209,44 +234,116 @@ func (f *fakeChain) call(to common.Address, data []byte) (any, error) {
 	return hexutil.Bytes(packed), err
 }
 
-// bought is a Bought event of round r at block b.
-func bought(at common.Address, r, b uint64, usdcIn int64) types.Log {
-	data, err := views.Events["Bought"].Inputs.NonIndexed().Pack(n(usdcIn), n(usdcIn), n(usdcIn*2), n(usdcIn*2), n(0), n(0))
+// event is a log of the named event at block b, emitted by at, its
+// arguments in the order its interface declares them.
+func event(at common.Address, name string, b uint64, args ...any) types.Log {
+	ev := index.ABI.Events[name]
+	topics := []common.Hash{ev.ID}
+	var data []any
+	for i, in := range ev.Inputs {
+		if !in.Indexed {
+			data = append(data, args[i])
+			continue
+		}
+		switch v := args[i].(type) {
+		case common.Address:
+			topics = append(topics, common.BytesToHash(v.Bytes()))
+		case *big.Int:
+			topics = append(topics, common.BigToHash(v))
+		}
+	}
+	packed, err := ev.Inputs.NonIndexed().Pack(data...)
 	if err != nil {
 		panic(err)
 	}
-	return types.Log{Address: at, BlockNumber: b, TxHash: common.BigToHash(new(big.Int).SetUint64(b)),
-		Topics: []common.Hash{boughtTopic, common.BigToHash(new(big.Int).SetUint64(r))}, Data: data}
+	return types.Log{Address: at, BlockNumber: b, TxHash: common.BigToHash(new(big.Int).SetUint64(b)), Topics: topics, Data: packed}
+}
+
+func u(v uint64) *big.Int { return new(big.Int).SetUint64(v) }
+
+// bought is a Bought event of round r at block b.
+func bought(at common.Address, r, b uint64, usdcIn int64) types.Log {
+	return event(at, "Bought", b, u(r), n(usdcIn), n(usdcIn), n(usdcIn*2), n(usdcIn*2), n(0), n(0))
 }
 
 // claimedLog is a Claimed event of node's claim of round r at block b, at
 // the given score.
 func claimedLog(node common.Address, r, b uint64, score int64, paid string) types.Log {
-	data, err := views.Events["Claimed"].Inputs.NonIndexed().Pack(payoutAt, n(score), wei(paid), n(0), wei(paid))
-	if err != nil {
-		panic(err)
-	}
-	return types.Log{Address: claimsAt, BlockNumber: b,
-		Topics: []common.Hash{claimedTopic, common.BytesToHash(node.Bytes()), common.BigToHash(new(big.Int).SetUint64(r))}, Data: data}
+	return event(claimsAt, "Claimed", b, node, u(r), payoutAt, n(score), wei(paid), n(0), wei(paid))
+}
+
+// started is a RoundStarted event of round r at block b.
+func started(r, b uint64) types.Log {
+	return event(clockAt, "RoundStarted", b, u(r), u(b), [32]byte{})
+}
+
+func registered(node common.Address, b uint64) types.Log {
+	return event(registryAt, "NodeRegistered", b, node, n(1))
+}
+
+func settled(b, r uint64, node common.Address, gross, nodeAmount, network int64) types.Log {
+	return event(brokerAt, "FeeSettled", b, u(r), node, payerAt, [32]byte{byte(b)}, n(gross), n(nodeAmount), n(network), payoutAt)
+}
+
+func funded(b uint64, deposit int64, node common.Address, earmark int64) types.Log {
+	return event(brokerAt, "Funded", b, payerAt, n(deposit), node, n(earmark))
 }
 
 // claimOf2 is node 0xa1's claim of round 2, in round 9, at score 1,000,000:
 // the score now, 500,000, is not the one the claim applied.
 var claimOf2 = claimedLog(nodeAt, 2, 600, 1_000_000, "300551889676665523465")
 
-// started is a RoundStarted event of round r at block b.
-func started(r, b uint64) types.Log {
-	data, _ := views.Events["RoundStarted"].Inputs.NonIndexed().Pack(n(int64(b)), [32]byte{})
-	return types.Log{Address: clockAt, BlockNumber: b,
-		Topics: []common.Hash{startedTopic, common.BigToHash(new(big.Int).SetUint64(r))}, Data: data}
+// deployment is the fake's events: the node registered and paid 1 USDC in
+// round 2, which it claimed; another node's claim; the rounds' starts; a
+// buy.
+func deployment() []types.Log {
+	return []types.Log{registered(nodeAt, 110), registered(validatorAt, 111), funded(120, 5_000_000, common.Address{}, 0),
+		settled(150, 2, nodeAt, 1_000_000, 500_000, 500_000), claimOf2, claimedLog(validatorAt, 2, 610, 250_000, "1"),
+		started(11, 900), bought(executorAt, 11, 950, 7), started(12, 990)}
 }
+
+// newTestExplorer is an explorer reading through c, with its index in a
+// folder of its own.
+func newTestExplorer(t *testing.T, c index.Caller, cfg config) *explorer {
+	return explorerIn(t, t.TempDir(), c, cfg)
+}
+
+func explorerIn(t *testing.T, dir string, c index.Caller, cfg config) *explorer {
+	t.Helper()
+	ix, err := index.Open(dir, cfg.first, 5000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(ix.Close)
+	e := newExplorer(cfg, index.NewSource(c, 10_000), ix)
+	e.stop = func(err error) { t.Fatalf("the explorer stopped: %v", err) }
+	return e
+}
+
+func get(t *testing.T, h http.Handler, path string) string {
+	t.Helper()
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
+	return w.Body.String()
+}
+
+func getJSON(t *testing.T, h http.Handler, path string) map[string]any {
+	t.Helper()
+	var m map[string]any
+	if err := json.Unmarshal([]byte(get(t, h, path)), &m); err != nil {
+		t.Fatalf("%s: %v", path, err)
+	}
+	return m
+}
+
+var nodePath = "/orchestrators/" + nodeAt.Hex() + ".json"
 
 func TestReadsTheNodeAndTheTestnet(t *testing.T) {
 	f := newFake()
-	// Another node's claim of round 2, at another score, is not the node's.
-	f.logs = []types.Log{claimOf2, claimedLog(validatorAt, 2, 610, 250_000, "1"),
-		started(11, 900), bought(executorAt, 11, 950, 7), started(12, 990)}
-	s := newExplorer(testConfig, f).read(context.Background())
+	f.logs = deployment()
+	e := newTestExplorer(t, f, testConfig)
+	e.cycle(context.Background())
+	s, _ := e.nodeDoc(nodeAt)
 	if len(s.Unavailable) != 0 {
 		t.Fatalf("unavailable: %v", s.Unavailable)
 	}
@@ -275,72 +372,283 @@ func TestReadsTheNodeAndTheTestnet(t *testing.T) {
 		len(*tn.Validators) != 1 || len(*tn.Buys) != 1 || (*tn.Buys)[0].Burned.big().Int64() != 14 {
 		t.Errorf("testnet: %+v", tn)
 	}
-
-	// A claimed round whose Claimed event the scan has not found has no
-	// claim score, and says so: never the score now.
-	f.logs = []types.Log{started(12, 990)}
-	s = newExplorer(testConfig, f).read(context.Background())
-	if r2 := s.Node.Rounds[10]; r2.ClaimScore != nil || len(s.Unavailable) != 1 || !strings.Contains(s.Unavailable[0], "round 2's claim score") {
-		t.Errorf("round 2 with no Claimed event: score %v, unavailable %v", r2.ClaimScore, s.Unavailable)
+	// Another node's claim of round 2, at another score, is not the node's.
+	if c := *s.Claims; len(c) != 1 || c[0].Score.big().Int64() != 1_000_000 || (*s.FeesByPayer)[0].Address != payerAt {
+		t.Errorf("claims %+v, fees by payer %+v", c, *s.FeesByPayer)
 	}
 }
 
 // A read that fails shows its figures as unavailable, null in the JSON and
-// never 0, and the next read after the endpoint answers again shows them.
+// never 0, and the next cycle after the endpoint answers again shows them.
 func TestFailedReadIsUnavailableAndRecovers(t *testing.T) {
 	f := newFake()
-	f.logs = []types.Log{claimOf2, started(12, 990), bought(executorAt, 12, 995, 7)}
-	srv := httptest.NewServer(handler(newExplorer(testConfig, f)))
-	defer srv.Close()
-	get := func(path string) string {
-		r, err := http.Get(srv.URL + path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer r.Body.Close()
-		var b bytes.Buffer
-		b.ReadFrom(r.Body)
-		return b.String()
-	}
-	status := func() map[string]any {
-		var m map[string]any
-		if err := json.Unmarshal([]byte(get("/status.json")), &m); err != nil {
-			t.Fatal(err)
-		}
-		return m
-	}
+	f.logs = deployment()
+	e := newTestExplorer(t, f, testConfig)
+	h := handler(e)
 	node := func(m map[string]any) map[string]any { return m["node"].(map[string]any) }
 
 	f.down = true
-	m := status()
+	e.cycle(context.Background())
+	m := getJSON(t, h, nodePath)
 	if m["block"] != nil || node(m)["stake_wei"] != nil || node(m)["registered"] != nil || node(m)["eth_wei"] != nil ||
 		m["testnet"].(map[string]any)["buys"] != nil || len(m["unavailable"].([]any)) == 0 {
 		t.Errorf("with the endpoint down: %v", m)
 	}
-	if page := get("/"); !strings.Contains(page, "<td class=\"n\">unavailable</td>") || !strings.Contains(page, errDown.Error()) {
+	if page := get(t, h, "/"); !strings.Contains(page, "<td class=\"n\">unavailable</td>") || !strings.Contains(page, errDown.Error()) {
 		t.Errorf("the page does not show the figures unavailable:\n%s", page)
 	}
 
 	// Contracts failing leave the others read, and their own figures null.
+	// Whether a round is claimed, what it paid and its fees are the index's
+	// events, so they stay read.
 	f.down, f.revert = false, map[common.Address]bool{claimsAt: true, ledgerAt: true}
-	m = status()
+	e.cycle(context.Background())
+	m = getJSON(t, h, nodePath)
 	round := node(m)["rounds"].([]any)[0].(map[string]any)
-	if node(m)["stake_wei"] != nil || node(m)["bond_wei"] != nil || round["stake_wei"] != nil || round["claimed"] != nil ||
-		round["paid_wei"] != nil || round["part_wei"] != nil || round["state"] != nil || round["claim_score"] != nil ||
-		node(m)["registered"] != true || round["fees_usdc_micro"] != "0" {
+	r2 := node(m)["rounds"].([]any)[10].(map[string]any)
+	if node(m)["stake_wei"] != nil || node(m)["bond_wei"] != nil || round["stake_wei"] != nil || round["claimed"] != false ||
+		round["paid_wei"] != "0" || round["part_wei"] != nil || round["claim_score"] != nil || r2["part_wei"] != nil ||
+		node(m)["registered"] != true || round["fees_usdc_micro"] != "0" || r2["fees_usdc_micro"] != "1000000" {
 		t.Errorf("with Claims and StakeLedger failing: %v, %v", node(m), round)
 	}
 
 	f.revert = map[common.Address]bool{}
-	m = status()
-	r2 := node(m)["rounds"].([]any)[10].(map[string]any)
+	e.cycle(context.Background())
+	m = getJSON(t, h, nodePath)
+	r2 = node(m)["rounds"].([]any)[10].(map[string]any)
 	if node(m)["stake_wei"] != "3200000000000000000000" || node(m)["registered"] != true || r2["claim_score"] != "1000000" ||
 		node(m)["score_now"] != "500000" ||
 		len(m["testnet"].(map[string]any)["buys"].([]any)) != 1 || len(m["unavailable"].([]any)) != 0 {
 		t.Errorf("after the endpoint recovered: %v", m)
 	}
-	if page := get("/"); strings.Contains(page, "unavailable") {
+	if page := get(t, h, "/"); strings.Contains(page, "unavailable") {
 		t.Errorf("the recovered page still shows a figure unavailable")
+	}
+}
+
+// Every document starts with the same keys, and answers before the
+// explorer has read anything: each figure null, never 0.
+func TestEveryDocumentStartsTheSame(t *testing.T) {
+	f := newFake()
+	f.logs = deployment()
+	e := newTestExplorer(t, f, testConfig)
+	h := handler(e)
+	paths := []string{"/network.json", "/orchestrators.json", nodePath, "/apps.json", "/apps/" + payerAt.Hex() + ".json"}
+	heads := regexp.MustCompile(`^\{\s*"block": [^\n]*,\s*"block_time": [^\n]*,\s*"rpc": \{`)
+	for _, read := range []bool{false, true} {
+		if read {
+			e.cycle(context.Background())
+		}
+		for _, p := range paths {
+			body := get(t, h, p)
+			m := getJSON(t, h, p)
+			if !heads.MatchString(body) || !strings.Contains(body, `"index": {`) || !strings.Contains(body, `"scenario": `) ||
+				m["unavailable"] == nil || (m["block"] == nil) == read {
+				t.Errorf("%s, read %v:\n%.400s", p, read, body)
+			}
+			if !read && strings.Contains(body, `"0"`) {
+				t.Errorf("%s shows a 0 before anything was read:\n%s", p, body)
+			}
+		}
+	}
+	idx := getJSON(t, h, "/network.json")["index"].(map[string]any)
+	if idx["through"] != 1000.0 || idx["caught_up"] != true || idx["first_block"] != 100.0 || idx["resumed_from"] != nil {
+		t.Errorf("index: %v", idx)
+	}
+}
+
+// Requests are served from what the loop published: a hundred of them, of
+// every document, send the provider nothing.
+func TestServingNeverReadsTheChain(t *testing.T) {
+	f := newFake()
+	f.logs = deployment()
+	e := newTestExplorer(t, f, testConfig)
+	h := handler(e)
+	e.cycle(context.Background())
+	before := f.requests
+	paths := []string{"/", "/network.json", "/orchestrators.json", nodePath, "/apps.json", "/apps/" + payerAt.Hex() + ".json"}
+	for i := range 100 {
+		get(t, h, paths[i%len(paths)])
+	}
+	if f.requests != before {
+		t.Errorf("a hundred requests sent the provider %d requests", f.requests-before)
+	}
+}
+
+// A score that changes with no Voted event, as when the validator set
+// changes, shows at the next snapshot.
+func TestAScoreChangedWithNoVoteShows(t *testing.T) {
+	f := newFake()
+	f.logs = deployment()
+	e := newTestExplorer(t, f, testConfig)
+	h := handler(e)
+	e.cycle(context.Background())
+	score := func() any {
+		return getJSON(t, h, "/orchestrators.json")["orchestrators"].([]any)[0].(map[string]any)["score_now"]
+	}
+	if s := score(); s != "500000" {
+		t.Fatalf("score %v", s)
+	}
+	f.score[nodeAt], f.head = 250_000, 1001
+	e.cycle(context.Background())
+	if s := score(); s != "250000" {
+		t.Errorf("after the change, score %v", s)
+	}
+}
+
+// A payer's pending release shows beside its deposit and leaves the
+// deposit as earmarkOf gives it; funded counts each deposit and earmark;
+// the fees are the gross as settled, with the node and network amounts as
+// recorded.
+func TestAPayersFigures(t *testing.T) {
+	f := newFake()
+	f.logs = append(deployment(), funded(700, 0, nodeAt, 2_000_000), settled(710, 9, nodeAt, 1_000_001, 500_000, 500_001),
+		settled(720, 9, nodeAt, 400_000, 200_000, 200_000))
+	f.deposit = [2]int64{3_000_000, 1_000_000}
+	e := newTestExplorer(t, f, testConfig)
+	h := handler(e)
+	e.cycle(context.Background())
+	row := getJSON(t, h, "/apps.json")["apps"].([]any)[0].(map[string]any)
+	want := map[string]any{"deposit_usdc_micro": "3000000", "deposit_pending_usdc_micro": "1000000", "funded_usdc_micro": "7000000",
+		"released_usdc_micro": "0", "fees_usdc_micro": "2400001", "node_usdc_micro": "1200000", "network_usdc_micro": "1200001"}
+	for k, v := range want {
+		if row[k] != v {
+			t.Errorf("%s: %v, want %v", k, row[k], v)
+		}
+	}
+	doc := getJSON(t, h, "/apps/"+payerAt.Hex()+".json")
+	byNode := doc["by_node"].([]any)[0].(map[string]any)
+	if len(doc["fees_by_round"].([]any)) != 2 || byNode["fees_usdc_micro"] != "2400001" || byNode["address"] != strings.ToLower(nodeAt.Hex()) {
+		t.Errorf("one payer: %v", doc)
+	}
+}
+
+// Each buy of the executor in force for its round counts once: buys in the
+// page that announces a new executor and after it, across a restart
+// between them, and none of an announcement withdrawn before it counted.
+func TestBuysCountTheExecutorInForce(t *testing.T) {
+	second, withdrawn := common.HexToAddress("0xe2"), common.HexToAddress("0xe3")
+	f := newFake()
+	f.executor = func(r uint64) common.Address {
+		if r >= 6 {
+			return second
+		}
+		return executorAt
+	}
+	announce := func(b uint64, a common.Address) types.Log {
+		return event(paramsAt, "Announced", b, n(groupExecutor), []*big.Int{new(big.Int).SetBytes(a.Bytes())}, n(6))
+	}
+	f.logs = []types.Log{registered(nodeAt, 110), bought(executorAt, 3, 300, 1),
+		announce(500, second), bought(second, 6, 510, 2), bought(executorAt, 6, 520, 99),
+		bought(second, 7, 800, 3), announce(850, withdrawn), event(paramsAt, "Withdrawn", 860, n(groupExecutor), n(9)),
+		bought(withdrawn, 8, 900, 98), bought(second, 8, 910, 4)}
+	cfg := testConfig
+	cfg.node = nil
+	buys := func(e *explorer) []int64 {
+		var out []int64
+		for _, b := range getJSON(t, handler(e), "/network.json")["buys"].([]any) {
+			v, _ := strconv.ParseInt(b.(map[string]any)["usdc_in_micro"].(string), 10, 64)
+			out = append(out, v)
+		}
+		return out
+	}
+	e := newTestExplorer(t, f, cfg)
+	e.cycle(context.Background())
+	if got := buys(e); !slices.Equal(got, []int64{1, 2, 3, 4}) {
+		t.Errorf("read at once: %v", got)
+	}
+	dir := t.TempDir()
+	f.head = 600
+	e = explorerIn(t, dir, f, cfg)
+	e.cycle(context.Background())
+	e.ix.Close()
+	f.head = 1000
+	e = explorerIn(t, dir, f, cfg)
+	if from := e.ix.ResumedFrom(); from == nil || *from != 601 {
+		t.Fatalf("resumed from %v", from)
+	}
+	e.cycle(context.Background())
+	if got := buys(e); !slices.Equal(got, []int64{1, 2, 3, 4}) {
+		t.Errorf("restarted between the announcement and the later buys: %v", got)
+	}
+}
+
+// The labels file names accounts and marks the simulated ones, and names
+// the scenario; a change to it shows at the next cycle, and a file that
+// cannot be read keeps the labels it had and says so.
+func TestLabelsNameAccounts(t *testing.T) {
+	f := newFake()
+	f.logs = deployment()
+	labels := filepath.Join(t.TempDir(), "labels.json")
+	write := func(body string) {
+		if err := os.WriteFile(labels, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(`{"scenario": "two payers", "accounts": {"` + nodeAt.Hex() + `": {"name": "N"}, "` + payerAt.Hex() + `": {"name": "P", "simulated": true}}}`)
+	cfg := testConfig
+	cfg.labels = labels
+	e := newTestExplorer(t, f, cfg)
+	h := handler(e)
+	e.cycle(context.Background())
+	app := getJSON(t, h, "/apps.json")["apps"].([]any)[0].(map[string]any)
+	node := getJSON(t, h, "/orchestrators.json")["orchestrators"].([]any)[0].(map[string]any)
+	if app["label"] != "P" || app["simulated"] != true || node["label"] != "N" || node["simulated"] != false ||
+		getJSON(t, h, nodePath)["scenario"] != "two payers" {
+		t.Errorf("labels: %v, %v", app, node)
+	}
+	write(`{"scenario": null, "accounts": {"` + payerAt.Hex() + `": {"name": "P2"}}}`)
+	e.cycle(context.Background())
+	app = getJSON(t, h, "/apps.json")["apps"].([]any)[0].(map[string]any)
+	if app["label"] != "P2" || app["simulated"] != false || getJSON(t, h, "/network.json")["scenario"] != nil {
+		t.Errorf("after the file changed: %v", app)
+	}
+	write(`{"accounts": `)
+	e.cycle(context.Background())
+	m := getJSON(t, h, "/apps.json")
+	if m["apps"].([]any)[0].(map[string]any)["label"] != "P2" || !strings.Contains(fmt.Sprint(m["unavailable"]), "the labels file") {
+		t.Errorf("a file that cannot be read: %v", m)
+	}
+}
+
+// A rollback rebuilds everything derived from the branch left: the
+// index's totals and the views the explorer kept, such as a round's stake.
+func TestARollbackRebuildsWhatWasKept(t *testing.T) {
+	f := newFake()
+	f.logs = deployment()
+	e := newTestExplorer(t, f, testConfig)
+	h := handler(e)
+	e.cycle(context.Background())
+	stake := func() any { return getJSON(t, h, nodePath)["node"].(map[string]any)["stake_wei"] }
+	if s := stake(); s != "3200000000000000000000" {
+		t.Fatalf("stake %v", s)
+	}
+	// Blocks from 950 are replaced: the buy at 950 is not on the new branch,
+	// and on it the node's stake this round is another.
+	f.fork, f.branch, f.head, f.stake = 950, 1, 1001, "4200000000000000000000"
+	f.logs = slices.DeleteFunc(f.logs, func(l types.Log) bool { return l.BlockNumber == 950 })
+	e.cycle(context.Background())
+	m := getJSON(t, h, nodePath)
+	if s := stake(); s != "4200000000000000000000" || e.ix.Rollbacks() != 1 || len(m["testnet"].(map[string]any)["buys"].([]any)) != 0 {
+		t.Errorf("after the rollback: stake %v, rollbacks %d, buys %v", s, e.ix.Rollbacks(), m["testnet"].(map[string]any)["buys"])
+	}
+}
+
+// An index folder of another chain stops the explorer, naming both.
+func TestAnotherChainsIndexStopsTheExplorer(t *testing.T) {
+	f := newFake()
+	f.logs = deployment()
+	dir := t.TempDir()
+	e := explorerIn(t, dir, f, testConfig)
+	e.cycle(context.Background())
+	e.ix.Close()
+	f.chainID = 1
+	e = explorerIn(t, dir, f, testConfig)
+	var stopped error
+	e.stop = func(err error) { stopped = err }
+	e.cycle(context.Background())
+	if !errors.Is(stopped, index.ErrDeployment) || !strings.Contains(stopped.Error(), "chain 1337") || !strings.Contains(stopped.Error(), "chain 1,") {
+		t.Errorf("stopped with %v", stopped)
 	}
 }
 
@@ -352,7 +660,7 @@ func TestPageRendersWithoutJavaScript(t *testing.T) {
 	payout := payoutAt
 	validators := []common.Address{validatorAt}
 	buys := []Buy{{Round: 11, Block: 950, USDCIn: (*Int)(n(1_500_000)), LPTBought: (*Int)(wei("3000000000000000000")), Burned: (*Int)(wei("3000000000000000000"))}}
-	s := &Status{Block: &block, BlockTime: &at,
+	s := &NodeDoc{Head: Head{Block: &block, BlockTime: &at, Unavailable: []string{"the node's own bond this round: execution reverted"}},
 		Node: Node{Address: nodeAt, Registered: &yes, Payout: &payout, Stake: (*Int)(wei("4200000000000000000000")),
 			ScoreNow: (*Int)(n(500_000)), PayoutUSDC: (*Int)(n(1_500_000)), ETH: (*Int)(n(1)), LowGas: &yes, LowGasWei: (*Int)(lowGasWei),
 			Rounds: []Round{
@@ -360,8 +668,7 @@ func TestPageRendersWithoutJavaScript(t *testing.T) {
 				{Round: 3, Fees: (*Int)(n(1_000_000)), Stake: (*Int)(wei("3200000000000000000000")), State: &claimable, ClaimableFrom: &from, ClaimableUntil: &until, Claimed: &no},
 				{Round: 2, Fees: (*Int)(n(1_000_000)), State: &claimed, Claimed: &yes, ClaimScore: (*Int)(n(1_000_000)), Paid: (*Int)(wei("300551889676665523465")), Pot: (*Int)(n(0)), Part: (*Int)(n(0)), PartWithdrawn: &no},
 			}},
-		Testnet:     Testnet{Round: &round, RoundStartBlock: &start, Validators: &validators, Buys: &buys},
-		Unavailable: []string{"the node's own bond this round: execution reverted"}}
+		Testnet: Testnet{Round: &round, RoundStartBlock: &start, Validators: &validators, Buys: &buys}}
 	var b bytes.Buffer
 	if err := render(&b, s); err != nil {
 		t.Fatal(err)
@@ -386,10 +693,15 @@ func TestPageRendersWithoutJavaScript(t *testing.T) {
 		validatorAt.Hex(),
 		"<td class=\"n\">unavailable</td>", // the bond, not read
 		"the node&#39;s own bond this round: execution reverted",
+		`<a href="/orchestrators/` + nodeAt.Hex() + `.json">`,
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("the page lacks %q", want)
 		}
+	}
+	var list bytes.Buffer
+	if err := renderIndex(&list); err != nil || strings.Contains(strings.ToLower(list.String()), "<script") {
+		t.Errorf("the list of documents: %v", err)
 	}
 }
 
@@ -402,107 +714,6 @@ func TestUnits(t *testing.T) {
 		if got := units(c.n, c.d); got != c.want {
 			t.Errorf("units(%s, %d) = %s, want %s", c.n, c.d, got, c.want)
 		}
-	}
-}
-
-// The scan reads from the first block in pages of at most pageBlocks, then
-// only the blocks after the last it read; a failed page is read again
-// next time, and a new executor starts the scan again.
-func TestScannerReadsBoundedPagesOnce(t *testing.T) {
-	f := newFake()
-	f.logs = []types.Log{bought(executorAt, 3, 150, 1), started(4, 5200), bought(executorAt, 4, 5300, 2),
-		bought(common.HexToAddress("0xdead"), 4, 5301, 99), bought(executorAt, 5, 12_000, 3),
-		claimedLog(nodeAt, 2, 5400, 1_000_000, "7"), claimedLog(nodeAt, 3, 11_000, 750_000, "8")}
-	s := newScanner(100, claimsAt, nodeAt)
-	ctx := context.Background()
-
-	f.failLogs[5100] = true
-	if err := s.advance(ctx, f, 12_345, clockAt, executorAt); err == nil || !strings.Contains(err.Error(), "rate limited") {
-		t.Fatalf("a failed page: %v", err)
-	}
-	delete(f.failLogs, 5100)
-	if err := s.advance(ctx, f, 12_345, clockAt, executorAt); err != nil {
-		t.Fatal(err)
-	}
-	want := [][2]uint64{{100, 5099}, {5100, 10_099}, {5100, 10_099}, {10_100, 12_345}}
-	if !slices.Equal(f.asked, want) {
-		t.Errorf("pages asked %v, want %v", f.asked, want)
-	}
-	if got := s.recent(); len(got) != 3 || got[0].Round != 5 || got[2].Round != 3 || s.start != (roundStart{4, 5200, 1_795_005_200}) {
-		t.Errorf("kept %+v, start %+v", got, s.start)
-	}
-	// Claims is read over the same pages, filtered by the node's topic.
-	var claimPages [][2]uint64
-	for _, q := range f.claimsQ {
-		from, _ := hexutil.DecodeUint64(q["fromBlock"].(string))
-		to, _ := hexutil.DecodeUint64(q["toBlock"].(string))
-		claimPages = append(claimPages, [2]uint64{from, to})
-		if topics := q["topics"].([][]common.Hash); len(topics) != 2 || !slices.Equal(topics[1], []common.Hash{common.BytesToHash(nodeAt.Bytes())}) {
-			t.Errorf("a Claims query not filtered by the node: %v", topics)
-		}
-	}
-	if !slices.Equal(claimPages, want) || len(s.claimed) != 2 || s.claimed[2].Int64() != 1_000_000 || s.claimed[3].Int64() != 750_000 {
-		t.Errorf("Claims pages %v, claims kept %+v", claimPages, s.claimed)
-	}
-
-	f.asked = nil
-	if err := s.advance(ctx, f, 12_345, clockAt, executorAt); err != nil || len(f.asked) != 0 {
-		t.Errorf("no new block, asked %v (%v)", f.asked, err)
-	}
-	if err := s.advance(ctx, f, 12_400, clockAt, executorAt); err != nil || !slices.Equal(f.asked, [][2]uint64{{12_346, 12_400}}) {
-		t.Errorf("new blocks, asked %v (%v)", f.asked, err)
-	}
-
-	// Another executor in force: from the first block again, its buys only.
-	f.asked = nil
-	other := common.HexToAddress("0xdead")
-	if err := s.advance(ctx, f, 12_400, clockAt, other); err != nil || f.asked[0][0] != 100 || len(s.recent()) != 1 || s.recent()[0].USDCIn.big().Int64() != 99 {
-		t.Errorf("a new executor: asked %v, kept %+v (%v)", f.asked, s.recent(), err)
-	}
-}
-
-// A page that fails to decode keeps nothing: the buy read before its bad
-// Claimed event is not kept, so the page read again shows it once.
-func TestFailedPageKeepsNothing(t *testing.T) {
-	f := newFake()
-	bad := claimedLog(nodeAt, 2, 160, 1_000_000, "7")
-	bad.Data = bad.Data[:1]
-	f.logs = []types.Log{bought(executorAt, 3, 150, 1), bad}
-	s := newScanner(100, claimsAt, nodeAt)
-	ctx := context.Background()
-	if err := s.advance(ctx, f, 200, clockAt, executorAt); err == nil || !strings.Contains(err.Error(), "Claimed event in block 160") {
-		t.Fatalf("a malformed claim: %v", err)
-	}
-	if len(s.buys) != 0 || len(s.claimed) != 0 || s.next != 100 {
-		t.Errorf("a failed page kept buys %+v, claims %+v, next %d", s.buys, s.claimed, s.next)
-	}
-	f.logs[1] = claimedLog(nodeAt, 2, 160, 1_000_000, "7")
-	if err := s.advance(ctx, f, 200, clockAt, executorAt); err != nil {
-		t.Fatal(err)
-	}
-	if got := s.recent(); len(got) != 1 || got[0].Block != 150 || s.claimed[2].Int64() != 1_000_000 {
-		t.Errorf("the page read again: buys %+v, claims %+v", got, s.claimed)
-	}
-}
-
-// A scan further behind than maxPages catches up over several reads, and
-// says so until it has; the page keeps only the latest keepBuys buys.
-func TestScannerCatchesUpOverReads(t *testing.T) {
-	f := newFake()
-	for b := uint64(0); b < 8; b++ {
-		f.logs = append(f.logs, bought(executorAt, b+1, 100+b*pageBlocks*7, int64(b+1)))
-	}
-	s := newScanner(100, claimsAt, nodeAt)
-	head := uint64(100 + (maxPages+10)*pageBlocks)
-	err := s.advance(context.Background(), f, head, clockAt, executorAt)
-	if err == nil || !strings.Contains(err.Error(), "catching up") || len(f.asked) != maxPages {
-		t.Fatalf("first read: %d pages (%v)", len(f.asked), err)
-	}
-	if err := s.advance(context.Background(), f, head, clockAt, executorAt); err != nil || len(f.asked) != maxPages+11 {
-		t.Fatalf("second read: %d pages (%v)", len(f.asked), err)
-	}
-	if got := s.recent(); len(got) != keepBuys || got[0].Round != 8 || got[keepBuys-1].Round != 4 {
-		t.Errorf("kept %+v", got)
 	}
 }
 
@@ -672,8 +883,10 @@ func TestAnRPCFailureHidesTheProvidersKey(t *testing.T) {
 		}
 		cfg := testConfig
 		cfg.rpcURL = url
-		srv := httptest.NewServer(handler(newExplorer(cfg, client)))
-		for _, path := range []string{"/status.json", "/"} {
+		e := newTestExplorer(t, client, cfg)
+		e.cycle(context.Background())
+		srv := httptest.NewServer(handler(e))
+		for _, path := range []string{"/orchestrators/" + nodeAt.Hex() + ".json", "/", "/network.json", "/orchestrators.json", "/apps.json"} {
 			r, err := http.Get(srv.URL + path)
 			if err != nil {
 				t.Fatal(err)

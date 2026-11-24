@@ -172,7 +172,8 @@ BASE = int(os.environ.get("LP2_DEMO_PORT_BASE", "47700"))
 PORT = {"chain": BASE, "orch": BASE + 1, "orch_metrics": BASE + 2, "signer_p": BASE + 3,
         "signer_p_metrics": BASE + 4, "signer_p2": BASE + 5, "signer_p2_metrics": BASE + 6, "model": BASE + 7,
         "orch_m": BASE + 8, "orch_m_metrics": BASE + 9, "orch_k": BASE + 10, "orch_k_metrics": BASE + 11,
-        "orch_l": BASE + 12, "orch_l_metrics": BASE + 13, "explorer": BASE + 14}
+        "orch_l": BASE + 12, "orch_l_metrics": BASE + 13, "explorer": BASE + 14, "explorer_restarted": BASE + 15,
+        "provider": BASE + 16}
 
 
 def preflight(ports: list[str], docker: bool = True) -> None:
@@ -520,6 +521,86 @@ def logs(address: str, signature: str, upto: int | str = "latest") -> list[dict]
             raise Failed(f"eth_getLogs: {page['error']}")
         out += page["result"]
     return out
+
+
+class Provider:
+    """A stand-in RPC provider on host:port. It forwards each request to the
+    chain, and keeps the first block of each eth_getLogs it forwards in
+    log_from_blocks. After reject() it answers each with 401 and `secrets`
+    (a key and a password, escaped as the URL writes it) in its status line
+    and its body, as a provider that rejects a key and quotes it does; after
+    redirect() it answers each with a 307 to a second host (the same
+    server, named by its address), which answers with a 307 whose Location
+    carries `marker` and cannot be read, and counts in followed each
+    request that reaches it; after refuse() it no longer listens, so each
+    connection is refused. forward() makes it forward again."""
+
+    def __init__(self, host: str, port: int, secrets: tuple[str, str] = ("", ""), marker: str = ""):
+        import http.server
+        import threading
+        provider = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+                if self.path == "/second":
+                    provider.followed += 1
+                    self.send_response(307)
+                    self.send_header("Location", f"http://[{marker}")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                if provider.mode == "redirect":
+                    self.send_response(307)
+                    self.send_header("Location", f"http://{host}:{port}/second")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                if provider.mode == "reject":
+                    said = f"invalid project id {secrets[0]} or password {secrets[1]}"
+                    out = json.dumps({"jsonrpc": "2.0", "id": None, "error": {"code": -32001, "message": said}}).encode()
+                    self.send_response(401, f"Unauthorized: {said}")
+                else:
+                    try:
+                        asked = json.loads(body)
+                    except ValueError:
+                        asked = []
+                    for one in asked if isinstance(asked, list) else [asked]:
+                        if isinstance(one, dict) and one.get("method") == "eth_getLogs":
+                            provider.log_from_blocks.append(int(one["params"][0]["fromBlock"], 16))
+                    req = urllib.request.Request(RPC, data=body, headers={"Content-Type": "application/json"})
+                    with urllib.request.urlopen(req, timeout=30) as r:
+                        out = r.read()
+                    self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(out)))
+                self.end_headers()
+                self.wfile.write(out)
+
+            def log_message(self, *args):
+                pass
+
+        self.mode = "forward"
+        self.followed = 0
+        self.log_from_blocks: list[int] = []
+        try:
+            self.server = http.server.ThreadingHTTPServer((host, port), Handler)
+        except OSError as e:
+            raise NotRun(f"port {port} (the stand-in RPC provider) on {host}: {e}; set LP2_DEMO_PORT_BASE to move the demo's ports")
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def forward(self) -> None:
+        self.mode = "forward"
+
+    def reject(self) -> None:
+        self.mode = "reject"
+
+    def redirect(self) -> None:
+        self.mode = "redirect"
+
+    def refuse(self) -> None:
+        self.server.shutdown()
+        self.server.server_close()
 
 
 # --- names, keys and records --------------------------------------------------

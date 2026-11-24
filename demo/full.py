@@ -110,22 +110,29 @@ def explorer_get(path: str) -> str | None:
         return None
 
 
-def explorer_status() -> dict:
-    body = explorer_get("/status.json")
-    if body is None:
-        raise c.Failed("lp2-explorer did not answer /status.json")
-    return json.loads(body)
+def explorer_status(block: int = 0) -> dict:
+    """N's JSON from the explorer, read at `block` or later."""
+    path = f"/orchestrators/{ADDR['N']}.json"
+    got: list[dict | None] = []
+
+    def read() -> bool:
+        body = explorer_get(path)
+        got.append(json.loads(body) if body else None)
+        return got[-1] is not None and got[-1]["block"] is not None and got[-1]["block"] >= block
+    rewards.wait(f"lp2-explorer's {path} at block {block} or later", read, 90)
+    return got[-1]
 
 
 def start_explorer(first_block: int) -> None:
-    """lp2-explorer for N, scanning events from the block before the deployment."""
+    """lp2-explorer for N, its index of events from the block before the
+    deployment."""
     c.start("explorer", [str(c.RUN / "bin" / "lp2-explorer"), "--rpc-url", c.RPC,
                          "--controller-address", C["Controller"], "--parameters-address", C["Parameters"],
                          "--stake-ledger-address", C["StakeLedger"], "--claims-address", C["Claims"],
-                         "--usdc-address", C["MockUSDC"], "--first-block", str(first_block),
+                         "--usdc-address", C["MockUSDC"], "--lpt-address", C["TestLPT"], "--first-block", str(first_block),
+                         "--index-dir", str(c.RUN / "explorer-index"),
                          "--node", ADDR["N"], "--listen", f"127.0.0.1:{c.PORT['explorer']}"])
-    rewards.wait("lp2-explorer to answer", lambda: explorer_get("/status.json") is not None, 30)
-    status = explorer_status()
+    status = explorer_status(c.block_number())
     c.check("explorer, first read: N registered, every figure read, no buy yet",
             (status["node"]["registered"], status["unavailable"], status["testnet"]["buys"]), (True, [], []))
 
@@ -134,7 +141,7 @@ def check_explorer(fixture: dict, calc: dict) -> None:
     """The explorer's figures for N against the chain, read at the block the
     explorer read, and against the calculator for round 2, which N claimed."""
     c.say("\nThe explorer: N's page against the chain and the calculator")
-    status = explorer_status()
+    status = explorer_status(c.block_number())
     node, net, block = status["node"], status["testnet"], status["block"]
     n = ADDR["N"]
     c.check("explorer: no figure unavailable", status["unavailable"], [])
@@ -198,6 +205,7 @@ def check_explorer(fixture: dict, calc: dict) -> None:
 
     bought = c.logs(C["Buyback"], bb.BOUGHT, block)
     want = [{"round": int(e["topics"][1], 16), "block": int(e["blockNumber"], 16), "tx": e["transactionHash"],
+             "executor": C["Buyback"].lower(),
              **{k: str(int(e["data"][2 + 64 * i:66 + 64 * i], 16)) for i, k in
                 ((1, "usdc_in_micro"), (2, "lpt_bought_wei"), (3, "burned_wei"))}}
             for e in reversed(bought[-5:])]

@@ -148,8 +148,11 @@ server, reach it through an SSH tunnel (`ssh -L 8080:127.0.0.1:8080
 ## Read the explorer
 
 Open <http://127.0.0.1:8080/>; it reloads itself every 15 seconds, and
-`/status.json` holds the same figures. Every figure is read from the chain
-when the page loads; one that could not be read says "unavailable".
+`/orchestrators/<N>.json`, N being the node's address, holds the same
+figures. Every 15 seconds the explorer reads the chain, every figure at one
+block, and the page shows what it read last; a figure that could not be
+read says "unavailable". It keeps an index of the deployment's events in
+`/data/index`, so after a restart it reads only the blocks since.
 
 - **The node**: registered or not; its operator key, which is H once the
   rotation is done; its payout address, N itself; its stake this round,

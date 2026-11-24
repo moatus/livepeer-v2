@@ -13,7 +13,9 @@ V1 a 10 % reward cut), opt in in round 3 and are members from round 4. In
 round 4 they vote M 0.5 and K 0, V1 alone votes L 0, and N, M, K and L each
 serve one paid relay, so that four nodes earn in one round;
 V4, with 6,000 LPT, opts in and takes V3's seat from round 5, and its vote
-in round 4 is refused. Round 4's validator amount is divided among V1,
+in round 4 is refused. A second payer, P2, with its own signer, pays two of
+round 4's four relays, M's and L's, asks for one USDC of its deposit back
+and takes it in round 8. Round 4's validator amount is divided among V1,
 V2 and V3 by stake; V1's cut goes to its payout and its pot to Claims, from
 which V1 and H withdraw their parts. In round 8 N's claim is refused as too
 early; in round 9 a rival's and a delegator's claims for N are refused, N
@@ -24,7 +26,20 @@ unbonds 40 of the move and rebonds it, which can go back only to K. In round
 at scores 1, 0.5, 1 (one vote cannot cut a node) and 0.
 
 Every figure read from the chain is printed beside the independent
-calculator's figure for the same steps, and checked against the shared ledger-cycle example. The run is written as a
+calculator's figure for the same steps, and checked against the shared ledger-cycle example.
+
+lp2-explorer runs beside the whole run with no node, keeping its index of
+events in the run's folder. Each node's fees by round and claims, each
+payer's deposit, funded and released, and each payer's fees by node are
+checked against the figures the run checks against the calculator; its fee
+sums against feesOf and totalFees, and every node's score against scoreOf,
+each at the explorer's block, after round 4's votes, in round 5 once V4
+holds V3's seat, and at the end. A second explorer, reading through a
+counting stand-in provider in pages of 10 blocks, is killed with SIGKILL
+while it catches up and started again: it resumes from its checkpoint,
+asks for no logs below it, and shows the figures of the first.
+
+The run is written as a
 `ledger` case, a `validators` case and one `validator-pay` case for each
 round minted, and `./calculator/check` reproduces each.
 
@@ -37,13 +52,16 @@ from __future__ import annotations
 import json
 import os
 import re
+import signal
 import subprocess
 import time
+import urllib.error
+import urllib.request
 
 import common
 common.use("rewards-local.json")
 from common import *  # noqa: E402,F401,F403
-from common import MANIFEST, PARAMS, CASES, VECTORS, PORT, C, ADDR, KEY, NAMES, RECORDS, FAILURES  # noqa: E402
+from common import MANIFEST, PARAMS, CASES, VECTORS, PORT, C, ADDR, KEY, NAMES, RECORDS, FAILURES, ZERO  # noqa: E402
 import ledgercase  # noqa: E402
 import validatorcases  # noqa: E402
 
@@ -400,6 +418,187 @@ def resume_keeper() -> int:
     return r0 + 1
 
 
+# --- the explorer -------------------------------------------------------------
+
+def start_explorer(name: str, port: int, index_dir, rpc_url: str, *more: str) -> None:
+    """lp2-explorer with no node, reading the deployment from block 0."""
+    start(name, [str(common.RUN / "bin" / "lp2-explorer"), "--rpc-url", rpc_url,
+                 "--controller-address", C["Controller"], "--parameters-address", C["Parameters"],
+                 "--stake-ledger-address", C["StakeLedger"], "--claims-address", C["Claims"],
+                 "--usdc-address", C["MockUSDC"], "--lpt-address", C["TestLPT"], "--first-block", "0",
+                 "--index-dir", str(index_dir), "--listen", f"127.0.0.1:{port}", *more])
+
+
+def explorer_json(path: str, port: int | None = None) -> dict | None:
+    """One of the explorer's documents, or None while it does not answer."""
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port or PORT['explorer']}{path}", timeout=30) as r:
+            return json.loads(r.read())
+    except (urllib.error.URLError, ConnectionError, OSError, ValueError):
+        return None
+
+
+def explorer_docs(block: int, port: int | None = None, seconds: float = 90) -> dict[str, dict]:
+    """The explorer's five kinds of document, every one read at one block,
+    `block` or later: /network.json, /orchestrators.json, /apps.json and
+    each node's and payer's own, by path with the address in lower case."""
+    def read() -> dict[str, dict] | None:
+        docs = {p: explorer_json(p, port) for p in ("/network.json", "/orchestrators.json", "/apps.json")}
+        if any(d is None or d["block"] is None or d["block"] < block for d in docs.values()):
+            return None
+        for row in docs["/orchestrators.json"]["orchestrators"]:
+            docs[f"/orchestrators/{row['address'].lower()}.json"] = explorer_json(f"/orchestrators/{row['address']}.json", port)
+        for row in docs["/apps.json"]["apps"]:
+            docs[f"/apps/{row['address'].lower()}.json"] = explorer_json(f"/apps/{row['address']}.json", port)
+        if any(d is None for d in docs.values()) or len({d["block"] for d in docs.values()}) != 1:
+            return None
+        return docs
+    got: list[dict] = []
+    wait(f"lp2-explorer's documents at block {block} or later", lambda: bool(got.append(read()) or got[-1]), seconds)
+    return got[-1]
+
+
+def beside(label: str, got, want, fmt=str) -> None:
+    """A figure of the explorer's beside the run's, on lines of their own."""
+    mark = "equal" if got == want else "DIFFERS"
+    say(f"  {label}: {mark}\n    explorer:        {fmt(got)}\n    run, calculator: {fmt(want)}")
+    if got != want:
+        FAILURES.append(f"{label}: explorer {got}, run and calculator {want}")
+
+
+def by_address(rows: list[dict]) -> dict[str, dict]:
+    return {name(r["address"]): r for r in rows}
+
+
+def check_against_views(when: str) -> int:
+    """Every registered node's score in the explorer equals scoreOf, and
+    each payer's deposit and its pending release earmarkOf, at the
+    explorer's block. Returns the round the explorer read."""
+    docs = explorer_docs(block_number())
+    block = docs["/network.json"]["block"]
+    rows = by_address(docs["/orchestrators.json"]["orchestrators"])
+    got = {n: int(rows[n]["score_now"]) for n in REGISTERED}
+    check(f"explorer, {when}: every node's score is scoreOf at its block {block}", got,
+          {n: call(C["Scores"], "scoreOf(address)", a(n), block=block) for n in REGISTERED})
+    say(f"  the explorer at block {block}: scores " + ", ".join(f"{n} {v:,}" for n, v in got.items()))
+    apps = by_address(docs["/apps.json"]["apps"])
+    got = {p: [int(apps[p]["deposit_usdc_micro"]), int(apps[p]["deposit_pending_usdc_micro"])] for p in apps}
+    check(f"explorer, {when}: each payer's deposit and its pending release are earmarkOf's at its block {block}", got,
+          {p: words(C["Broker"], "earmarkOf(address,address)", a(p), ZERO, block=block)[:2] for p in apps})
+    return docs["/network.json"]["round"]
+
+
+def check_explorer(ordered: list[dict], calc: dict) -> None:
+    """The explorer's figures against the figures the run checks against the
+    calculator, and its sums against the views that hold the same totals."""
+    say("\n14. The explorer's figures, beside the run's and the calculator's")
+    docs = explorer_docs(block_number())
+    net, block = docs["/network.json"], docs["/network.json"]["block"]
+    check("explorer: no figure unavailable on any document", {p: d["unavailable"] for p, d in docs.items() if d["unavailable"]}, {})
+    steps = ledgercase.steps(ordered)
+    nodes = by_address(docs["/orchestrators.json"]["orchestrators"])
+    check("explorer: the registered nodes, from their NodeRegistered events", sorted(nodes), sorted(REGISTERED))
+    claims = [r for r in ordered if r["fields"]["action"] == "claim" and not r.get("code")]
+    paid_by_round = {}
+    for e in sorted({r["fields"]["earned_round"] for r in claims}):
+        scores = {r["fields"]["node"]: int(r["fields"]["score"]) for r in claims if r["fields"]["earned_round"] == e}
+        paid_by_round[e] = calculate("round", round_inputs(e, scores))["paid_wei"]
+    for n in ("N", "M", "K", "L"):
+        doc = docs[f"/orchestrators/{a(n).lower()}.json"]
+        fees = {str(r["round"]): r["fees_usdc_micro"] for r in doc["fees_by_round"]}
+        want = {r: f[n] for r, f in calc["fees_micro_usdc"].items() if n in f}
+        beside(f"{n}: fees by round", fees, want, lambda v: ", ".join(f"r{k} {money(x)}" for k, x in sorted(v.items())))
+        got = [(c["round"], int(c["score"]), int(c["paid_wei"])) for c in doc["claims"]]
+        want = sorted((r["fields"]["earned_round"], int(r["fields"]["score"]), int(paid_by_round[r["fields"]["earned_round"]][n]))
+                      for r in claims if r["fields"]["node"] == n)
+        beside(f"{n}: claims (round, score, LPT paid)", got, want,
+             lambda v: "; ".join(f"r{r} {s:,} {lpt(p)}" for r, s, p in v))
+    apps = by_address(docs["/apps.json"]["apps"])
+    check("explorer: the payers, from their events", sorted(apps), ["P", "P2"])
+    split = {}
+    for s in steps:
+        if s["action"] == "redeem":
+            cut = calculate("settlement", {"gross_micro_usdc": s["face_micro_usdc"], "payee_registered": True})
+            f = split.setdefault((s["payer"], s["node"]), [0, 0, 0])
+            for i, k in enumerate(("recognized_micro_usdc", "node_micro_usdc", "network_micro_usdc")):
+                f[i] += int(cut[k])
+    for p in ("P", "P2"):
+        row = apps[p]
+        funded = sum(int(s["deposit_micro_usdc"]) + int(s["earmark_micro_usdc"]) for s in steps
+                     if s["action"] == "fund" and s["payer"] == p)
+        beside(f"{p}: deposit now, funded (each fund step's deposit and earmark), released",
+               [int(row[k]) for k in ("deposit_usdc_micro", "funded_usdc_micro", "released_usdc_micro")],
+               [int(calc["deposits_micro_usdc"][p]), funded, int(calc["released_micro_usdc"][p])],
+               lambda v: " / ".join(money(x) for x in v))
+        check(f"explorer: {p}'s pending release is earmarkOf's at its block", int(row["deposit_pending_usdc_micro"]),
+              words(C["Broker"], "earmarkOf(address,address)", a(p), ZERO, block=block)[1])
+        got = {name(f["address"]): [int(f["fees_usdc_micro"]), int(f["node_usdc_micro"]), int(f["network_usdc_micro"])]
+               for f in docs[f"/apps/{a(p).lower()}.json"]["by_node"]}
+        want = {n: f for (q, n), f in split.items() if q == p}
+        beside(f"{p}: by node, gross, node and network amounts", got, want,
+             lambda v: "; ".join(f"{n} {'/'.join(money(x) for x in f)}" for n, f in sorted(v.items())))
+    now = current_round(block)
+    wanted = [(C["Broker"], "feesOf(uint256,address)", (r, a(n))) for r in range(1, now + 1) for n in REGISTERED]
+    got_views = iter(calls(wanted + [(C["Broker"], "totalFees(uint256)", (r,)) for r in range(1, now + 1)], block))
+    per_node = {(r, n): next(got_views) for r in range(1, now + 1) for n in REGISTERED}
+    totals = {r: next(got_views) for r in range(1, now + 1)}
+    shown = {(r["round"], n): int(r["fees_usdc_micro"]) for n in REGISTERED
+             for r in docs[f"/orchestrators/{a(n).lower()}.json"]["fees_by_round"]}
+    check(f"explorer: every node's fees in every round, summed from FeeSettled, equal feesOf at block {block}",
+          {k: v for k, v in per_node.items() if v}, shown)
+    check(f"explorer: all fees in every round equal totalFees at block {block}",
+          {r: v for r, v in totals.items() if v}, {r["round"]: int(r["fees_usdc_micro"]) for r in net["fees_by_round"]})
+    check_against_views("at the end")
+
+
+def check_restart() -> None:
+    """A second explorer, reading through a counting stand-in provider in
+    pages of 10 blocks, killed with SIGKILL while it catches up and started
+    again: it resumes above the first block, asks for no logs below where
+    it resumed, and shows the figures of the explorer never stopped."""
+    say("\n15. An explorer killed while it catches up, and started again")
+    stop("keeper")
+    say("  the keeper is stopped, so nothing changes on the chain while the two explorers are compared")
+    provider = common.Provider("127.0.0.1", PORT["provider"])
+    url, port, folder = f"http://127.0.0.1:{PORT['provider']}", PORT["explorer_restarted"], common.RUN / "explorer-restarted-index"
+    pace = ("--log-page-blocks", "10", "--requests-per-second", "25")
+    head = block_number()
+    start_explorer("explorer-restarted", port, folder, url, *pace)
+    progress: list[dict] = []
+
+    def caught_some() -> bool:
+        doc = explorer_json("/network.json", port)
+        progress.append(doc["index"] if doc else {})
+        return (progress[-1].get("through") or 0) >= 100
+
+    wait("the second explorer to commit its first hundred blocks", caught_some, 120)
+    os.killpg(common.PROCS["explorer-restarted"].pid, signal.SIGKILL)
+    common.PROCS.pop("explorer-restarted").wait()
+    killed = progress[-1]["through"]
+    check(f"killed while catching up: its last progress, block {killed}, is above the first block and below the newest, {head}",
+          0 < killed < head, True)
+    before = len(provider.log_from_blocks)
+    start_explorer("explorer-restarted", port, folder, url, *pace)
+    restarted = explorer_docs(head, port, 300)
+    main = explorer_docs(restarted["/network.json"]["block"])
+    resumed = restarted["/network.json"]["index"]["resumed_from"]
+    asked = provider.log_from_blocks[before:]
+    say(f"  killed at block {killed} of {head}; started again, it resumed from block {resumed}, and read {len(asked)} pages")
+    check("started again: index.resumed_from is above the first block, after what it had committed",
+          resumed is not None and resumed > killed, True)
+    floor = resumed if resumed is not None else killed + 1
+    check(f"the counting provider saw no eth_getLogs below block {floor} after the restart, where the index resumed",
+          [b for b in asked if b < floor], [])
+    blocks = sorted({main["/network.json"]["block"], restarted["/network.json"]["block"]})
+    sent = sum(len(b["result"]["transactions"]) for b in rpc_batch([("eth_getBlockByNumber", [hex(n), False])
+                                                                     for n in range(blocks[0] + 1, blocks[-1] + 1)]))
+    check(f"no transaction between the two explorers' blocks, {blocks[0]} and {blocks[-1]}: the chain's state is the same", sent, 0)
+    strip = lambda d: {k: v for k, v in d.items() if k not in ("rpc", "index", "block", "block_time")}  # noqa: E731
+    differ = [p for p in main if strip(main[p]) != strip(restarted.get(p, {}))]
+    check(f"the restarted explorer's {len(main)} documents equal those of the explorer never stopped", differ, [])
+    provider.refuse()
+
+
 # --- the demo -----------------------------------------------------------------
 
 def main() -> int:
@@ -411,7 +610,8 @@ def main() -> int:
 
     say("\n1. Setting up")
     preflight(["chain", "orch", "orch_metrics", "orch_m", "orch_m_metrics", "orch_k", "orch_k_metrics",
-               "orch_l", "orch_l_metrics", "signer_p", "signer_p_metrics", "model"])
+               "orch_l", "orch_l_metrics", "signer_p", "signer_p_metrics", "signer_p2", "signer_p2_metrics", "model",
+               "explorer", "explorer_restarted", "provider"])
     node_bin = fetch_node()
     model = fetch_model()
     build_ours()
@@ -424,7 +624,7 @@ def main() -> int:
     pw = common.RUN / "pw"
     pw.write_text("pw-" + os.urandom(8).hex())
     pw.chmod(0o600)
-    people = ["deployer", "N", "M", "K", "L", "W", "O", "D", "E", "F", "H", "P", *VALIDATORS, "Keeper", "Anyone"]
+    people = ["deployer", "N", "M", "K", "L", "W", "O", "D", "E", "F", "H", "P", "P2", *VALIDATORS, "Keeper", "Anyone"]
     for who in people:
         new_key(who)
     treasury = "0x" + os.urandom(20).hex()
@@ -435,7 +635,7 @@ def main() -> int:
     deploy_rewards()
     (common.RUN / "addresses.json").write_text(json.dumps({"contracts": C, "accounts": dict(ADDR)}, indent=1))
     say(f"  local chain on {common.RPC} (chain id {MANIFEST['chain']['chain_id']}); throwaway keys for nodes N, M, K and L, N's payout W,")
-    say("  holders O, D, E, F and H, payer P, validators V1 to V4, the keeper and an anyone; the treasury is an address with no key")
+    say("  holders O, D, E, F and H, payers P and P2, validators V1 to V4, the keeper and an anyone; the treasury is an address with no key")
     say("  contracts: " + ", ".join(f"{k} {v}" for k, v in C.items()))
     check("RoundClock.roundLength() equals the shared examples' round length", call(C["RoundClock"], "roundLength()"),
           int(PARAMS["round_length_blocks"]))
@@ -451,7 +651,10 @@ def main() -> int:
     for n, (port, metrics) in ORCHS.items():
         start_orchestrator(f"orchestrator-{n}", n, node_bin, KEYS[n], pw, PORT[port], PORT[metrics])
     start_signer("P", node_bin, KEYS["P"], pw, PORT["signer_p"], PORT["signer_p_metrics"], [PORT[p] for p, _ in ORCHS.values()])
-    say(f"  model server on port {PORT['model']}; an orchestrator for each of N, M, K and L; a signer for P")
+    start_signer("P2", node_bin, KEYS["P2"], pw, PORT["signer_p2"], PORT["signer_p2_metrics"], [PORT[p] for p, _ in ORCHS.values()])
+    say(f"  model server on port {PORT['model']}; an orchestrator for each of N, M, K and L; a signer for each of P and P2")
+    start_explorer("explorer", PORT["explorer"], common.RUN / "explorer-index", common.RPC, "--requests-per-second", "500")
+    say(f"  lp2-explorer, with no node, on port {PORT['explorer']}: its index of events in {common.where(common.RUN / 'explorer-index')}")
 
     # --- round 1: nodes, holders and the payer
     say("\n2. Round 1: four nodes register, four holders bond test LPT to them, the payer funds")
@@ -569,21 +772,29 @@ def main() -> int:
         say(f"  {f['node']}'s vote of {f['score']:,} on {f['target']} is refused {code}: a member only from round 5, it cannot vote in round 4")
     check("the scripted validators' refusals: V4's vote in round 4", [(f["node"], c) for f, c in refusals], [("V4", "NOT_VALIDATOR")])
     earners = ("N", "M", "K", "L")
-    fund("P", len(earners) * face, 0, None)
-    say(f"  P deposits {money(len(earners) * face)} micro-USDC more")
+    payer_of = {"N": "P", "M": "P2", "K": "P", "L": "P2"}
+    fund("P", 2 * face, 0, None)
+    fund("P2", 4 * face, 0, None)
+    for n in ("M", "L"):
+        fund("P2", 0, face, n)
+    say(f"  P deposits {money(2 * face)} micro-USDC more; P2 deposits {money(4 * face)} and earmarks {money(face)} for each of M and L")
     for i, n in enumerate(earners, 6):
-        answer = job("P", PORT[ORCHS[n][0]], PORT["signer_p"])
-        say(f"  relay {i}, to {n}: paid, the model answered {answer[:50]!r}")
+        payer = payer_of[n]
+        answer = job(payer, PORT[ORCHS[n][0]], PORT[f"signer_{payer.lower()}"])
+        say(f"  relay {i}, to {n}, paid by {payer}: the model answered {answer[:50]!r}")
     settled4 = wait_settled(5 + len(earners), "round 4's relays")[5:]
     for s in settled4:
         payout = name(f"0x{call(C['Registry'], 'payoutOf(address)', s['recipient']):040x}")
         say(f"  {name(s['recipient'])} redeemed a ticket of {money(s['face'])} in round {s['round']}: its payout {payout} +{money(s['node_amount'])}")
     check("N's, M's, K's and L's relays were redeemed in round 4", sorted((name(s["recipient"]), s["round"]) for s in settled4),
           sorted((n, 4) for n in earners))
+    request_release("P2", None, face)
+    say(f"  P2 asks for {money(face)} of its deposit back, ready from round 7")
     for n in ("N", "M", "L", "K"):
         vobserve(n)
     say(f"  members of round 4: {', '.join(members_at(4))}; of round 5, as they stand: {', '.join(members_at(5))}")
     say("  scores now: " + ", ".join(f"{r['fields']['target']} {r['shown'][1]:,}" for r in VRECORDS[-4:]))
+    check_against_views("after round 4's votes")
     resume_keeper()
 
     say("\n7. Round 5: round 4's validator amount, divided among V1, V2 and V3 by stake")
@@ -599,12 +810,17 @@ def main() -> int:
     say("  V2 and V3 leave their pay in Claims, for themselves to withdraw")
     seen5 = vobserve("K")
     say(f"  members of round 5: {', '.join(seen5['shown'][0])}; K's score {seen5['shown'][1]:,}: V1 and V2 still vote K 0")
+    stop("keeper")  # round 5 lasts while the explorer reads it
+    check("the explorer read round 5", check_against_views("in round 5, V4 seated in V3's place with no new vote"), 5)
+    start_keeper()
 
     # --- claims
     say("\n8. Round 8: N's claim for round 2 is too early")
     to_round(8)
     claim("N", "N", 2, want="CLAIM_TOO_EARLY")
     claim("M", "N", 2, want="NOT_AUTHORIZED")
+    release("P2", None)
+    say(f"  P2 takes the {money(face)} back")
 
     say("\n9. Round 9: the claims")
     to_round(9)
@@ -699,6 +915,9 @@ def main() -> int:
     write_case("ledger-cycle-run", ordered, views, m)
     write_cases("validators-case.json", [vcase], f"{len(vcase['inputs']['steps'])} steps")
     write_cases("validator-pay-cases.json", pay_cases, f"one for each of rounds 1 to {len(pay_cases)}")
+
+    check_explorer(ordered, calc)
+    check_restart()
     return finish(started, "one reward cycle and the scripted validators, every refusal seen, every figure read from the chain equals the calculator's.")
 
 

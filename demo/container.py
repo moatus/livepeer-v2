@@ -77,78 +77,6 @@ KEYED = (f"http://synthetic-user:{SYNTHETIC_PASSWORD}@host.docker.internal:{PROV
          f"/v3/{SYNTHETIC_KEY}?apikey={SYNTHETIC_KEY}")
 
 
-class Provider:
-    """A stand-in RPC provider, on Docker's bridge, whose URL carries
-    SYNTHETIC_KEY and SYNTHETIC_PASSWORD. It forwards each request to the
-    chain; after reject() it answers each with 401 and the key and the
-    password, escaped as the URL writes it, in its status line and its
-    body, as a provider that rejects a key and quotes it does; after
-    redirect() it answers each with a 307 to a second host (the same
-    server, named by its address), which answers with a 307 whose Location
-    carries MARKER and cannot be read, and counts in followed each request
-    that reaches it; after refuse() it no longer listens, so each
-    connection is refused. forward() makes it forward again."""
-
-    def __init__(self, host: str):
-        import http.server
-        import threading
-        provider = self
-
-        class Handler(http.server.BaseHTTPRequestHandler):
-            def do_POST(self):
-                body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
-                if self.path == "/second":
-                    provider.followed += 1
-                    self.send_response(307)
-                    self.send_header("Location", f"http://[{MARKER}")
-                    self.send_header("Content-Length", "0")
-                    self.end_headers()
-                    return
-                if provider.mode == "redirect":
-                    self.send_response(307)
-                    self.send_header("Location", f"http://{host}:{PROVIDER}/second")
-                    self.send_header("Content-Length", "0")
-                    self.end_headers()
-                    return
-                if provider.mode == "reject":
-                    said = f"invalid project id {SYNTHETIC_KEY} or password {SYNTHETIC_PASSWORD}"
-                    out = json.dumps({"jsonrpc": "2.0", "id": None, "error": {"code": -32001, "message": said}}).encode()
-                    self.send_response(401, f"Unauthorized: {said}")
-                else:
-                    req = urllib.request.Request(common.RPC, data=body, headers={"Content-Type": "application/json"})
-                    with urllib.request.urlopen(req, timeout=30) as r:
-                        out = r.read()
-                    self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(out)))
-                self.end_headers()
-                self.wfile.write(out)
-
-            def log_message(self, *args):
-                pass
-
-        self.mode = "forward"
-        self.followed = 0
-        try:
-            self.server = http.server.ThreadingHTTPServer((host, PROVIDER), Handler)
-        except OSError as e:
-            raise NotRun(f"port {PROVIDER} (the stand-in RPC provider) on {host}: {e}; set LP2_DEMO_PORT_BASE to move the demo's ports")
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
-
-    def forward(self) -> None:
-        self.mode = "forward"
-
-    def reject(self) -> None:
-        self.mode = "reject"
-
-    def redirect(self) -> None:
-        self.mode = "redirect"
-
-    def refuse(self) -> None:
-        self.server.shutdown()
-        self.server.server_close()
-
-
 def gateway() -> str:
     """The address of the host on Docker's default bridge, where the chain
     and the sender listen for the container."""
@@ -362,7 +290,30 @@ def unpaid(paid: list[int], joined: int, down: tuple[int, int], stopped: int) ->
 
 
 def explorer_status() -> dict:
-    return json.loads(explorer_get("/status.json"))
+    """N's JSON from the explorer, read at the chain's newest block or later."""
+    block, got = block_number(), []
+
+    def read() -> bool:
+        try:
+            got.append(json.loads(explorer_get(f"/orchestrators/{ADDR['N']}.json")))
+        except (OSError, ValueError):
+            return False
+        return got[-1]["block"] is not None and got[-1]["block"] >= block
+    rewards.wait(f"the explorer's JSON at block {block} or later", read, 120)
+    return got[-1]
+
+
+def explorer_failing(why: str) -> str:
+    """N's JSON once the explorer says the provider fails, by its category:
+    within 45 seconds, one cycle and a request's timeout."""
+    told = f"the chain's newest block: the RPC provider http://host.docker.internal:{PROVIDER} {why}"
+    got = []
+
+    def read() -> bool:
+        got.append(explorer_get(f"/orchestrators/{ADDR['N']}.json"))
+        return any(x.startswith(told) for x in json.loads(got[-1])["unavailable"])
+    rewards.wait(f"the explorer to say the provider {why}", read, 45)
+    return got[-1]
 
 
 def explorer_get(path: str) -> str:
@@ -511,7 +462,7 @@ def main() -> int:
         stop(p)
 
     say("\n9. RPC providers that fail, with a key in their URL; and public port 09000, where the responder listened before")
-    provider = Provider(host)
+    provider = common.Provider(host, PROVIDER, (SYNTHETIC_KEY, SYNTHETIC_PASSWORD), MARKER)
     code, said = unreachable_start(
         "unreachable", f"https://synthetic-user:{SYNTHETIC_PASSWORD}@127.0.0.1:1/v3/{SYNTHETIC_KEY}?apikey={SYNTHETIC_KEY}")
     check("an unreachable provider: the log names the step, the provider's host and the failure, and no credential in its URL",
@@ -540,18 +491,15 @@ def main() -> int:
           ("the node on 0.0.0.0:9000," in ports, "the responder on 127.0.0.1:9001," in ports), (True, True))
     wait_log(five, "holding after started", 180)
     check("on public port 09000, the node comes up and its discovery lists lp2-responder", running(five), True)
-    shown = {"the explorer's JSON, the provider answering": explorer_get("/status.json")}
+    shown = {"the explorer's JSON, the provider answering": json.dumps(explorer_status())}
     provider.reject()
-    time.sleep(15)
-    shown["the explorer's JSON, the provider rejecting the key"] = explorer_get("/status.json")
+    shown["the explorer's JSON, the provider rejecting the key"] = explorer_failing("refused the request (HTTP 401)")
     shown["the explorer's page, the provider rejecting the key"] = explorer_get("/")
     provider.redirect()
-    time.sleep(15)
-    shown["the explorer's JSON, the provider redirecting"] = explorer_get("/status.json")
+    shown["the explorer's JSON, the provider redirecting"] = explorer_failing("redirected the request (HTTP 307)")
     shown["the explorer's page, the provider redirecting"] = explorer_get("/")
     provider.refuse()
-    time.sleep(15)
-    shown["the explorer's JSON, the provider refusing connections"] = explorer_get("/status.json")
+    shown["the explorer's JSON, the provider refusing connections"] = explorer_failing("could not be reached")
     shown["the explorer's page, the provider refusing connections"] = explorer_get("/")
     kill(five)
     failing = [json.loads(shown[k])["unavailable"] for k in shown if "JSON" in k and "answering" not in k]

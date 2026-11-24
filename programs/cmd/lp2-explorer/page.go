@@ -144,7 +144,7 @@ td.n { text-align: right; font-variant-numeric: tabular-nums; }
 </head>
 <body>
 <h1>Your node and the testnet</h1>
-<p class="dim">Read from the chain at block {{num .Block}} ({{when .BlockTime}}). This page loads again every {{refresh}} seconds. The same figures are at <a href="/status.json">/status.json</a>.</p>
+<p class="dim">Read from the chain at block {{num .Block}} ({{when .BlockTime}}). This page loads again every {{refresh}} seconds. The same figures are at <a href="/orchestrators/{{.Node.Address.Hex}}.json">/orchestrators/{{.Node.Address.Hex}}.json</a>.</p>
 
 <h2>Your node</h2>
 <table>
@@ -191,7 +191,29 @@ td.n { text-align: right; font-variant-numeric: tabular-nums; }
 </html>
 `))
 
-// render writes the page for s.
-func render(w io.Writer, s *Status) error {
-	return page.Execute(w, s)
+// render writes the node's page.
+func render(w io.Writer, d *NodeDoc) error {
+	return page.Execute(w, d)
+}
+
+var list = template.Must(template.New("list").Parse(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>lp2-explorer</title>
+</head>
+<body>
+<h1>The deployment, read from the chain</h1>
+<ul>
+<li><a href="/network.json">/network.json</a>: the round, fees, stake, supply, buys and burns, the validator set</li>
+<li><a href="/orchestrators.json">/orchestrators.json</a>: every registered node; one node at /orchestrators/&lt;address&gt;.json</li>
+<li><a href="/apps.json">/apps.json</a>: every payer; one payer at /apps/&lt;address&gt;.json</li>
+</ul>
+</body>
+</html>
+`))
+
+// renderIndex writes the page that lists the JSON, when no node is given.
+func renderIndex(w io.Writer) error {
+	return list.Execute(w, nil)
 }

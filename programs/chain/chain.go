@@ -13,7 +13,9 @@ import (
 	"math/big"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	ethereum "github.com/ethereum/go-ethereum"
@@ -222,17 +224,57 @@ func Dial(ctx context.Context, rpcURL string) (*Session, error) {
 // not configure, and nothing such a host writes reaches an output. A
 // WebSocket handshake follows none either.
 func DialRPC(ctx context.Context, rpcURL string) (*rpc.Client, error) {
-	return rpc.DialOptions(ctx, rpcURL, rpc.WithHTTPClient(&http.Client{Transport: noRedirect{}}))
+	return DialRPCWaits(ctx, rpcURL, nil)
+}
+
+// DialRPCWaits is DialRPC, and keeps in waits the wait an HTTP provider
+// asks for in the Retry-After header of a 429 answer (nil keeps none).
+func DialRPCWaits(ctx context.Context, rpcURL string, waits *RetryAfter) (*rpc.Client, error) {
+	return rpc.DialOptions(ctx, rpcURL, rpc.WithHTTPClient(&http.Client{Transport: noRedirect{waits: waits}}))
+}
+
+// RetryAfter is the wait a provider last asked for, until it is taken.
+type RetryAfter struct {
+	mu   sync.Mutex
+	wait time.Duration
+}
+
+// Take returns the wait last asked for, or 0 when none was, and forgets it.
+func (r *RetryAfter) Take() time.Duration {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	w := r.wait
+	r.wait = 0
+	return w
+}
+
+// keep reads a Retry-After header: a number of seconds, or a date.
+func (r *RetryAfter) keep(h string) {
+	var w time.Duration
+	if s, err := strconv.Atoi(strings.TrimSpace(h)); err == nil && s >= 0 {
+		w = time.Duration(s) * time.Second
+	} else if t, err := http.ParseTime(h); err == nil {
+		w = time.Until(t)
+	}
+	if w <= 0 {
+		return
+	}
+	r.mu.Lock()
+	r.wait = w
+	r.mu.Unlock()
 }
 
 // noRedirect hands the HTTP client every 3xx answer as its status alone,
 // with no Location and no body. The client reads Location before any
 // redirect policy runs, and fails on one it cannot parse; with none, it
 // returns the answer as it is, whatever the provider wrote there.
-type noRedirect struct{}
+type noRedirect struct{ waits *RetryAfter }
 
-func (noRedirect) RoundTrip(req *http.Request) (*http.Response, error) {
+func (n noRedirect) RoundTrip(req *http.Request) (*http.Response, error) {
 	resp, err := http.DefaultTransport.RoundTrip(req)
+	if err == nil && resp.StatusCode == http.StatusTooManyRequests && n.waits != nil {
+		n.waits.keep(resp.Header.Get("Retry-After"))
+	}
 	if err != nil || resp.StatusCode < 300 || resp.StatusCode >= 400 {
 		return resp, err
 	}

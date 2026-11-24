@@ -294,21 +294,25 @@ also writes `deployment.json`, the file an operator gives the node
 container. `demo/PUBLIC.md` says what to set, what it costs, how long it
 takes and where that file is published.
 
-`programs/cmd/lp2-explorer` is a page a node's operator opens on their own
-machine to see, read from the chain, that their node and the testnet are
-working. It holds no key and sends nothing. Give it the RPC URL, the
-Controller, Parameters, StakeLedger, Claims and mock USDC addresses, the
-deployment's first block and the node's address; it serves
-`http://127.0.0.1:8080/` and the same figures as JSON at `/status.json`.
-It shows whether the node is registered, its operator key and payout
-address, its bond and stake, the score a claim made now would read, its
-test USDC and its key's ETH, with a warning under 0.001 ETH; for each
-recent round, the fees counted for it, its stake and where its reward
-stands (claimable from which round, claimed, the score the claim applied,
-what it paid, its part, withdrawn); and
-for the testnet, the round and when it started, the fees this round, the
-validator set, the buyback executor in force and its latest buys and
-burns. A figure it could not read is shown as unavailable, never as 0.
+`programs/cmd/lp2-explorer` shows a deployment read from the chain. It
+holds no key and sends nothing. Give it the RPC URL, the Controller,
+Parameters, StakeLedger, Claims and mock USDC addresses, the deployment's
+first block and a folder for its index of the deployment's events, from
+which it resumes after a restart. Its JSON, served on
+`http://127.0.0.1:8080/`, is `/network.json` (the round, fees by round,
+total stake, the buys and burns, the validator set), `/orchestrators.json`
+and `/orchestrators/<address>.json` (every registered node: stake, cut,
+score, fees, claims), and `/apps.json` and `/apps/<address>.json` (every
+payer: deposit, funded, released, and its fees by node). Given a node's
+address, `/` is a page for that node's operator: whether it is registered,
+its operator key and payout address, its bond and stake, the score a claim
+made now would read, its test USDC and its key's ETH, with a warning under
+0.001 ETH; for each recent round, the fees counted for it, its stake and
+where its reward stands; and for the testnet, the round and when it
+started, the fees this round, the validator set, the buyback executor in
+force and its latest buys and burns. `/orchestrators/<address>.json` holds
+the same figures. Every 15 seconds it reads the chain, every figure at one
+block. A figure it could not read is shown as unavailable, never as 0.
 Its header comment says where each figure comes from.
 
 ## How the code is arranged

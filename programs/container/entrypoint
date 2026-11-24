@@ -196,7 +196,7 @@ try read_state
 
 started lp2-explorer --rpc-url "$LP2_RPC_URL" --controller-address "$CONTROLLER" --parameters-address "$PARAMETERS" \
     --stake-ledger-address "$LEDGER" --claims-address "$CLAIMS" --usdc-address "$USDC" --first-block "$FIRST_BLOCK" \
-    --node "$N" --listen "$EXPLORER_LISTEN" >>"$DATA/logs/explorer.log" 2>&1
+    --lpt-address "$LPT" --index-dir "$DATA/index" --node "$N" --listen "$EXPLORER_LISTEN" >>"$DATA/logs/explorer.log" 2>&1
 log "explorer: the page of node $N on $EXPLORER_LISTEN inside the container"
 
 # 1. Test ETH for both keys.
