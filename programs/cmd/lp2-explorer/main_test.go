@@ -644,6 +644,48 @@ func TestLabelsNameAccounts(t *testing.T) {
 	}
 }
 
+// A rewrite of the labels file that keeps its size and its modification
+// time still shows once the file is read again: the file is told changed by
+// its contents.
+func TestARewriteOfTheSameSizeAndTimeShows(t *testing.T) {
+	f := newFake()
+	f.logs = deployment()
+	labels := filepath.Join(t.TempDir(), "labels.json")
+	write := func(body string) {
+		if err := os.WriteFile(labels, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	file := func(scenario, name string) string {
+		return `{"scenario": "` + scenario + `", "accounts": {"` + payerAt.Hex() + `": {"name": "` + name + `"}}}`
+	}
+	write(file("alpha", "P-alpha"))
+	before, err := os.Stat(labels)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := testConfig
+	cfg.labels = labels
+	e := newTestExplorer(t, f, cfg)
+	h := handler(e)
+	e.cycle(context.Background())
+	if getJSON(t, h, "/network.json")["scenario"] != "alpha" {
+		t.Fatalf("first read: %v", getJSON(t, h, "/network.json")["scenario"])
+	}
+	write(file("bravo", "P-bravo"))
+	if err := os.Chtimes(labels, before.ModTime(), before.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if after, err := os.Stat(labels); err != nil || after.Size() != before.Size() || !after.ModTime().Equal(before.ModTime()) {
+		t.Fatalf("the rewrite changed the size or the time: %v, %v", after, err)
+	}
+	e.readLabels()
+	app := getJSON(t, h, "/apps.json")["apps"].([]any)[0].(map[string]any)
+	if getJSON(t, h, "/network.json")["scenario"] != "bravo" || app["label"] != "P-bravo" {
+		t.Errorf("after a rewrite of the same size and time: %v, %v", getJSON(t, h, "/network.json")["scenario"], app["label"])
+	}
+}
+
 // A rollback rebuilds everything derived from the branch left: the
 // index's totals and the views the explorer kept, such as a round's stake.
 func TestARollbackRebuildsWhatWasKept(t *testing.T) {

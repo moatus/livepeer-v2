@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -38,7 +39,7 @@ func bannered(page, category, provider string) bool {
 var styleReferences = regexp.MustCompile(`(?i)url\(|@import`)
 
 // The attributes that load or link to something.
-var linking = map[string]bool{"href": true, "src": true, "srcset": true, "action": true, "formaction": true, "poster": true,
+var linking = map[string]bool{"href": true, "src": true, "srcset": true, "imagesrcset": true, "action": true, "formaction": true, "poster": true,
 	"data": true, "background": true, "xlink:href": true, "cite": true, "ping": true, "manifest": true, "codebase": true}
 
 // references is every reference out of the explorer a page makes: an
@@ -59,16 +60,55 @@ func references(page string) []string {
 				if a.Namespace != "" {
 					k = a.Namespace + ":" + k
 				}
-				v := strings.TrimSpace(a.Val)
+				urls := []string{strings.TrimSpace(a.Val)}
+				if k == "srcset" || k == "imagesrcset" {
+					urls = candidates(a.Val)
+				}
 				switch {
-				case linking[k] && (!strings.HasPrefix(v, "/") || strings.HasPrefix(v, "//") || strings.HasPrefix(v, "/\\")):
+				case linking[k] && slices.ContainsFunc(urls, outside):
 					out = append(out, tok.Data+" "+k+"="+a.Val)
-				case k == "content" && strings.Contains(strings.ToLower(v), "url"):
+				case k == "content" && strings.Contains(strings.ToLower(a.Val), "url"):
 					out = append(out, tok.Data+" "+k+"="+a.Val)
 				case styleReferences.MatchString(a.Val):
 					out = append(out, tok.Data+" "+k+"="+a.Val)
 				}
 			}
+		}
+	}
+}
+
+// outside says whether a URL is not a path of the explorer's own.
+func outside(v string) bool {
+	return !strings.HasPrefix(v, "/") || strings.HasPrefix(v, "//") || strings.HasPrefix(v, "/\\")
+}
+
+// candidates is each URL a source set names: its candidates are split at
+// commas, and each URL is a candidate's first word. A comma inside a URL
+// leaves a piece that is not a path, so it is counted as outside.
+func candidates(srcset string) []string {
+	out := []string{}
+	for _, c := range strings.Split(srcset, ",") {
+		if words := strings.Fields(c); len(words) > 0 {
+			out = append(out, words[0])
+		}
+	}
+	if len(out) == 0 {
+		out = append(out, "")
+	}
+	return out
+}
+
+// The guard reads every candidate of a source set, not only the first.
+func TestReferencesReadEverySourceSetCandidate(t *testing.T) {
+	for page, want := range map[string]bool{
+		`<img srcset="/one.png 1x, https://example.invalid/two.png 2x" alt="">`:   true,
+		`<img srcset="/one.png 1x,//example.invalid/two.png 2x" alt="">`:          true,
+		`<link rel="preload" imagesrcset="/a.png 1x, http://x.invalid/b.png 2x">`: true,
+		`<img srcset="" alt="">`:                         true,
+		`<img srcset="/one.png 1x, /two.png 2x" alt="">`: false,
+	} {
+		if got := len(references(page)) > 0; got != want {
+			t.Errorf("%s: flagged %v, want %v", page, got, want)
 		}
 	}
 }

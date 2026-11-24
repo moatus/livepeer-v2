@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -151,7 +152,7 @@ func (e *explorer) run(ctx context.Context) {
 	}
 }
 
-// readLabels reads the labels file again if it changed, and publishes
+// readLabels reads the labels file, takes it again if it changed, and publishes
 // whether it could.
 func (e *explorer) readLabels() {
 	e.note(stepLabels, e.labels.reload())
@@ -457,14 +458,14 @@ func handler(e *explorer) http.Handler {
 }
 
 // labels is the labels file: a scenario's name and, by address, a name
-// and whether the account is simulated. It is read again when it changes;
-// a file that cannot be read keeps the labels it had. What it last read is
-// published whole, as one labelSet, and never changed after.
+// and whether the account is simulated. It is read every cycle and taken
+// again when its contents changed; a file that cannot be read keeps the
+// labels it had. What it last read is published whole, as one labelSet, and
+// never changed after.
 type labels struct {
 	path    string
 	reading sync.Mutex // one read at a time
-	mod     time.Time
-	size    int64
+	raw     []byte     // the contents last taken
 
 	mu  sync.Mutex
 	set *labelSet
@@ -487,16 +488,12 @@ func (l *labels) reload() error {
 	}
 	l.reading.Lock()
 	defer l.reading.Unlock()
-	info, err := os.Stat(l.path)
-	if err != nil {
-		return err
-	}
-	if info.ModTime().Equal(l.mod) && info.Size() == l.size {
-		return nil
-	}
 	raw, err := os.ReadFile(l.path)
 	if err != nil {
 		return err
+	}
+	if l.raw != nil && bytes.Equal(raw, l.raw) {
+		return nil
 	}
 	var f struct {
 		Scenario *string          `json:"scenario"`
@@ -512,7 +509,7 @@ func (l *labels) reload() error {
 		}
 		accounts[common.HexToAddress(a)] = v
 	}
-	l.mod, l.size = info.ModTime(), info.Size()
+	l.raw = raw
 	l.mu.Lock()
 	l.set = &labelSet{scenario: f.Scenario, accounts: accounts}
 	l.mu.Unlock()
