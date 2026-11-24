@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import {IScoreSource} from "./IScoreSource.sol";
 
-/// The validator set and the median: the rewards demo’s score source (rulebook R-11,
+/// The validator set and the median: the rewards demo's score source (rulebook R-11,
 /// R-13). A call made for a node takes the node's address and is refused
 /// with NOT_AUTHORIZED unless the Registry's mayActFor(caller, node). Every
 /// change to the members counts from the next round. Opting in again,

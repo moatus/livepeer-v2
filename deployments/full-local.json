@@ -170,7 +170,7 @@
     },
     {
       "stand_in": "A second Buyback and TestPool",
-      "for": "An executor and pool of another design, wherever liquidity is (owner’s instruction of 2026-11-23)",
+      "for": "An executor and pool of another design, wherever liquidity is (owner's instruction of 2026-11-23)",
       "value": "./dev demo buyback deploys a second Buyback, pinned to the same TestPool code, and a second TestPool seeded as the first, and G moves the buyback to them by announcing group 10 and group 9; no other contract is redeployed. An executor of another design is shown only by a test-only contract in the contract tests"
     },
     {

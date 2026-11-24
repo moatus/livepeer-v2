@@ -22,7 +22,7 @@ once. The full system has yet to be deployed on a public test chain.
 
 | Part | State |
 |---|---|
-| Rulebook and shared examples | `october-main-text-v5`: the full system’s rules, with the buyback executor a parameter, and 98 worked cases (the earlier versions are kept) |
+| Rulebook and shared examples | `october-main-text-v5`: the full system's rules, with the buyback executor a parameter, and 98 worked cases (the earlier versions are kept) |
 | Independent calculator | Computes every shared example from the rulebook alone |
 | Contracts | Payments: Controller, Registry, RoundClock, Broker, MockUSDC. Rewards: TestLPT, StakeLedger, Scores, Claims. Full system: Parameters, TestPool, Buyback |
 | Node integration | The unmodified node, configured by flags alone; no fork |
@@ -135,7 +135,7 @@ the calculator.
 ### The buyback
 
 `./dev demo buyback` runs the buyback's walk on a fresh local chain,
-with no node or model. It deploys the rewards demo’s contracts, then the test
+with no node or model. It deploys the rewards demo's contracts, then the test
 pool, Parameters, which names the Buyback as the one executor that may
 draw the network share, and the Buyback. It sends 7 test LPT to the Buyback beforehand. Each of the walk's
 22 steps (paid jobs, the pool's seeding, trades, pokes and buys) is a
@@ -160,7 +160,7 @@ Broker with nothing moved. Its stand-ins are named in
 
 ### The standing services: a node joins and is paid
 
-`./dev demo light` runs, on a fresh local chain with the rewards demo’s contracts
+`./dev demo light` runs, on a fresh local chain with the rewards demo's contracts
 and no model or Docker, the services that keep a testnet's traffic going.
 Each node runs the unmodified node's orchestrator in front of
 `lp2-responder`, a light responder that answers each paid request with a
@@ -231,7 +231,7 @@ is not done, so a restart at any moment repeats nothing. Its
 how to run it, what to fund, which port must be reachable, how long each
 step takes and how to read its explorer.
 
-`./dev demo container` builds the image and runs it on the full system’s
+`./dev demo container` builds the image and runs it on the full system's
 contracts on a local chain mining a block a second, with the keeper, the
 sender and the faucet running as `./dev demo light` runs them. After it
 sends the two keys 1 ETH each, the demo only kills and restarts the

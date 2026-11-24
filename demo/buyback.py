@@ -1,6 +1,6 @@
 """./dev demo buyback: on a fresh local chain.
 
-Starts a local chain and deploys the full system’s contracts: the rewards demo’s, then the
+Starts a local chain and deploys the full system's contracts: the rewards demo's, then the
 test pool, Parameters, which holds the buyback values and names the
 Buyback as the executor (group 10), and the Buyback. Checks the
 deployment: group 10's executor, the Buyback's Broker and the pool code
@@ -8,7 +8,7 @@ hash it pins. Sends LPT to the Buyback, which it must never count or burn. Then 
 times, offset by the start time it records: jobs paid by tickets signed
 and redeemed directly, the pool seeded, a trader's swap, and every buy and
 poke, refused or not. Then Parameters as G (R-25). Then the move
-(the owner’s instruction of 2026-11-23): with a keeper running, G moves the buyback
+(the owner's instruction of 2026-11-23): with a keeper running, G moves the buyback
 to a second Buyback and a second pool by two announcements, and seven
 rounds later the new executor buys and burns while the old one is
 refused at the Broker.
@@ -474,7 +474,7 @@ def lp2_params(who: str, password: Path, *words: str) -> tuple[int, str]:
 def parameters(password: Path) -> None:
     """R-25 on the chain: G, the governance stand-in and Parameters'
     authority, announces and withdraws through lp2-params; every other
-    caller and every value outside R-25’s ranges is refused. The Buyback
+    caller and every value outside R-25's ranges is refused. The Buyback
     reads group 9 from Parameters, so a change to it is what a later
     buy would read from the round it counts from."""
     now = current_round()
@@ -520,7 +520,7 @@ def parameters(password: Path) -> None:
     lp2_params(None, password, "show", "emission", str(now + 7))
 
 
-# --- the move: the executor is a parameter (owner’s instruction of 2026-11-23) ----------
+# --- the move: the executor is a parameter (owner's instruction of 2026-11-23) ----------
 
 def would(to: str, signature: str) -> bool:
     """Whether a call of `signature`, with no arguments, would take effect
@@ -586,7 +586,7 @@ def money_now(*pools: str) -> list[int]:
 
 
 def move(password: Path) -> None:
-    """The owner’s instruction of 2026-11-23 on the chain. X, the deployment's Buyback,
+    """The owner's instruction of 2026-11-23 on the chain. X, the deployment's Buyback,
     buys from P. G moves the buyback to X2, a second Buyback, and P2, a
     second TestPool seeded as P was, by two announcements while a keeper is
     running. In the round before they count, X2's buy is refused at the
@@ -597,7 +597,7 @@ def move(password: Path) -> None:
     seed_step = next(s for s in WALK["inputs"]["steps"] if s["action"] == "seed")
     face = int(next(s for s in WALK["inputs"]["steps"] if s["action"] == "job")["face_micro_usdc"])
     first = {k: v for k, v in WALK["expected"]["bought"][0].items() if k != "step"}
-    say(f"\n8. The move (owner’s instruction of 2026-11-23): the buyback executor is a parameter")
+    say(f"\n8. The move (owner's instruction of 2026-11-23): the buyback executor is a parameter")
     pinned = f"0x{call(C['Buyback'], 'poolCodeHash()'):064x}"
     C["TestPool2"] = forge_create("src/money/TestPool.sol:TestPool", C["MockUSDC"], C["TestLPT"])
     C["Buyback2"] = forge_create("src/money/Buyback.sol:Buyback", C["Parameters"], C["Broker"], C["RoundClock"],

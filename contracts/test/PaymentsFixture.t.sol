@@ -31,7 +31,7 @@ contract PaymentsTest is PaymentsFixture {
         require(registry.payoutOf(n) == n, "paid at its own address");
     }
 
-    /// The payments deployment’s authority check: only the node's own
+    /// The payments deployment's authority check: only the node's own
     /// address may act for it; its payout may not. It reads nothing about
     /// the node, so an address not yet registered may act for itself, and
     /// the call it makes refuses it with NOT_REGISTERED after.

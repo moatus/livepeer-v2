@@ -53,7 +53,7 @@ ORCHS = {"N": ("orch", "orch_metrics"), "M": ("orch_m", "orch_m_metrics"), "K": 
 SCRIPT = common.HERE / "validators.script"
 KEYS: dict[str, object] = {}
 CYCLE = CASES["ledger-cycle"]  # the ledger-cycle example, step for step
-# the validator example’s validators are pay-split's members A, B and C: their
+# the validator example's validators are pay-split's members A, B and C: their
 # stakes, A's reward cut, and A's bonds, its operator's and H's.
 PAY = CASES["pay-split"]["inputs"]
 SEATED = dict(zip(("V1", "V2", "V3"), (int(m["stake_wei"]) for m in PAY["members"])))
@@ -474,7 +474,7 @@ def main() -> int:
     for n in ORCHS:
         fund("P", 0, face, n)
     say(f"  P deposits {money(deposit)} micro-USDC and earmarks {money(face)} for each node: the node will not take a payer")
-    say("  who has set nothing aside for it (the payments demo’s refusal 2), so ledger-cycle's payer, with no earmark, could not pay here")
+    say("  who has set nothing aside for it (the payments demo's refusal 2), so ledger-cycle's payer, with no earmark, could not pay here")
 
     names_file = common.RUN / "names.json"
     names_file.write_text(json.dumps({n: ADDR[n] for n in REGISTERED}))
@@ -707,7 +707,7 @@ CLAIM_ROWS = (("A", "N", 4), ("B", "M", 4), ("C", "L", 4), ("D", "K", 4))
 
 
 def described(votes: dict[str, int]) -> str:
-    """the validator example’s "votes cast" column."""
+    """the validator example's "votes cast" column."""
     if not votes:
         return "none"
     who = " and ".join(sorted(votes)) if len(votes) > 1 else f"{next(iter(votes))} alone"

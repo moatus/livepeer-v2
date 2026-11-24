@@ -3,7 +3,8 @@
 LPT replay models round-start stake/cuts, bonding, transfers, unbonding,
 claims, minting and holder pots. It rejects overspending as invalid input.
 Earning round zero gets NO_SUCH_ROUND; unregistered self-claims and self-cuts
-get NOT_REGISTERED. Simultaneous refusals follow the rulebook units section; only a withdrawal that is both ALREADY_CLAIMED and
+get NOT_REGISTERED. Simultaneous refusals follow the rulebook units
+section; only a withdrawal that is both ALREADY_CLAIMED and
 NOT_CLAIMED remains an input error among simultaneous LPT refusals.
 
 From v3, Settings holds R-25's announced changes and the R-05 schedule
@@ -855,7 +856,7 @@ class LptReplay:
             earned = integer(s['earned_round'])
             if a == 'claim' and not self.operators.may_act(s['caller'], n):
                 return 'NOT_AUTHORIZED'
-            # R-18 R-12: round zero follows authorization.
+            # R-18 and R-12: round zero follows authorization.
             if earned == 0:
                 return 'NO_SUCH_ROUND'
             if a == 'claim' and n not in payouts:

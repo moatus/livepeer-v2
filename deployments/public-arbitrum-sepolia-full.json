@@ -150,7 +150,7 @@
     "values": [
       "42"
     ],
-    "note": "The change the run announces as G right after the deployment and reads back in the round before it counts and in the round it counts from: the unbonding period, 21 rounds at deployment, to 42, inside R-25’s range of 1 to 840. Nothing in the run unbonds, so no figure of the run depends on it"
+    "note": "The change the run announces as G right after the deployment and reads back in the round before it counts and in the round it counts from: the unbonding period, 21 rounds at deployment, to 42, inside R-25's range of 1 to 840. Nothing in the run unbonds, so no figure of the run depends on it"
   },
   "stand_ins": [
     {

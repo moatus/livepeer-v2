@@ -1,6 +1,6 @@
 # Rulebook `october-main-text-v5`
 
-The rules the full system is built and tested against: the rewards demo’s rules, and the
+The rules the full system is built and tested against: the rewards demo's rules, and the
 rules of changing the parameters after deployment, of rotating the key
 that acts for a node, and of buying LPT with the network share and
 burning it, by the executor the parameters name. The
@@ -1617,7 +1617,7 @@ and `round-thirds` mints 999,999,999,999,999,999,999 wei: the dust is not
 minted. `round-small-node`: T is paid
 313,333,333,333,333 wei. `round-one-division`: 235,000,000,000,000,000,000
 wei each, exactly. `round-chained`: D is paid 704,418,491,429,684,820,623
-wei. `split-d18`: of a pot of 451,200,000,000,000,000,000 wei the parts
+wei. `split-with-dust`: of a pot of 451,200,000,000,000,000,000 wei the parts
 take 451,199,999,999,999,999,999, and 1 wei stays in Claims, never paid.
 `split-tiny`: 10 wei with a cut of 150,000 and bonds of 1 and 2 wei gives
 a cut of 1, a pot of 9 and parts of 3 and 6, with nothing left.
@@ -1849,7 +1849,7 @@ reaches Claims any other way is never paid out. A round with zero total
 fees or zero total stake pays its nodes 0 (R-08), and their claims close
 at 0. The node's USDC half is not shared with its holders in this profile.
 
-**Example.** `split-d18`, P = 564 LPT, cut 200,000,
+**Example.** `split-with-dust`, P = 564 LPT, cut 200,000,
 bonds of 13 and 80 LPT. The claim mints the cut,
 112,800,000,000,000,000,000 wei, to the payout and the pot,
 451,200,000,000,000,000,000, to Claims; the operator's part is
@@ -1905,7 +1905,7 @@ cut of 1,000,001 for itself, X never having registered, with
 `NOT_REGISTERED`. `ledger-rotation`: once K2 is N's operator key, K1's
 cut for N and N's own are refused with `NOT_AUTHORIZED`.
 
-**Would change it.** The owner placing USDC distribution in the rewards demo’s
+**Would change it.** The owner placing USDC distribution in the rewards demo's
 exit, or finding that the fee cut cannot be added later without changing
 the claim path. A run where a cut raised for the next round
 measurably strips delegators who cannot leave in time; a tiny-bond

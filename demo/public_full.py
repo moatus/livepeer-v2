@@ -1,8 +1,8 @@
 """demo/public-run full and demo/public-run serve: the full system on a
 chain the run does not control, and the services that keep it running.
 
-full deploys the full system’s contracts to the chain at LP2_RPC_URL by the full system’s
-own deployment function (the rewards demo’s contracts with the test pool, Parameters
+full deploys the full system's contracts to the chain at LP2_RPC_URL by the full system's
+own deployment function (the rewards demo's contracts with the test pool, Parameters
 naming the Buyback as the buyback executor, then the Buyback), with the
 deployer's keystore and the authority's given by the environment: G, the
 authority, is Parameters' one authority. The deployer seeds the pool and

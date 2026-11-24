@@ -142,7 +142,7 @@ sent has a receipt.
 ## Buyback, parameter changes and key rotation
 
 `demo/public-run full` deploys the full system once, from
-`deployments/public-arbitrum-sepolia-full.json`, and shows the full system’s two
+`deployments/public-arbitrum-sepolia-full.json`, and shows the full system's two
 public exit items in real time: test LPT bought with the network's share
 of a fee and burned, and an announced parameter change that counts seven
 rounds later. It then hands the deployment over to services that run
@@ -151,7 +151,7 @@ environment, chain allow-list, keys, steps, resume rule and fee table.
 
 The run does the following, in order:
 
-1. It deploys the full system’s twelve contracts: the rewards contracts, the test pool,
+1. It deploys the full system's twelve contracts: the rewards contracts, the test pool,
    Parameters naming the Buyback as the buyback executor, and the Buyback.
    Parameters' one authority is G, the key the owner gives the run. Round
    1 starts at deployment.

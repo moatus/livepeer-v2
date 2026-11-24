@@ -1,7 +1,7 @@
 """./dev demo container: one operator container joins the standing testnet's
 services on a local chain, with nobody acting after it is funded.
 
-Deploys the full system’s contracts on a local chain that mines a block a second,
+Deploys the full system's contracts on a local chain that mines a block a second,
 and runs the services as ./dev demo light runs them: the keeper, the payer
 P's signer, lp2-sender (with --allow-private-urls, since the node's URL is
 on loopback, and minting only the mock USDC it funds) and lp2-faucet,
@@ -417,7 +417,7 @@ def main() -> int:
     light.start_sender(host, "--mint", "0")
     write_deployment(first_block)
     DATA.mkdir()
-    say(f"  the full system’s contracts on {common.RPC} (and on {host} for the container), a block a second, "
+    say(f"  the full system's contracts on {common.RPC} (and on {host} for the container), a block a second, "
         f"{MANIFEST['chain']['round_length_blocks']} blocks a round; the keeper starts each round")
     say(f"  lp2-sender answers joins on {host}:{light.SENDER}; P's signer on loopback; the faucet is not started yet")
     say(f"  the deployment file the container reads: {where(DEPLOYMENT)}; its data folder: {where(DATA)}")

@@ -7,7 +7,7 @@ import {IRoundClock} from "../../interfaces/IRoundClock.sol";
 import {IStakeLedger} from "../../interfaces/IStakeLedger.sol";
 import {IParameters} from "../../interfaces/IParameters.sol";
 
-/// The validator set and the median (rulebook R-11, R-13): the rewards demo’s score
+/// The validator set and the median (rulebook R-11, R-13): the rewards demo's score
 /// source. It holds and moves no token.
 ///
 /// How a round's members are kept. The members are a history of seat lists,

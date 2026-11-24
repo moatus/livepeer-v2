@@ -225,7 +225,7 @@ class ValidatorCaseWriter(unittest.TestCase):
                                {"from_round": "5", "stake_wei": {"V2": "3", "V4": "6"}}])
 
     def test_section_one_claims_share_one_earning_round(self):
-        """the validator example’s four claims are four nodes' rewards earned in one
+        """the validator example's four claims are four nodes' rewards earned in one
         round. The demo's table rows, and the rule the run checks them by."""
         tree = ast.parse((Path(common.__file__).parent / "rewards.py").read_text())
         rows = next(ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign)
@@ -273,7 +273,7 @@ class CaseDocuments(unittest.TestCase):
 class Manifest(unittest.TestCase):
     def test_every_stand_in_is_named(self):
         # the stand-ins the manifest must name, in
-        # the payments demo’s manifest and, as rewards keeps them, in the rewards demo’s.
+        # the payments demo's manifest and, as rewards keeps them, in the rewards demo's.
         for manifest in (MANIFEST, MANIFEST3):
             text = " ".join(f"{s['stand_in']} {s['value']}" for s in manifest["stand_ins"]).lower()
             for words in PAYMENTS_STAND_INS:
@@ -327,8 +327,8 @@ class Manifest(unittest.TestCase):
 
 
 class BuybackCase(unittest.TestCase):
-    """demo/buyback.py's case writer and the full system’s manifest. Importing the
-    demo reads the full system’s manifest into common's shared state, so each test
+    """demo/buyback.py's case writer and the full system's manifest. Importing the
+    demo reads the full system's manifest into common's shared state, so each test
     puts that state back afterwards."""
 
     def setUp(self):
@@ -504,8 +504,8 @@ class PublicSteps(unittest.TestCase):
 
 class PublicFull(unittest.TestCase):
     """demo/public-run full and serve, with no chain: the template they
-    read, the dated deployment’s manifest beside it, and the refusals that come before
-    anything is made or sent. Importing them reads the full system’s shared examples
+    read, the dated deployment's manifest beside it, and the refusals that come before
+    anything is made or sent. Importing them reads the full system's shared examples
     into common's shared state, so each test puts that state back."""
 
     def setUp(self):
@@ -562,7 +562,7 @@ class PublicFull(unittest.TestCase):
         spare = int(t["lpt"]["genesis_supply_wei"]) - int(t["pool"]["seed_lpt_wei"]) - public.N_BOND - public.V_BOND
         self.assertTrue(0 < faucet <= spare)
         self.assertIn(f"{faucet // 10**decimals:,} test LPT", t["faucet"]["note"])
-        # Unbonding, group 7: R-25’s range is 1 to 840 rounds, and a change
+        # Unbonding, group 7: R-25's range is 1 to 840 rounds, and a change
         # must differ from the deployment's value to show anything.
         change = t["parameter_change"]
         self.assertEqual((change["group"], change["name"]), (7, "unbonding"))
@@ -1202,7 +1202,7 @@ class Startup(unittest.TestCase):
 
 class ContainerPayments(unittest.TestCase):
     """demo/container.py's payment check: the node is paid once in every
-    round it was up for whole. Importing the demo reads the full system’s manifest
+    round it was up for whole. Importing the demo reads the full system's manifest
     into common's shared state, so each test puts that state back."""
 
     def setUp(self):

@@ -306,7 +306,7 @@ def open_state(deployment: str = "rewards") -> int:
 
 def deploy(create=rewards.deploy_rewards) -> dict:
     """Deploy once, with `create`, the system's own deployment function
-    (the rewards demo’s, or the full system’s in demo/public_full.py)."""
+    (the rewards demo's, or the full system's in demo/public_full.py)."""
     if "deploy" not in STATE["done"] and STATE.get("sending") == "deploy":
         raise NotRun("a previous run was stopped during the deployment; its contracts are abandoned. "
                      "Start a new state directory to deploy afresh")
@@ -609,7 +609,7 @@ if __name__ == "__main__":
                              "full system run handed over to. With none, the rewards run")
     command = parser.parse_args().command
     if command:
-        import public_full  # the full system run and its services, which read the full system’s shared examples
+        import public_full  # the full system run and its services, which read the full system's shared examples
         common.run_main(public_full.main if command == "full" else public_full.serve)
     else:
         common.run_main(main)
