@@ -95,6 +95,11 @@
       "address": null
     }
   ],
+  "keys": {
+    "authority": "G, Parameters' one authority: a key the owner makes for the testnet alone and gives demo/public-run full as a keystore outside the repository. The run's copy names its address",
+    "upgrader": "U, the upgrade key: a key the owner makes for the testnet alone and gives demo/public-run full as a keystore outside the repository, which reads its address only; demo/public-run upgrade and lift send with it. The run's copy names its address",
+    "pauser": "S, the pause key: a key the owner makes for the testnet alone and gives demo/public-run full as a keystore outside the repository, which reads its address only; demo/public-run stop sends with it. The run's copy names its address"
+  },
   "node": {
     "source": "https://github.com/livepeer/node",
     "commit": "e2b331958a5704016310153a7d33b7a634758f38",
@@ -257,6 +262,21 @@
       "stand_in": "Keeper",
       "for": "Whoever starts rounds, mints each round's validator and treasury amounts, buys and pokes",
       "value": "lp2-keeper with a key the run makes, given Parameters' address: it buys or pokes at the executor in force for the round only when its call would succeed. The run starts it, and demo/public-run serve keeps it running after the run. Anyone may do any of these (R-10, R-16, R-18), so a stopped keeper delays them and loses nothing"
+    },
+    {
+      "stand_in": "U, the upgrade key",
+      "for": "Livepeer's Security Committee (R-27)",
+      "value": "One address named at deployment, held by Upgrades: it announces new code for a contract, applies it from the announce round + 7 to + 27 (at once while the contract's side is stopped), withdraws it, lifts a stop and names or removes the pause key. Here a key the owner makes for the testnet alone, given to demo/public-run full as a keystore outside the repository; demo/public-run upgrade and lift send with it"
+    },
+    {
+      "stand_in": "S, the pause key",
+      "for": "The Security Committee's emergency stop (R-27)",
+      "value": "One address named at deployment: it sets the USDC stop (the Broker's payments), the LPT stop (bonding, claims and the buy) or both, each in force for 7 rounds unless U lifts it. Here a key the owner makes for the testnet alone, given to demo/public-run full as a keystore outside the repository; demo/public-run stop sends with it"
+    },
+    {
+      "stand_in": "Proxy, a short proxy of our own",
+      "for": "An audited standard proxy, as a network with value would use",
+      "value": "contracts/src/authority/Proxy.sol: the code in force in ERC-1967's implementation slot, its admin Upgrades, fixed in its code; only Upgrades' upgradeToAndCall is its own, and every other call runs the code in force. The run's copy names each contract's code in force as its implementation, read from the chain each time the copy is written"
     }
   ]
 }

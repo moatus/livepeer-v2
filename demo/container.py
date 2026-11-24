@@ -117,6 +117,11 @@ def build_image() -> None:
         raise NotRun(f"could not build the image: {done.stderr.strip()[-600:]}")
 
 
+# The contracts the deployment file names, as demo/public-run full's handover
+# writes them: Upgrades too, so an operator can see a stop.
+OPERATOR_CONTRACTS = ("Controller", "Parameters", "StakeLedger", "Claims", "TestLPT", "MockUSDC", "Upgrades")
+
+
 def write_deployment(first_block: int) -> None:
     """The operator-facing deployment file the container reads."""
     price = MANIFEST["price"]
@@ -124,7 +129,7 @@ def write_deployment(first_block: int) -> None:
         "testnet": f"local-{MANIFEST['chain']['chain_id']}",
         "chain_id": MANIFEST["chain"]["chain_id"],
         "first_block": first_block,
-        "contracts": {k: C[k] for k in ("Controller", "Parameters", "StakeLedger", "Claims", "TestLPT", "MockUSDC")},
+        "contracts": {k: C[k] for k in OPERATOR_CONTRACTS},
         "node": {"job_price_usd": price["job_price_usd"], "price_unit": price["unit"], "wei_per_usd": price["wei_per_usd"],
                  "ticket_face_value": str(ticket_face()), "ticket_win_prob": price["ticket_win_prob"]},
         "sender_url": f"http://host.docker.internal:{light.SENDER}",

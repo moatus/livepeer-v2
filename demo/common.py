@@ -658,6 +658,9 @@ UPGRADEABLE = {"RoundClock": 2, "Registry": 2, "Parameters": 2, "Broker": 0, "St
                "Claims": 1, "Buyback": 1}
 SIDES = ("USDC", "LPT", "both")
 IMPL: dict[str, str] = {}   # the code each proxy was created with
+# What the run knows of each code it created for a proxy, by its address:
+# the record demo/public_upgrade.py's gates read (code_record).
+CODES: dict[str, dict] = {}
 # ERC-1967's slots: the code in force, and the proxy's admin.
 IMPLEMENTATION_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc"
 ADMIN_SLOT = "0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103"
@@ -749,6 +752,7 @@ def deploy_system(parts: list[str]) -> None:
         args = constructor_args(name, at)
         if name in UPGRADEABLE:
             IMPL[name] = forge_create(SOURCES[name], *args)
+            CODES[IMPL[name].lower()] = code_record(name, SOURCES[name], args)
             init = calldata("initialize()") if name == "RoundClock" else "0x"
             C[name] = forge_create("src/authority/Proxy.sol:Proxy", IMPL[name], at["Upgrades"], init)
         else:
@@ -766,6 +770,26 @@ def deploy_system(parts: list[str]) -> None:
         if n in C:
             NAMES[C[n].lower()] = n
             ADDR[n] = C[n]
+
+
+def inspect(source: str, field: str):
+    """What the compiler says of `source` (a path in contracts/ and a
+    contract's name): its abi, bytecode or storageLayout."""
+    out = sh(["forge", "inspect", "--root", str(ROOT / "contracts"), source, field, "--json"])
+    return json.loads(out) if out.startswith(("{", "[", '"')) else out
+
+
+def code_record(name: str, source: str, args: list) -> dict:
+    """What a later upgrade of `name` checks new code against (rulebook
+    R-27; demo/public_upgrade.py): the source the code was built from, its
+    constructor's parameter types in order (each as the source names it)
+    and the argument values it was built with, and its storage layout as
+    the compiler describes it. Kept from the run that created the code, so
+    the checkout that upgrades it later does not have to hold that source."""
+    ctor = next((x["inputs"] for x in inspect(source, "abi") if x["type"] == "constructor"), [])
+    return {"contract": name, "source": source, "constructor": [i.get("internalType") or i["type"] for i in ctor],
+            "abi_types": [i["type"] for i in ctor], "args": [str(a) for a in args],
+            "layout": inspect(source, "storageLayout")}
 
 
 def check_deployment(proxies: list[str], upgrader: str, pauser: str) -> None:

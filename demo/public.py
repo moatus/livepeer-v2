@@ -320,7 +320,7 @@ def deploy(create=rewards.deploy_rewards) -> dict:
         # What was deployed, kept with it: a rerun or resume from a later
         # checkout uses this template (rulebook, node, model) and labels the
         # manifest with this commit, not its own.
-        return {"contracts": dict(C), "from_block": start,
+        return {"contracts": dict(C), "from_block": start, "codes": dict(common.CODES),
                 "template": TEMPLATE_DOC, "source_commit": commit + ("-dirty" if dirty else "")}
     got = step("deploy", fresh)
     C.update(got["contracts"])
@@ -543,8 +543,10 @@ def write_manifest(chain_id: int, more: dict | None = None) -> None:
     m["testnet"] = f"public-run-{chain_id}"
     m["about"] = (f"Written by demo/public-run for its run on chain {chain_id}, from {template}. "
                   "The addresses, accounts and source commit are this run's.")
-    for c in m["contracts"]:
-        c["address"] = C[c["contract"]]
+    fill_contracts(m)
+    m["keys"] = {"authority": f"0x{call(C['Parameters'], 'authority()'):040x}",
+                 "upgrader": f"0x{call(C['Upgrades'], 'upgrader()'):040x}",
+                 "pauser": f"0x{call(C['Upgrades'], 'pauser()'):040x}"}
     m["deployment"] = {"deployed": True, "chain_id": chain_id, "deployed_at_block": common.FROM_BLOCK,
                        "deployer": STATE["deployer"], "source_commit": d["source_commit"],
                        "accounts": {k: ADDR[k] for k in ROLES}, "treasury": ADDR["Treasury"],
@@ -558,9 +560,30 @@ def write_manifest(chain_id: int, more: dict | None = None) -> None:
         m["stand_ins"].insert(0, {"stand_in": "Local chain", "for": "Arbitrum Sepolia",
                                   "value": f"chain id {chain_id} on this machine, not controlled by the run: no block, "
                                            "time or balance was set by it"})
-    out = STATE_DIR / "manifest.json"
-    out.write_text(json.dumps(m, indent=2, ensure_ascii=False) + "\n")
+    write_whole(STATE_DIR / "manifest.json", json.dumps(m, indent=2, ensure_ascii=False) + "\n")
     say(f"  wrote the run's manifest to manifest.json in the state directory (source {m['deployment']['source_commit'][:12]})")
+
+
+def fill_contracts(m: dict) -> None:
+    """Each contract's address, the one everyone calls, and for one behind a
+    proxy (an entry with a side) the code in force, read from the chain each
+    time the manifest is written: an upgrade changes it and nothing else."""
+    upgradeable = [c for c in m["contracts"] if "side" in c]
+    slots = common.rpc_batch([("eth_getStorageAt", [C[c["contract"]], common.IMPLEMENTATION_SLOT, "latest"])
+                              for c in upgradeable])
+    code = {c["contract"]: "0x" + a["result"][-40:] for c, a in zip(upgradeable, slots)}
+    for c in m["contracts"]:
+        c["address"] = C[c["contract"]]
+        if c["contract"] in code:
+            c["implementation"] = common.sh(["cast", "to-check-sum-address", code[c["contract"]]])
+
+
+def write_whole(path: Path, text: str) -> None:
+    """Replace `path` whole, so a reader, or a service beside the run, never
+    sees half of it."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text)
+    tmp.replace(path)
 
 
 def spending() -> None:
@@ -603,10 +626,16 @@ def spending() -> None:
 
 if __name__ == "__main__":
     import argparse
+    import sys
+    if sys.argv[1:2] and sys.argv[1] in ("upgrade", "stop", "lift"):
+        import public_upgrade  # the upgrade key's and the pause key's commands, beside a running deployment
+        sys.exit(public_upgrade.main(sys.argv[1:]))
     parser = argparse.ArgumentParser(prog="demo/public-run", description="The public run (demo/PUBLIC.md).")
-    parser.add_argument("command", nargs="?", choices=("full", "serve"),
+    parser.add_argument("command", nargs="?", choices=("full", "serve", "upgrade", "stop", "lift"),
                         help="full: deploy and run the full system; serve: start the services a finished "
-                             "full system run handed over to. With none, the rewards run")
+                             "full system run handed over to; upgrade, stop, lift: replace a contract's code, "
+                             "set or lift a stop (demo/PUBLIC.md, \"Upgrades and stops\"). With none, the "
+                             "rewards run")
     command = parser.parse_args().command
     if command:
         import public_full  # the full system run and its services, which read the full system's shared examples

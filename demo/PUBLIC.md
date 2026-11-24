@@ -152,9 +152,10 @@ environment, chain allow-list, keys, steps, resume rule and fee table.
 The run does the following, in order:
 
 1. It deploys the full system's twelve contracts: the rewards contracts, the test pool,
-   Parameters naming the Buyback as the buyback executor, and the Buyback.
-   Parameters' one authority is G, the key the owner gives the run. Round
-   1 starts at deployment.
+   Parameters naming the Buyback as the buyback executor, and the Buyback,
+   eight of them behind a proxy, then `Upgrades`, which holds U and S (see
+   "Upgrades and stops"). Parameters' one authority is G, the key the owner
+   gives the run. Round 1 starts at deployment.
 2. The deployer pays gas money to five accounts the run makes: N, P, V,
    the keeper and the faucet. It seeds the pool with 500,000 mock USDC and
    100,000 test LPT, and grants the faucet 1,000,000 test LPT. Under
@@ -216,10 +217,16 @@ As for the rewards run, and also:
 |---|---|
 | `LP2_AUTHORITY_KEYSTORE` | G's keystore file, outside the repository. G is Parameters' one authority, fixed at deployment. Make it as the deployer's is, for the testnet alone, never a key that has held real funds |
 | `LP2_AUTHORITY_PASSWORD_FILE` | A file that holds its password, outside the repository |
+| `LP2_UPGRADER_KEYSTORE` | U's keystore file, the upgrade key, outside the repository, made as G's is. `Upgrades` names it at deployment; it alone announces, applies and withdraws new code for a contract and lifts a stop (R-27). The run reads only its address and sends nothing with it |
+| `LP2_UPGRADER_PASSWORD_FILE` | A file that holds its password, outside the repository |
+| `LP2_PAUSER_KEYSTORE` | S's keystore file, the pause key, outside the repository, made the same way. `Upgrades` names it at deployment; it sets a stop and does nothing else. The run reads only its address |
+| `LP2_PAUSER_PASSWORD_FILE` | A file that holds its password, outside the repository |
 | `LP2_SENDER_URL` | The sender's public URL, where operators' nodes join: `deployment.json` names it. It is an origin: `http://` or `https://`, a host name or address and an optional port, with no user, no path but `/`, no query and no fragment. An IPv6 address carries no zone (`%`), and the port is written as a plain number, so `lp2-stake` reads the URL as the run does. Nodes join at its `/join`, so a proxy in front of the sender serves `/join` at that origin. It is not the RPC endpoint: not the RPC URL's scheme, host and port (a port left out is the scheme's default). It may be on the RPC's host at another port or scheme. Required on a public chain, where its host must resolve, on the machine that runs the run, only to public addresses, by the rule `lp2-sender` applies to a node's URL. A name is read as it is, in any case and with or without its trailing dot. On a local chain it is by default the sender's loopback address |
 
-The run refuses to start without the first two, before it makes or sends
-anything. On a public chain it refuses to start without `LP2_SENDER_URL`,
+The run refuses to start without the first six, before it makes or sends
+anything, and refuses an upgrade or pause key that is G's, the deployer's
+or the other one: the authority, U and S are three different keys. A
+state directory records all three, and a run given another is refused. On a public chain it refuses to start without `LP2_SENDER_URL`,
 before it sends anything. G sends one transaction, the announcement, so it needs gas money
 of its own. `LP2_ROLE_GAS_WEI` now applies to five accounts.
 
@@ -292,8 +299,10 @@ handover, and `public-run.log` keeps them.
 
 ### Against Arbitrum Sepolia
 
-Before the run, the owner makes two keys, the deployer and G, each for the
-testnet alone, and funds both from a faucet. Then:
+Before the run, the owner makes four keys, the deployer, G, U and S, each
+for the testnet alone, and funds the deployer and G from a faucet. U needs
+gas money only for an upgrade (`demo/public-run upgrade` deploys the new
+code with it), and S only to set a stop. Then:
 
 ```sh
 export LP2_RPC_URL=...                       # an Arbitrum Sepolia endpoint
@@ -301,6 +310,10 @@ export LP2_DEPLOYER_KEYSTORE=~/lp2-testnet/deployer.json
 export LP2_DEPLOYER_PASSWORD_FILE=~/lp2-testnet/deployer.pw
 export LP2_AUTHORITY_KEYSTORE=~/lp2-testnet/authority.json
 export LP2_AUTHORITY_PASSWORD_FILE=~/lp2-testnet/authority.pw
+export LP2_UPGRADER_KEYSTORE=~/lp2-testnet/upgrader.json
+export LP2_UPGRADER_PASSWORD_FILE=~/lp2-testnet/upgrader.pw
+export LP2_PAUSER_KEYSTORE=~/lp2-testnet/pauser.json
+export LP2_PAUSER_PASSWORD_FILE=~/lp2-testnet/pauser.pw
 export LP2_STATE_DIR=~/lp2-testnet/full
 export LP2_SENDER_URL=https://...             # where operators' nodes will reach the sender
 demo/public-run full
@@ -334,7 +347,7 @@ data fee included, and the same steps use about 19.6 million gas locally.
 
 | Account | Transactions | What it sends | Gas, local run |
 |---|---|---|---|
-| Deployer | 24 | 12 contract creations; 5 gas payments; 3 to seed the pool (a mock USDC mint, a test LPT transfer, the pool's mint); 3 test LPT grants, to N, V and the faucet; 1 mock USDC mint to P | 19.8 million |
+| Deployer | 33 | 21 contract creations (the twelve contracts, a proxy for eight of them, and `Upgrades`); 5 gas payments; 3 to seed the pool (a mock USDC mint, a test LPT transfer, the pool's mint); 3 test LPT grants, to N, V and the faucet; 1 mock USDC mint to P | 25.8 million |
 | G | 1 | the announcement | 0.12 million |
 | N | 4 | register; approve and bond; the ticket redemption (sent by the node) | 0.65 million |
 | P | 2 | approve and fund | 0.19 million |
@@ -342,10 +355,12 @@ data fee included, and the same steps use about 19.6 million gas locally.
 | Keeper | 2 a round, and the first poke and the buy | `initializeRound` (56,000 gas) and `mintRoundShares` (182,000) each round; a poke (164,000) and the buy (224,000) | about 2.4 million for Arbitrum Sepolia's 8 or 9 rounds; 16.3 million for the local run's 67 |
 | Faucet | 0 | nothing during the run; under `serve`, one token transfer per grant, 52,449 gas on the local chain | 0 |
 
-The whole run is about 24 million gas, about 0.0012 to 0.002 Sepolia ETH
-in fees. Most of it is the twelve contract creations. Fund
+The whole run is about 30 million gas, about 0.0015 to 0.0025 Sepolia ETH
+in fees. Most of it is the 21 contract creations. Fund
 the deployer with 0.03 Sepolia ETH: 0.015 of it goes to the five role
-accounts as gas money. Fund G with 0.001.
+accounts as gas money. Fund G with 0.001. An upgrade deploys the new code
+and sends two transactions with U: give U 0.002 for one, and S 0.001 for
+a stop.
 
 The keeper keeps spending after the run. It sends two transactions a
 round, one to start the round and one to mint the ended round's shares,
@@ -406,3 +421,88 @@ A state directory records which system it holds. `demo/public-run` refuses
 a full system state directory, and `demo/public-run full` refuses a rewards
 one, including the dated deployment. A state directory also records G's address, and
 a run given another authority key is refused.
+
+## Upgrades and stops
+
+Every deployment puts Parameters, Registry, RoundClock, the Broker,
+StakeLedger, Claims, Scores and the Buyback behind a `Proxy` whose admin is
+`Upgrades` (rulebook R-27). Their addresses are the ones everyone uses, and
+`deployment.json` names `Upgrades` too, so an operator can see a stop. The
+run's `manifest.json` names each one's code in force as its
+`implementation`, read from the chain each time the file is written, and
+the three keys under `keys`. Three commands act on a running deployment,
+beside `demo/public-run serve`, from the same state directory:
+
+```sh
+demo/public-run upgrade Broker contracts/test/BrokerWithTicketCount.sol:BrokerWithTicketCount \
+    --call 'initializeTicketCount(uint256)' 1000
+demo/public-run stop usdc|lpt|both     # with the pause key S
+demo/public-run lift usdc|lpt|both     # with the upgrade key U
+```
+
+They need `LP2_RPC_URL`, `LP2_STATE_DIR`, and `LP2_UPGRADER_KEYSTORE` with
+`LP2_UPGRADER_PASSWORD_FILE` (`upgrade`, `lift`) or `LP2_PAUSER_KEYSTORE`
+with `LP2_PAUSER_PASSWORD_FILE` (`stop`), never the deployer's or G's. Each
+holds a lock of its own in the state directory, one for U's commands and
+one for S's, not the run's, so the services keep running. Each sends only
+to a chain on the allow-list and the chain the state directory belongs to,
+and only with the key `Upgrades` holds now.
+
+`upgrade CONTRACT SOURCE [--replace] [--call SIGNATURE ARG...]` replaces
+the code of one of the eight contracts with the contract `SOURCE` names, a
+file under `contracts/` and the contract's name. Before it sends anything
+it refuses:
+
+- new code whose constructor does not take the code in force's parameter
+  types in the same order; the new code is built with the argument values
+  the code in force was built with, as the run recorded them;
+- new code whose storage layout does not begin with the code in force's,
+  compared entry by entry (name, slot, offset and type) and each type in
+  full: a struct's members, a mapping's key and value, an array's element;
+- code in force the run has no record of: one U put in force directly,
+  not through this command, cannot be checked, so it is not upgraded by
+  it.
+
+These gates guard the command. They do not show that the new code does
+with each argument what the old did, or that it does nothing the proxy
+cannot stop (R-27 rule 1): that is for the review of the new code before it
+is announced. The run records, in `state.json`, the source, constructor
+arguments and layout of each code it deployed, and the command records the
+code it deploys in `upgrades.json`.
+
+It then decides from the chain:
+
+- the code in force is already the new code: it writes the manifest and
+  sends nothing;
+- an announcement of the same code and call is pending and has not
+  lapsed: it waits for it and applies it;
+- a different one is pending: refused, unless `--replace`, which announces
+  over it and restarts the notice;
+- none, or one that lapsed: it deploys the new code with U's key, announces
+  it, and prints `applies from round A + 7, lapses at round A + 28`.
+
+It waits for that round, which the keeper under `serve` starts, or applies
+at once while the contract's side is stopped (the Broker under the USDC
+stop; StakeLedger, Claims, Scores and the Buyback under the LPT stop;
+Parameters, Registry and RoundClock only under both). After the apply it
+checks that the proxy runs the new code, `Upgrades` is still its admin and
+every address and the Controller's names are unchanged, and writes the
+manifest, whole, to a temporary file it renames over the old one. A
+command stopped at any point and started again sends no second
+announcement and no second apply: at worst it deploys the new code a
+second time, which costs gas only. The notice is 7 rounds: about 70
+minutes on Arbitrum Sepolia and 6 minutes on a local chain mining a block
+a second.
+
+`stop SIDE` sets the USDC stop (the Broker's payments), the LPT stop
+(bonding, claims, withdrawals of parts and the buy) or both, in force from
+its round through six more unless U lifts it; set again while in force, it
+restarts. Time runs under a stop: a ticket that expires in it is lost, and
+no claim window is extended. `lift SIDE` lifts it; a lift of a side not in
+force is refused `NOT_STOPPED`.
+
+Every command asks by a call before it sends, so a refusal sends nothing.
+Each ends with exit 0 when done, 1 when a check after a send failed, and 2
+when it was refused or could not run, with `REFUSED:` and the reason. It
+logs to `upgrades.log` in the state directory. `./dev demo upgrade` runs the
+same commands on a local chain.

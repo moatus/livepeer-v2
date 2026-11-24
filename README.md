@@ -18,15 +18,19 @@ the round's ceiling. The full system is built and shown locally: the network's
 share of fees buys and burns test LPT, an announced parameter change
 counts seven rounds later, and after an operator key is rotated the old
 key is refused. A node restarted during settlement collects each payment
-once. The full system has yet to be deployed on a public test chain.
+once. Every contract but the tokens, the test pool and the Controller sits
+behind a proxy, so its code can be replaced at the same address with every
+stored figure kept: announced seven rounds ahead by an upgrade key, or at
+once while a pause key has stopped its side. The full system has yet to
+be deployed on a public test chain.
 
 | Part | State |
 |---|---|
 | Rulebook and shared examples | `october-main-text-v5`: the full system's rules, with the buyback executor a parameter, and 98 worked cases (the earlier versions are kept) |
 | Independent calculator | Computes every shared example from the rulebook alone |
-| Contracts | Payments: Controller, Registry, RoundClock, Broker, MockUSDC. Rewards: TestLPT, StakeLedger, Scores, Claims. Full system: Parameters, TestPool, Buyback |
+| Contracts | Payments: Controller, Registry, RoundClock, Broker, MockUSDC. Rewards: TestLPT, StakeLedger, Scores, Claims. Full system: Parameters, TestPool, Buyback. Upgrades: `Upgrades`, the admin of a `Proxy` in front of each of Parameters, Registry, RoundClock, Broker, StakeLedger, Claims, Scores and the Buyback, holding the notice, the two stops and the upgrade and pause keys |
 | Node integration | The unmodified node, configured by flags alone; no fork |
-| One-command demo | `./dev demo` (rewards); `./dev demo payments` runs paid jobs; `./dev demo full` runs the full system; `./dev demo buyback` runs the buyback's walk; `./dev demo light` runs the services that pay each node that joins and grant each registered node test LPT; `./dev demo container` runs the operator container against them |
+| One-command demo | `./dev demo` (rewards); `./dev demo payments` runs paid jobs; `./dev demo full` runs the full system; `./dev demo buyback` runs the buyback's walk; `./dev demo light` runs the services that pay each node that joins and grant each registered node test LPT; `./dev demo container` runs the operator container against them; `./dev demo upgrade` replaces the Broker's code on a running system |
 
 ## Run the demo
 
@@ -248,6 +252,31 @@ is built. It uses six local ports, from `LP2_DEMO_PORT_BASE` (47700 unless
 set) to 24 above it; the chain and the sender also listen on Docker's
 bridge address, where the container reaches them.
 
+### Replacing a contract's code in place
+
+`./dev demo upgrade` runs the full system on a local chain, with N's node,
+the keeper, three validators and a payer, and replaces the Broker's code
+with `BrokerWithTicketCount` (the Broker with a ticket counter) by the
+same command a team runs on the public testnet, `demo/public-run upgrade`.
+The upgrade and pause keys are throwaway keystores outside the
+repository. Before it sends anything the command refuses new code whose
+storage layout does not begin with the Broker's, new code that reorders
+the members of a struct held in a mapping, new code whose constructor
+takes its parameter types in another order, and, later, a contract whose
+code in force the run has no record of. The command is killed after it
+deploys, after it announces and after its apply is mined, and run again
+each time: one announcement and one apply in all. Through the seven
+rounds of notice N is paid by the old code and an early apply is refused.
+At the apply every view function of nine contracts, over every account,
+round, group and ticket of the run, reads the same at the block before
+and at the apply's block; after it, a ticket made before is redeemed
+through the new code, a used one is refused again, the counter counts, and
+N's claims of rounds earned before are paid once. A stop drill follows:
+the pause key stops the LPT side, a claim is refused while N is still
+paid, the upgrade key applies code at once and lifts the stop, and the
+claim is paid. Every figure is reconciled against the calculator. A run
+takes about four minutes; it uses the rewards demo's ports and Docker.
+
 ### Run results
 
 Each ends with `DEMO PASSED` and exit 0 when every figure is equal and every
@@ -291,8 +320,11 @@ later. When every figure is equal, it hands the deployment over to
 `lp2-sender` and `lp2-faucet` running without the deployer's key, so a
 node that registers is granted test LPT and a node that joins is paid. It
 also writes `deployment.json`, the file an operator gives the node
-container. `demo/PUBLIC.md` says what to set, what it costs, how long it
-takes and where that file is published.
+container. `demo/public-run upgrade` replaces a contract's code on that
+running deployment with the upgrade key, after seven rounds' notice or at
+once under a stop, beside the running services; `demo/public-run stop` and
+`lift` set and lift a stop. `demo/PUBLIC.md` says what to set, what it
+costs, how long it takes and where that file is published.
 
 `programs/cmd/lp2-explorer` shows a deployment read from the chain. It
 holds no key and sends nothing. Give it the RPC URL, the Controller,

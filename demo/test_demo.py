@@ -550,7 +550,8 @@ class PublicFull(unittest.TestCase):
         named = {s["stand_in"].lower() for s in t["stand_ins"]}
         for name in ("role accounts made by the run", "mockusdc", "test lpt", "scripted validators", "tiny model",
                      "every ticket wins", "50-block rounds", "keeper", "treasury address", "g, the governance stand-in",
-                     "testpool", "the deployment's buyback values", "faucet account", "one paid job"):
+                     "testpool", "the deployment's buyback values", "faucet account", "one paid job",
+                     "u, the upgrade key", "s, the pause key", "proxy, a short proxy of our own"):
             with self.subTest(stand_in=name):
                 self.assertTrue(any(n.startswith(name) for n in named))
 
@@ -589,7 +590,8 @@ class PublicFull(unittest.TestCase):
 
     def env(self, **set_):
         keys = ("LP2_RPC_URL", "LP2_DEPLOYER_KEYSTORE", "LP2_DEPLOYER_PASSWORD_FILE", "LP2_AUTHORITY_KEYSTORE",
-                "LP2_AUTHORITY_PASSWORD_FILE", "LP2_STATE_DIR")
+                "LP2_AUTHORITY_PASSWORD_FILE", "LP2_STATE_DIR", "LP2_UPGRADER_KEYSTORE", "LP2_UPGRADER_PASSWORD_FILE",
+                "LP2_PAUSER_KEYSTORE", "LP2_PAUSER_PASSWORD_FILE")
         env = {k: v for k, v in os.environ.items() if k not in keys}
         return mock.patch.dict(os.environ, {**env, **set_}, clear=True)
 
@@ -608,6 +610,39 @@ class PublicFull(unittest.TestCase):
                     self.full_run.main()
                 self.assertIn(want, str(e.exception))
                 self.assertFalse(state.exists(), "nothing is made before the authority's keystore is checked")
+
+    def test_the_full_run_refuses_to_start_without_the_upgrade_and_pause_keystores(self):
+        key, pw = self.dir / "deployer.json", self.dir / "deployer.pw"
+        key.write_text("{}")
+        pw.write_text("x")
+        state = self.dir / "state"
+        given = dict(LP2_RPC_URL="http://127.0.0.1:1", LP2_DEPLOYER_KEYSTORE=str(key),
+                     LP2_DEPLOYER_PASSWORD_FILE=str(pw), LP2_STATE_DIR=str(state))
+        for extra, want in (({}, "LP2_UPGRADER_KEYSTORE is not set"),
+                            ({"LP2_UPGRADER_KEYSTORE": str(key)}, "LP2_UPGRADER_PASSWORD_FILE is not set"),
+                            ({"LP2_UPGRADER_KEYSTORE": str(key), "LP2_UPGRADER_PASSWORD_FILE": str(pw)},
+                             "The upgrade key's keystore could not be opened")):
+            with self.subTest(want=want), self.env(**given, **extra), \
+                    mock.patch.object(self.full_run, "authority", lambda: "0x" + "a1" * 20):
+                with self.assertRaises(common.NotRun) as e:
+                    self.full_run.main()
+                self.assertIn(want, str(e.exception))
+                self.assertFalse(state.exists(), "nothing is made before the upgrade key's keystore is checked")
+
+    def test_the_templates_name_the_three_keys_below_their_contracts(self):
+        import public
+        for doc in (self.t4, json.loads((ROOT / "deployments" / public.TEMPLATE).read_text())):
+            with self.subTest(template=doc["testnet"]):
+                self.assertEqual(list(doc["keys"]), ["authority", "upgrader", "pauser"])
+                order = list(doc)
+                self.assertEqual(order.index("keys"), order.index("contracts") + 1)
+                upgrades = next(c for c in doc["contracts"] if c["contract"] == "Upgrades")
+                self.assertIn("the keys below", upgrades["checks"])
+
+    def test_the_operators_file_names_upgrades_as_the_container_demo_writes_it(self):
+        import container
+        self.assertEqual(container.OPERATOR_CONTRACTS, self.full_run.OPERATOR_CONTRACTS)
+        self.assertEqual(self.full_run.OPERATOR_CONTRACTS[-1], "Upgrades")
 
     def test_serve_refuses_a_state_directory_no_run_handed_over(self):
         with self.env(LP2_STATE_DIR=str(self.dir)):
@@ -653,7 +688,7 @@ class PublicFull(unittest.TestCase):
         self.assertEqual(self.full_run.operator_problems(doc, True), [])
         self.assertEqual(set(doc), {"testnet", "chain_id", "first_block", "contracts", "node", "sender_url"})
         self.assertEqual(doc["contracts"], {k: contracts[k] for k in ("Controller", "Parameters", "StakeLedger",
-                                                                      "Claims", "TestLPT", "MockUSDC")})
+                                                                      "Claims", "TestLPT", "MockUSDC", "Upgrades")})
         self.assertEqual((doc["chain_id"], doc["first_block"], doc["sender_url"]),
                          (421614, 331292296, "https://sender.example"))
         self.assertEqual(doc["node"]["ticket_face_value"], "1000000")
@@ -1278,6 +1313,73 @@ class ContainerPorts(unittest.TestCase):
         for explorer in ("0.0.0.0:abc", "0.0.0.0:", "0.0.0.0:0", "0.0.0.0:70000"):
             self.refused("http://h:9000", explorer, "which is not a port number from 1 to 65535")
         self.refused("http://h:9000", "8080", "is not an address and port")
+
+
+class UpgradeGates(unittest.TestCase):
+    """demo/public-run upgrade's two gates, on storage layouts and
+    constructors in the shape the compiler gives them, with no chain."""
+
+    def setUp(self):
+        import public_upgrade
+        self.up = public_upgrade
+
+    @staticmethod
+    def layout(owner: str, entries: list[tuple[str, str]], members=("amount", "pending", "readyRound"),
+               member_type: str = "t_uint256") -> dict:
+        balance = f"t_struct(Balance)1_storage"
+        types = {
+            "t_address": {"encoding": "inplace", "label": "address", "numberOfBytes": "20"},
+            "t_uint256": {"encoding": "inplace", "label": "uint256", "numberOfBytes": "32"},
+            "t_uint128": {"encoding": "inplace", "label": "uint128", "numberOfBytes": "16"},
+            balance: {"encoding": "inplace", "label": f"struct {owner}.Balance", "numberOfBytes": "96",
+                      "members": [{"astId": 1, "contract": owner, "label": m, "offset": 0, "slot": str(i),
+                                   "type": member_type if m == "pending" else "t_uint256"}
+                                  for i, m in enumerate(members)]},
+            "t_mapping(t_address,t_struct)": {"encoding": "mapping", "key": "t_address", "value": balance,
+                                              "label": f"mapping(address => struct {owner}.Balance)",
+                                              "numberOfBytes": "32"},
+        }
+        return {"storage": [{"astId": i, "contract": owner, "label": name, "offset": 0, "slot": str(i), "type": t}
+                            for i, (name, t) in enumerate(entries)], "types": types}
+
+    OLD = [("balance", "t_mapping(t_address,t_struct)"), ("networkHeld", "t_uint256")]
+
+    def test_new_figures_after_the_old_ones_pass_whatever_contract_declares_the_struct(self):
+        old = self.layout("Broker", self.OLD)
+        self.assertIsNone(self.up.layout_problem(old, self.layout("Broker", self.OLD)))
+        self.assertIsNone(self.up.layout_problem(old, self.layout("BrokerNext", self.OLD + [("ticketCount", "t_uint256")])))
+
+    def test_a_figure_moved_missing_or_retyped_is_refused(self):
+        old = self.layout("Broker", self.OLD)
+        moved = self.up.layout_problem(old, self.layout("Broker", [("ticketCount", "t_uint256")] + self.OLD))
+        self.assertIn("entry 1, balance in the code in force, differs: name", moved)
+        self.assertIn("ends after 1 entries", self.up.layout_problem(old, self.layout("Broker", self.OLD[:1])))
+        retyped = self.up.layout_problem(old, self.layout("Broker", [self.OLD[0], ("networkHeld", "t_uint128")]))
+        self.assertIn("entry 2, networkHeld", retyped)
+
+    def test_a_struct_in_a_mappings_value_is_compared_member_by_member(self):
+        old = self.layout("Broker", self.OLD)
+        reordered = self.layout("Broker", self.OLD, members=("pending", "amount", "readyRound"))
+        self.assertIn("value: members: 1: name: amount in the code in force, pending in the new code",
+                      self.up.layout_problem(old, reordered))
+        narrowed = self.layout("Broker", self.OLD, member_type="t_uint128")
+        self.assertIn("members: 2: type: label: uint256", self.up.layout_problem(old, narrowed))
+
+    def test_the_constructor_takes_the_same_types_in_the_same_order(self):
+        old = {"constructor": ["contract IMockUSDC", "contract IRegistry", "address"]}
+        self.assertIsNone(self.up.constructor_problem(old, {"constructor": list(old["constructor"])}))
+        swapped = {"constructor": ["contract IRegistry", "contract IMockUSDC", "address"]}
+        self.assertIn("its constructor takes (contract IRegistry, contract IMockUSDC, address)",
+                      self.up.constructor_problem(old, swapped))
+        self.assertIsNotNone(self.up.constructor_problem(old, {"constructor": old["constructor"] + ["uint256"]}))
+
+    def test_a_state_directory_with_no_run_is_refused(self):
+        d = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, d, True)
+        with mock.patch.dict(os.environ, {"LP2_RPC_URL": "http://127.0.0.1:1", "LP2_STATE_DIR": str(d)}):
+            with self.assertRaises(common.NotRun) as e:
+                self.up.open_run("upgrader")
+        self.assertIn("holds no run's state.json", str(e.exception))
 
 
 if __name__ == "__main__":

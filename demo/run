@@ -16,6 +16,11 @@
                           lp2-responder, once a round, and lp2-faucet
                           grants each registered node test LPT once,
                           through three kills; no model, no docker
+  ./dev demo upgrade      the Broker's code replaced in place on a running
+                          full system by demo/public-run upgrade, through
+                          three kills, every view read the same across the
+                          apply, the command's four refusals, then a stop
+                          drill; every figure reconciled
   ./dev demo container    the operator container on the full system with
                           the sender and the faucet: it registers, is
                           granted, bonds, joins, is paid, and claims and
@@ -35,7 +40,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 parser = argparse.ArgumentParser(prog="./dev demo", description=__doc__.splitlines()[0])
-parser.add_argument("demo_name", nargs="?", choices=("payments", "rewards", "full", "buyback", "light", "container"), default="rewards",
+parser.add_argument("demo_name", nargs="?", choices=("payments", "rewards", "full", "buyback", "light", "container", "upgrade"), default="rewards",
                     help="which demo to run (default rewards)")
 demo_name = parser.parse_args().demo_name
 if demo_name == "payments":
@@ -48,6 +53,8 @@ elif demo_name == "light":
     import light as demo
 elif demo_name == "container":
     import container as demo
+elif demo_name == "upgrade":
+    import upgrade as demo
 else:
     import rewards as demo
 import common  # noqa: E402

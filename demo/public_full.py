@@ -31,6 +31,12 @@ The path sends no anvil_* or evm_* call. Environment, as demo/public.py's,
 and for full also:
   LP2_AUTHORITY_KEYSTORE       G's keystore file, outside the repository
   LP2_AUTHORITY_PASSWORD_FILE  its password file, outside the repository
+  LP2_UPGRADER_KEYSTORE        U's keystore file, the upgrade key, outside the
+                               repository; full reads only its address
+  LP2_UPGRADER_PASSWORD_FILE   its password file, outside the repository
+  LP2_PAUSER_KEYSTORE          S's keystore file, the pause key, outside the
+                               repository; full reads only its address
+  LP2_PAUSER_PASSWORD_FILE     its password file, outside the repository
   LP2_SENDER_URL               the sender's public URL, which deployment.json
                                names; on a local chain, by default, its
                                loopback address. Required on a public chain
@@ -67,7 +73,8 @@ SERVICES = "services.json"
 OPERATORS = "deployment.json"   # the deployment file operators give their node container
 # What the operator container reads from it (programs/container/README.md):
 # each a string or a number, and nothing else.
-OPERATOR_CONTRACTS = ("Controller", "Parameters", "StakeLedger", "Claims", "TestLPT", "MockUSDC")
+# Upgrades, so that an operator can see a stop (R-27).
+OPERATOR_CONTRACTS = ("Controller", "Parameters", "StakeLedger", "Claims", "TestLPT", "MockUSDC", "Upgrades")
 OPERATOR_NODE = ("job_price_usd", "price_unit", "wei_per_usd", "ticket_face_value", "ticket_win_prob")
 # A round that has not started for this long means the keeper cannot start
 # it: three rounds on Arbitrum Sepolia, thirty on a local chain.
@@ -111,6 +118,19 @@ def authority() -> str:
     return got.stdout.strip()
 
 
+def key_address(var: str, what: str) -> str:
+    """The address of the keystore LP2_<var>_KEYSTORE names, opened with
+    its password file, both outside the repository. The run reads the
+    address only and sends nothing with the key."""
+    keystore = public.outside_repo(f"LP2_{var}_KEYSTORE", True)
+    password = public.outside_repo(f"LP2_{var}_PASSWORD_FILE", True)
+    got = subprocess.run(["cast", "wallet", "address", "--keystore", str(keystore), "--password-file", str(password)],
+                         capture_output=True, text=True)
+    if got.returncode != 0:
+        raise NotRun(f"{what}'s keystore could not be opened with its password file. Nothing was sent")
+    return got.stdout.strip()
+
+
 def lp2_params(*argv: str) -> str:
     """lp2-params as G: it asks by a call first and sends only what would
     succeed; a refusal (exit 3) fails the run."""
@@ -149,14 +169,23 @@ def unbonding_now(at_round: int) -> list[int]:
 def main() -> int:
     started = time.time()
     g = authority()
+    # The upgrade key U and the pause key S (R-27): named in Upgrades at
+    # deployment; demo/public-run upgrade, stop and lift send with them.
+    u, s = key_address("UPGRADER", "The upgrade key"), key_address("PAUSER", "The pause key")
+    if len({g.lower(), u.lower(), s.lower()}) != 3:
+        raise NotRun("the authority, the upgrade key and the pause key must be three different keys. Nothing was sent")
     public.ROLES = ROLES
     chain_id = public.open_state(deployment="full")
     sender_url(chain_id)   # the handover's deployment.json names it: checked before anything is sent
     state = public.STATE
-    if state.get("authority", g).lower() != g.lower():
-        raise NotRun(f"this state directory's authority is {state['authority']}, not {g}. Nothing was sent")
-    state["authority"] = g
-    ADDR["G"], NAMES[g.lower()] = g, "G"
+    if state["deployer"].lower() in (u.lower(), s.lower()):
+        raise NotRun("the upgrade key or the pause key is the deployer's key. Nothing was sent")
+    for field, got in (("authority", g), ("upgrader", u), ("pauser", s)):
+        if state.get(field, got).lower() != got.lower():
+            raise NotRun(f"this state directory's {field} is {state[field]}, not {got}. Nothing was sent")
+        state[field] = got
+    for who, addr in (("G", g), ("Upgrader", u), ("Pauser", s)):
+        ADDR[who], NAMES[addr.lower()] = addr, who
     public.save()
     public.TEMPLATE_DOC.update(state["done"]["deploy"]["template"] if "deploy" in state["done"] else
                                json.loads((common.ROOT / "deployments" / TEMPLATE).read_text()))
@@ -165,8 +194,8 @@ def main() -> int:
     say("Public run, full system: the buyback buys and burns test LPT, and an announced parameter change counts seven "
         "rounds later, in real time; then the deployment is handed over to services without the deployer's key")
     say(f"  chain id {chain_id}, {public.ALLOWED_CHAINS[chain_id]}; state directory outside the repository")
-    say(f"  deployer {state['deployer']}; authority G {g}; N {ADDR['N']}, P {ADDR['P']}, V {ADDR['V']}, "
-        f"keeper {ADDR['Keeper']}, faucet {ADDR['Faucet']}")
+    say(f"  deployer {state['deployer']}; authority G {g}; upgrade key U {u}; pause key S {s}; N {ADDR['N']}, "
+        f"P {ADDR['P']}, V {ADDR['V']}, keeper {ADDR['Keeper']}, faucet {ADDR['Faucet']}")
 
     if all(n in state["done"] for n in ("buy", "change before", "change from")):
         deploy()
