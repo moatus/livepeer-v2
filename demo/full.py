@@ -348,6 +348,18 @@ def main():
     code, out = bb.lp2_params("G", pw, "announce", "0", "100")
     c.check("round length refused: NOT_ADJUSTABLE", (code, "NOT_ADJUSTABLE" in out), (3, True))
 
+    def buy_first():
+        # The keeper's buy empties networkHeld. Mine it before the job, one
+        # block per keeper transaction, so the node sizes its redemption's
+        # gas for the state it will run in, and the round keeps its blocks.
+        c.rpc("evm_setIntervalMining", [0])
+
+        def bought():
+            if pooled_from("Keeper"):
+                c.rpc("evm_mine", [])
+            return c.logs(C["Buyback"], bb.BOUGHT)
+        rewards.wait("keeper buys from the pool", bought)
+
     def claim(earned, expected):
         rewards.to_round(earned + int(c.PARAMS["reward_delay_rounds"]))
         before = c.call(C["TestLPT"], "balanceOf(address)", w)
@@ -364,8 +376,7 @@ def main():
     # Age the observation while keeping the round clock on its block schedule.
     now = int(c.rpc("eth_getBlockByNumber", ["latest", False])["timestamp"], 16)
     c.rpc("evm_setNextBlockTimestamp", [now + int(c.MANIFEST["buyback"]["twap_seconds"])])
-    earn(11)
-    rewards.wait("keeper buys from the pool", lambda: c.logs(C["Buyback"], bb.BOUGHT))
+    earn(11, buy_first)
     claim(5, int(calc["lpt_wei"]["W5"]))
 
     # Keep the buyback from drawing down the network share in the recovery view.
