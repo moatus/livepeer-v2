@@ -43,20 +43,15 @@ public testnet it is an HTTPS JSON-RPC endpoint of Arbitrum Sepolia.
   is too large, and sends at most 5 requests a second. Free plans limit
   both the blocks one `eth_getLogs` may cover and the requests a second or
   a day, each provider differently.
-- **How long the explorer takes to catch up.** It reads the deployment's
+- **Catching up.** The explorer reads the deployment's
   events once, from the deployment's first block, keeps them in
   `/data/index`, and from then on reads only new blocks, after a restart
   too. Every page shows how far it has read ("block X of Y") until it has
-  caught up. How long the first read takes through a free endpoint has
-  not been measured yet: any figure for it, or for the page size such an
-  endpoint accepts, would be an estimate.
+  caught up.
 - **How to set it.** Give it as `-e LP2_RPC_URL=…` when you start the
   container. To change it, remove the container and start it again on the
   same data folder with the new URL; nothing else changes. The container
   stops if the URL is another chain than the deployment's.
-
-The key in the URL is never shown: the log and the explorer name the
-provider by its scheme and host only (see "Read the explorer").
 
 When requests fail, every page of the explorer shows a banner from the
 first failed request until the next one answered. It names the provider
@@ -226,12 +221,8 @@ and each claim and withdrawal it sends. The node's, the responder's and
 the explorer's logs are in `/data/logs`. When a request to the RPC
 provider fails, the container's log and the explorer's page and JSON say
 which step failed, name the provider by its scheme and host only, and say
-what went wrong in fixed words, never in the provider's: it could not be
-reached, did not answer in time, rate-limited the request (HTTP 429),
-refused the request (with the HTTP status), redirected the request (with the HTTP status), answered with an
-error (with the JSON-RPC code), or its answer could not be read. The
-container follows no redirect from the provider: if your provider's URL
-answers with one, give `LP2_RPC_URL` the URL it redirects to. So whatever a provider writes back, even the key or
+what went wrong in fixed words, never in the provider's (the table in
+"Getting an RPC URL" gives each). So whatever a provider writes back, even the key or
 password it was sent, is not shown, and the rest of `LP2_RPC_URL`, where a
 provider puts its key, is hidden wherever it appears. The host is shown:
 it must be one you can share. A key in the host name itself, which few

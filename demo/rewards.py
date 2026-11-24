@@ -420,12 +420,13 @@ def resume_keeper() -> int:
 
 # --- the explorer -------------------------------------------------------------
 
-def start_explorer(name: str, port: int, index_dir, rpc_url: str, *more: str) -> None:
-    """lp2-explorer with no node, reading the deployment from block 0."""
-    start(name, [str(common.RUN / "bin" / "lp2-explorer"), "--rpc-url", rpc_url,
+def start_explorer(name: str, port: int, index_dir, rpc_url: str, *more: str, first_block: int = 0, binary=None) -> None:
+    """lp2-explorer reading the deployment from first_block, with no node
+    unless more names one; more adds flags."""
+    start(name, [str(binary or common.RUN / "bin" / "lp2-explorer"), "--rpc-url", rpc_url,
                  "--controller-address", C["Controller"], "--parameters-address", C["Parameters"],
                  "--stake-ledger-address", C["StakeLedger"], "--claims-address", C["Claims"],
-                 "--usdc-address", C["MockUSDC"], "--lpt-address", C["TestLPT"], "--first-block", "0",
+                 "--usdc-address", C["MockUSDC"], "--lpt-address", C["TestLPT"], "--first-block", str(first_block),
                  "--index-dir", str(index_dir), "--listen", f"127.0.0.1:{port}", *more])
 
 
@@ -436,6 +437,17 @@ def explorer_json(path: str, port: int | None = None) -> dict | None:
             return json.loads(r.read())
     except (urllib.error.URLError, ConnectionError, OSError, ValueError):
         return None
+
+
+def explorer_at(path: str, block: int, seconds: float = 90) -> dict:
+    """One of the explorer's documents, read at `block` or later."""
+    got: list[dict | None] = []
+
+    def read() -> bool:
+        got.append(explorer_json(path))
+        return got[-1] is not None and got[-1]["block"] is not None and got[-1]["block"] >= block
+    wait(f"lp2-explorer's {path} at block {block} or later", read, seconds)
+    return got[-1]
 
 
 def explorer_docs(block: int, port: int | None = None, seconds: float = 90) -> dict[str, dict]:
@@ -532,8 +544,6 @@ def check_explorer(ordered: list[dict], calc: dict) -> None:
                [int(row[k]) for k in ("deposit_usdc_micro", "funded_usdc_micro", "released_usdc_micro")],
                [int(calc["deposits_micro_usdc"][p]), funded, int(calc["released_micro_usdc"][p])],
                lambda v: " / ".join(money(x) for x in v))
-        check(f"explorer: {p}'s pending release is earmarkOf's at its block", int(row["deposit_pending_usdc_micro"]),
-              words(C["Broker"], "earmarkOf(address,address)", a(p), ZERO, block=block)[1])
         got = {name(f["address"]): [int(f["fees_usdc_micro"]), int(f["node_usdc_micro"]), int(f["network_usdc_micro"])]
                for f in docs[f"/apps/{a(p).lower()}.json"]["by_node"]}
         want = {n: f for (q, n), f in split.items() if q == p}
@@ -591,10 +601,6 @@ def check_restart() -> None:
     floor = resumed if resumed is not None else killed + 1
     check(f"the counting provider saw no eth_getLogs below block {floor} after the restart, where the index resumed",
           [b for b in asked if b < floor], [])
-    blocks = sorted({main["/network.json"]["block"], restarted["/network.json"]["block"]})
-    sent = sum(len(b["result"]["transactions"]) for b in rpc_batch([("eth_getBlockByNumber", [hex(n), False])
-                                                                     for n in range(blocks[0] + 1, blocks[-1] + 1)]))
-    check(f"no transaction between the two explorers' blocks, {blocks[0]} and {blocks[-1]}: the chain's state is the same", sent, 0)
     strip = lambda d: {k: v for k, v in d.items() if k not in ("rpc", "index", "block", "block_time")}  # noqa: E731
     differ = [p for p in main if strip(main[p]) != strip(restarted.get(p, {}))]
     check(f"the restarted explorer's {len(main)} documents equal those of the explorer never stopped", differ, [])

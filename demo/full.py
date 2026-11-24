@@ -1,5 +1,4 @@
 """Full system on a fresh chain, with real jobs and exact calculator checks."""
-import json
 import os
 import signal
 import time
@@ -110,28 +109,16 @@ def explorer_get(path: str) -> str | None:
         return None
 
 
-def explorer_status(block: int = 0) -> dict:
+def explorer_status(block: int) -> dict:
     """N's JSON from the explorer, read at `block` or later."""
-    path = f"/orchestrators/{ADDR['N']}.json"
-    got: list[dict | None] = []
-
-    def read() -> bool:
-        body = explorer_get(path)
-        got.append(json.loads(body) if body else None)
-        return got[-1] is not None and got[-1]["block"] is not None and got[-1]["block"] >= block
-    rewards.wait(f"lp2-explorer's {path} at block {block} or later", read, 90)
-    return got[-1]
+    return rewards.explorer_at(f"/orchestrators/{ADDR['N']}.json", block)
 
 
 def start_explorer(first_block: int) -> None:
     """lp2-explorer for N, its index of events from the block before the
     deployment."""
-    c.start("explorer", [str(c.RUN / "bin" / "lp2-explorer"), "--rpc-url", c.RPC,
-                         "--controller-address", C["Controller"], "--parameters-address", C["Parameters"],
-                         "--stake-ledger-address", C["StakeLedger"], "--claims-address", C["Claims"],
-                         "--usdc-address", C["MockUSDC"], "--lpt-address", C["TestLPT"], "--first-block", str(first_block),
-                         "--index-dir", str(c.RUN / "explorer-index"),
-                         "--node", ADDR["N"], "--listen", f"127.0.0.1:{c.PORT['explorer']}"])
+    rewards.start_explorer("explorer", c.PORT["explorer"], c.RUN / "explorer-index", c.RPC, "--node", ADDR["N"],
+                           first_block=first_block)
     status = explorer_status(c.block_number())
     c.check("explorer, first read: N registered, every figure read, no buy yet",
             (status["node"]["registered"], status["unavailable"], status["testnet"]["buys"]), (True, [], []))

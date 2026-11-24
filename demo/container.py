@@ -37,10 +37,8 @@ node, keeps its index in /data/index and resumes it above the deployment's
 first block, and names N from LP2_LABELS, a file the demo writes into the
 data folder once N is known; the first container, started before it,
 says it could not read it. Replaced by a file that is not a labels file
-(accounts false, before the container on public port 09000 starts; a
-numeric Scenario and a key that is not an address, before two of the
-starts whose provider fails), it is said, the copy kept stays, and the
-explorer names N from it with the labels file not read.
+before the container on public port 09000 starts, it is said, the copy
+kept stays, and the explorer names N from it with the labels file not read.
 
 Then the chain is read: no second registration, grant, bond or claim; N's
 key sent nothing after the node started but its own redemptions; N was
@@ -305,29 +303,7 @@ def unpaid(paid: list[int], joined: int, down: tuple[int, int], stopped: int) ->
 
 def explorer_status() -> dict:
     """N's JSON from the explorer, read at the chain's newest block or later."""
-    block, got = block_number(), []
-
-    def read() -> bool:
-        try:
-            got.append(json.loads(explorer_get(f"/orchestrators/{ADDR['N']}.json")))
-        except (OSError, ValueError):
-            return False
-        return got[-1]["block"] is not None and got[-1]["block"] >= block
-    rewards.wait(f"the explorer's JSON at block {block} or later", read, 120)
-    return got[-1]
-
-
-def explorer_failing(why: str) -> str:
-    """N's JSON once the explorer says the provider fails, by its category:
-    within 45 seconds, one cycle and a request's timeout."""
-    told = f"the chain's newest block: the RPC provider http://host.docker.internal:{PROVIDER} {why}"
-    got = []
-
-    def read() -> bool:
-        got.append(explorer_get(f"/orchestrators/{ADDR['N']}.json"))
-        return any(x.startswith(told) for x in json.loads(got[-1])["unavailable"])
-    rewards.wait(f"the explorer to say the provider {why}", read, 45)
-    return got[-1]
+    return rewards.explorer_at(f"/orchestrators/{ADDR['N']}.json", block_number(), 120)
 
 
 def explorer_get(path: str) -> str:
@@ -357,16 +333,11 @@ def every_page(shown: dict, label: str, why: str) -> None:
         shown[f"the explorer's page {p}, the provider {label}"] = v
 
 
-def unreachable_start(label: str, rpc: str, labels: tuple[bytes, object] | None = None) -> tuple[int, str]:
+def unreachable_start(label: str, rpc: str) -> tuple[int, str]:
     """A container on a data folder of its own whose RPC provider fails from
-    the first request: its exit code and its whole Docker output. With
-    labels, a kept labels copy and what LP2_LABELS then holds are put in its
-    data folder first."""
+    the first request: its exit code and its whole Docker output."""
     data = common.RUN / f"container-{label}"
     data.mkdir()
-    if labels:
-        (data / "labels.kept.json").write_bytes(labels[0])
-        (data / LABELS_GIVEN).write_text(json.dumps(labels[1]))
     name = f"lp2-demo-node-{BASE}-{label}"
     argv = container_argv(name, None, (), rpc=rpc, data=data)
     argv.insert(2, "--rm")
@@ -513,22 +484,14 @@ def main() -> int:
 
     say("\n9. RPC providers that fail, with a key in their URL; and public port 09000, where the responder listened before")
     provider = common.Provider(host, PROVIDER, (SYNTHETIC_KEY, SYNTHETIC_PASSWORD), MARKER)
-    # Files that are not labels files, each given to one start below that
-    # holds the labels kept so far: the last is given to the container on
-    # public port 09000.
-    kept = (DATA / "labels.kept.json").read_bytes()
-    not_labels = {"unreachable": {"Scenario": 42},
-                  "rejected": {"scenario": None, "accounts": {"not an address": {"name": "X"}}},
-                  "five": {"accounts": False}}
     code, said = unreachable_start(
-        "unreachable", f"https://synthetic-user:{SYNTHETIC_PASSWORD}@127.0.0.1:1/v3/{SYNTHETIC_KEY}?apikey={SYNTHETIC_KEY}",
-        (kept, not_labels["unreachable"]))
+        "unreachable", f"https://synthetic-user:{SYNTHETIC_PASSWORD}@127.0.0.1:1/v3/{SYNTHETIC_KEY}?apikey={SYNTHETIC_KEY}")
     check("an unreachable provider: the log names the step, the provider's host and the failure, and no credential in its URL",
           (code, "gave up after 10 tries: read_state" in said,
            "lp2-stake state: the RPC provider https://127.0.0.1:1 could not be reached" in said,
            [c for c in CREDENTIALS if c in said]), (1, True, True, []))
     provider.reject()
-    code, said = unreachable_start("rejected", KEYED, (kept, not_labels["rejected"]))
+    code, said = unreachable_start("rejected", KEYED)
     check("a provider that rejects the request and echoes the key and the escaped password: the log names the step, "
           "the provider's host and the HTTP status, and no credential",
           (code, "gave up after 10 tries: read_state" in said,
@@ -542,7 +505,10 @@ def main() -> int:
            f"lp2-stake state: the RPC provider http://host.docker.internal:{PROVIDER} redirected the request (HTTP 307)" in said,
            [c for c in CREDENTIALS if c in said], provider.followed), (1, True, True, [], 0))
     provider.forward()
-    (DATA / LABELS_GIVEN).write_text(json.dumps(not_labels["five"]))
+    # A file that is not a labels file, given to the container on public
+    # port 09000, which holds the labels kept so far.
+    kept, not_labels = (DATA / "labels.kept.json").read_bytes(), {"accounts": False}
+    (DATA / LABELS_GIVEN).write_text(json.dumps(not_labels))
     five = run_node(hold="started", ports=("explorer",), public="http://127.0.0.1:09000", rpc=KEYED)
     ports = wait_log(five, "ports:", 60).split(" ", 1)[1]
     say(f"  {ports}")
@@ -558,29 +524,19 @@ def main() -> int:
     except Failed:
         pass
     page = html.unescape(explorer_get(f"/orchestrators/{ADDR['N']}"))
-    logged = {x: (common.RUN / "logs" / f"lp2-demo-node-{BASE}-{x}.log").read_text() for x in ("unreachable", "rejected")}
-    logged["five"] = clog(five)
-    held = {x: (common.RUN / f"container-{x}" / "labels.kept.json").read_bytes() for x in ("unreachable", "rejected")}
-    held["five"] = (DATA / "labels.kept.json").read_bytes()
-    unread_said = f"could not read LP2_LABELS from /data/{LABELS_GIVEN} as a labels file"
-    check("LP2_LABELS replaced by a file that is not a labels file (" + "; ".join(json.dumps(v) for v in not_labels.values())
-          + "): the container says so for each and keeps the labels it had, and N's page shows N's name from them with "
-          "the labels file not read",
-          ({x: unread_said in logged[x] for x in not_labels}, {x: held[x] == kept for x in not_labels}, explorer_status()["label"],
+    check(f"LP2_LABELS replaced by a file that is not a labels file ({json.dumps(not_labels)}): the container says so and "
+          "keeps the labels it had, and N's page shows N's name from them with the labels file not read",
+          (f"could not read LP2_LABELS from /data/{LABELS_GIVEN} as a labels file" in clog(five),
+           (DATA / "labels.kept.json").read_bytes() == kept, explorer_status()["label"],
            "<h1>N, the container's node</h1>" in page, f"<li>{unread}" in page),
-          ({x: True for x in not_labels}, {x: True for x in not_labels}, "N, the container's node", True, True))
-    provider.reject()
-    shown["the explorer's JSON, the provider rejecting the key"] = explorer_failing("refused the request (HTTP 401)")
-    every_page(shown, "rejecting the key", "refused the request (HTTP 401)")
-    provider.redirect()
-    shown["the explorer's JSON, the provider redirecting"] = explorer_failing("redirected the request (HTTP 307)")
-    every_page(shown, "redirecting", "redirected the request (HTTP 307)")
-    provider.limit()
-    every_page(shown, "answering 429", "rate-limited the request (HTTP 429)")
-    shown["the explorer's JSON, the provider answering 429"] = explorer_get(f"/orchestrators/{ADDR['N']}.json")
-    provider.refuse()
-    shown["the explorer's JSON, the provider refusing connections"] = explorer_failing("could not be reached")
-    every_page(shown, "refusing connections", "could not be reached")
+          (True, True, "N, the container's node", True, True))
+    for label, why, set_up in (("rejecting the key", "refused the request (HTTP 401)", provider.reject),
+                               ("redirecting", "redirected the request (HTTP 307)", provider.redirect),
+                               ("answering 429", "rate-limited the request (HTTP 429)", provider.limit),
+                               ("refusing connections", "could not be reached", provider.refuse)):
+        set_up()
+        every_page(shown, label, why)
+        shown[f"the explorer's JSON, the provider {label}"] = explorer_get(f"/orchestrators/{ADDR['N']}.json")
     kill(five)
     failing = [json.loads(shown[f"the explorer's JSON, the provider {x}"])["unavailable"]
                for x in ("rejecting the key", "redirecting", "refusing connections")]

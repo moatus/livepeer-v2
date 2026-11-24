@@ -331,14 +331,9 @@ JavaScript and nothing loaded from elsewhere. Every page shows the RPC
 provider by scheme and host and whether it answers, the index's progress,
 the round clock and, while the provider fails, a banner naming the
 failure. Without a node's address, `/` is the Network page. Given one,
-`/` is a page for that node's operator: whether it is registered,
-its operator key and payout address, its bond and stake, the score a claim
-made now would read, its test USDC and its key's ETH, with a warning under
-0.001 ETH; for each recent round, the fees counted for it, its stake and
-where its reward stands; and for the testnet, the round and when it
-started, the fees this round, the validator set, the buyback executor in
-force and its latest buys and burns. `/orchestrators/<address>.json` holds
-the same figures. Every 15 seconds it reads the chain, every figure at one
+`/` is a page for that node's operator, which
+`programs/container/README.md` describes ("Read the explorer");
+`/orchestrators/<address>.json` holds the same figures. Every 15 seconds it reads the chain, every figure at one
 block. A figure it could not read is shown as unavailable, never as 0.
 Its header comment says where each figure comes from.
 
@@ -350,8 +345,8 @@ Its header comment says where each figure comes from.
   `contracts/` runs every one through the contracts.
 - `programs/` holds what runs beside the node: the funding program, the
   round keeper, `lp2-stake` for holders and nodes, `lp2-params` for the
-  governance authority, `lp2-explorer` for an operator's view of the
-  chain, and the scripted validators; `demo/` holds the
+  governance authority, `lp2-explorer`, the explorer of a deployment, for
+  the testnet or one node's operator, and the scripted validators; `demo/` holds the
   one-command demo.
 - `deployments/` names what each testnet version contains.
 - `SEAMS.md` names the places where something important crosses (rules,
