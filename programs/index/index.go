@@ -341,11 +341,14 @@ func emitters(c Contracts) map[string]common.Address {
 }
 
 // errTooLarge is an answer that says the range or the result is too
-// large; errChanged a chain that changed while a page was read.
+// large; errChanged a chain that changed while a page was read; errBehind
+// a provider that does not have the last checkpoint's block yet, as a
+// backend of a load-balanced endpoint a block or two behind answers.
 var (
 	errTooLarge = errors.New("the provider refused the page as too large")
 	errChanged  = errors.New("the chain changed while the page was read")
 	errRollback = errors.New("the last checkpoint's block is no longer the chain's")
+	errBehind   = errors.New("the provider does not have the last checkpoint's block yet")
 )
 
 // tooLarge says whether a failed eth_getLogs says that its range or its
@@ -377,8 +380,10 @@ func tooLarge(err error) bool {
 // checkpoint through head, calling progress after each page committed.
 // A page is committed only if its logs and its checkpoint hash come from
 // one chain, the one the previous checkpoint is on; when the previous
-// checkpoint's block is no longer the chain's, the file keeps only its
-// first line and the index reads again from the first block.
+// checkpoint's block has another hash, the file keeps only its first line
+// and the index reads again from the first block. A provider that does not
+// have the checkpoint's block yet ends the catch-up with the checkpoint
+// kept, to be read again next time.
 func (ix *Index) CatchUp(ctx context.Context, src *Source, c Contracts, head uint64, progress func()) error {
 	changed := 0
 	for {
@@ -395,7 +400,9 @@ func (ix *Index) CatchUp(ctx context.Context, src *Source, c Contracts, head uin
 		}
 		if next > head {
 			// Nothing to read, and the checkpoint is still checked: a
-			// branch of the same length, or a shorter one, replaces it too.
+			// branch of the same length replaces it too. A provider without
+			// the checkpoint's block is behind it, or on a shorter branch
+			// that is found once it reaches the checkpoint's height.
 			if ix.through == nil {
 				return nil
 			}
@@ -403,7 +410,7 @@ func (ix *Index) CatchUp(ctx context.Context, src *Source, c Contracts, head uin
 			if err != nil {
 				return err
 			}
-			if hs[0] == ix.hash {
+			if hs[0] == ix.hash || hs[0] == (common.Hash{}) {
 				return nil
 			}
 			if err := ix.reset(); err != nil {
@@ -425,6 +432,8 @@ func (ix *Index) CatchUp(ctx context.Context, src *Source, c Contracts, head uin
 				return err
 			}
 			continue
+		case errors.Is(err, errBehind):
+			return nil
 		case errors.Is(err, errChanged):
 			if changed++; changed == 5 {
 				return fmt.Errorf("blocks %d to %d: %w, five times", next, to, err)
@@ -505,6 +514,9 @@ func (ix *Index) readPage(ctx context.Context, src *Source, c Contracts, from, t
 	before, err := hashes(ctx, src, blocks...)
 	if err != nil {
 		return nil, common.Hash{}, err
+	}
+	if ix.through != nil && before[1] == (common.Hash{}) {
+		return nil, common.Hash{}, errBehind
 	}
 	if ix.through != nil && before[1] != ix.hash {
 		return nil, common.Hash{}, errRollback

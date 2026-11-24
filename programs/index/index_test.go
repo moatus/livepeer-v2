@@ -69,13 +69,16 @@ func (e rpcError) ErrorCode() int { return e.code }
 
 // fakeChain is a provider: blocks 0 to head, each with a hash, and logs.
 // Blocks from fork on are on the branch named branch; changing branch
-// reorganises them. maxRange refuses a wider eth_getLogs as too large;
+// reorganises them. A block after lagging, when it is set, is answered as
+// missing though head names a later one, as by a load-balanced endpoint
+// whose backends are not level. maxRange refuses a wider eth_getLogs as too large;
 // limited answers that many batches with HTTP 429; status answers every
 // batch with that HTTP status.
 type fakeChain struct {
 	mu       sync.Mutex
 	clock    *clock
 	head     uint64
+	lagging  uint64
 	fork     uint64
 	branch   string
 	logs     map[string][]types.Log // by branch; "" is the blocks before fork
@@ -152,7 +155,7 @@ func (f *fakeChain) answer(method string, args []any) (any, error) {
 		if args[0] != "latest" {
 			n, _ = hexutil.DecodeUint64(args[0].(string))
 		}
-		if n > f.head {
+		if n > f.head || (args[0] != "latest" && f.lagging != 0 && n > f.lagging) {
 			return nil, nil
 		}
 		return map[string]any{"number": hexutil.Uint64(n), "hash": f.hash(n), "timestamp": hexutil.Uint64(1_795_000_000 + n)}, nil
@@ -525,10 +528,11 @@ func TestIndexRereadsWhenItsCheckpointLeavesTheChain(t *testing.T) {
 	}
 }
 
-// A checkpoint replaced by a branch of the same length, or of a shorter
-// one, is found at the next catch-up with nothing new to read: the index
-// reads again from the first block and ends equal to a fresh index, its
-// checkpoint, totals and executors watched.
+// A checkpoint replaced by a branch of the same length is found at the
+// next catch-up with nothing new to read, and one replaced by a shorter
+// branch once that branch reaches its height: the index reads again from
+// the first block and ends equal to a fresh index, its checkpoint, totals
+// and executors watched.
 func TestIndexRereadsWhenItsCheckpointIsReplacedAtItsHeight(t *testing.T) {
 	for _, head := range []uint64{1000, 900} {
 		f := newChain(&clock{})
@@ -539,6 +543,15 @@ func TestIndexRereadsWhenItsCheckpointIsReplacedAtItsHeight(t *testing.T) {
 		f.add(started(460, 3))
 		f.add(bought(firstExec, 470, 3, 5))
 		catchUp(t, ix, source(f, 1000), head)
+		if head < 1000 {
+			// A shorter branch looks like a provider behind the checkpoint:
+			// it is found once it reaches the checkpoint's height.
+			if through, _, _ := ix.Through(); ix.Rollbacks() != 0 || through != 1000 {
+				t.Errorf("head %d: rollbacks %d, checkpoint %d", head, ix.Rollbacks(), through)
+			}
+			head, f.head = 1000, 1000
+			catchUp(t, ix, source(f, 1000), head)
+		}
 		want := open(t, t.TempDir(), 5000)
 		catchUp(t, want, source(f, 1000), head)
 		through, h, _ := ix.Through()
@@ -547,6 +560,32 @@ func TestIndexRereadsWhenItsCheckpointIsReplacedAtItsHeight(t *testing.T) {
 			t.Errorf("head %d: rollbacks %d, checkpoint %d %s, watched %v and %v; totals equal a fresh index's: %v",
 				head, ix.Rollbacks(), through, h, ix.Watched(), want.Watched(), same(ix.Totals(), want.Totals()))
 		}
+	}
+}
+
+// A provider behind the checkpoint, whether it names an older head or
+// names a later one without having the checkpoint's block, is not a
+// rollback: the index keeps its checkpoint and reads on once the provider
+// has the block.
+func TestIndexWaitsForAProviderBehindItsCheckpoint(t *testing.T) {
+	f := newChain(&clock{})
+	busy(f)
+	ix := open(t, t.TempDir(), 1000)
+	catchUp(t, ix, source(f, 1000), 1000)
+	f.head = 998
+	catchUp(t, ix, source(f, 1000), 998)
+	f.head, f.lagging = 1100, 998
+	f.add(settled(1050, 5, nodeB, payerP, 300_000, 150_000, 150_000))
+	catchUp(t, ix, source(f, 1000), 1100)
+	if through, _, _ := ix.Through(); ix.Rollbacks() != 0 || through != 1000 {
+		t.Fatalf("behind the checkpoint: rollbacks %d, checkpoint %d", ix.Rollbacks(), through)
+	}
+	f.lagging = 0
+	catchUp(t, ix, source(f, 1000), 1100)
+	through, h, _ := ix.Through()
+	if ix.Rollbacks() != 0 || through != 1100 || h != f.hash(1100) || !same(ix.Totals(), fresh(t, f)) {
+		t.Errorf("caught up: rollbacks %d, checkpoint %d %s; totals equal a fresh index's: %v",
+			ix.Rollbacks(), through, h, same(ix.Totals(), fresh(t, f)))
 	}
 }
 
