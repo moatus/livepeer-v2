@@ -499,7 +499,7 @@ func message(name string, err error, rpcURL string) string {
 	if name != "" {
 		name = " " + name
 	}
-	text := chain.Redact(fmt.Sprintf("lp2-stake%s: %s", name, chain.Describe(err, rpcURL)), rpcURL)
+	text := fmt.Sprintf("lp2-stake%s: %s", name, chain.Describe(err, rpcURL))
 	if u, perr := url.Parse(rpcURL); perr == nil && u.Host != "" && !strings.Contains(text, u.Host) {
 		text += fmt.Sprintf(" (RPC provider %s://%s)", u.Scheme, u.Host)
 	}

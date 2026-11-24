@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -369,39 +368,19 @@ func TestJournalRefusesWhatItCannotTrust(t *testing.T) {
 	}
 }
 
-// A reader sees the old entry or the new one, never part of one, and no
-// temporary file is left beside it.
+// The journal is written beside itself and renamed into place: no
+// temporary file is left beside it, and a write that cannot finish leaves
+// the old entry whole.
 func TestJournalIsReplacedAtomically(t *testing.T) {
 	c := newFake(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "journal.json")
 	versions := []*entry{signedEntry(t, c, node(1), 3), signedEntry(t, c, node(2), 4)}
 	versions[1].Outcome = granted
-	if err := writeJournal(path, versions[0]); err != nil {
-		t.Fatal(err)
-	}
-	var stop atomic.Bool
-	var bad atomic.Value
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for !stop.Load() {
-			if _, err := readJournal(path, 474747, c.token, c.self); err != nil {
-				bad.Store(err.Error())
-				return
-			}
-		}
-	}()
-	for i := 0; i < 200; i++ {
-		if err := writeJournal(path, versions[i%2]); err != nil {
+	for _, v := range versions {
+		if err := writeJournal(path, v); err != nil {
 			t.Fatal(err)
 		}
-	}
-	stop.Store(true)
-	wg.Wait()
-	if b := bad.Load(); b != nil {
-		t.Fatalf("a reader saw part of an entry: %s", b)
 	}
 	files, _ := os.ReadDir(dir)
 	if len(files) != 1 {

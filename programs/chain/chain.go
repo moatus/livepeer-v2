@@ -377,9 +377,6 @@ func (s *Session) Bool(ctx context.Context, at common.Address, method string, ar
 // Send signs and sends a transaction, waits until it is mined and fails
 // unless it succeeded. A refusal is reported by its stable code.
 func (s *Session) Send(ctx context.Context, at common.Address, method string, args ...any) (*types.Receipt, error) {
-	if s.auth == nil {
-		return nil, fmt.Errorf("%s: this session has no key and cannot send", method)
-	}
 	opts := *s.auth
 	opts.Context = ctx
 	tx, err := s.contract(at).Transact(&opts, method, args...)

@@ -234,14 +234,7 @@ func due(ctx context.Context, s *chain.Session, a map[string]common.Address, nod
 // summary is one line of what the plan holds.
 func summary(p plan, claim bool) string {
 	if claim {
-		return fmt.Sprintf("to claim %v, not yet claimable %v, expired unclaimed %v", list(p.claim), list(p.waiting), list(p.expired))
+		return fmt.Sprintf("to claim %v, not yet claimable %v, expired unclaimed %v", p.claim, p.waiting, p.expired)
 	}
-	return fmt.Sprintf("parts to withdraw %v; rounds before %d settled", list(p.withdraw), p.next)
-}
-
-func list(xs []uint64) []uint64 {
-	if xs == nil {
-		return []uint64{}
-	}
-	return xs
+	return fmt.Sprintf("parts to withdraw %v; rounds before %d settled", p.withdraw, p.next)
 }
