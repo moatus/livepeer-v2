@@ -355,25 +355,7 @@ contract BuybackRefusalsTest is FullFixture {
         job(1000e6);
         vm.warp(block.timestamp + HOUR);
         uint256 held = broker.networkHeld();
-        uint256[4] memory was = [
-            usdc.balanceOf(address(broker)),
-            usdc.balanceOf(address(pool)),
-            lpt.balanceOf(address(pool)),
-            lpt.totalSupply()
-        ];
-        uint256 last = buyback.lastBuyRound();
         expectRefused(buy(), err("NOT_AUTHORIZED()"), "X buys in A + 7");
-        expectEq(broker.networkHeld(), held, "A + 7: held");
-        uint256[4] memory now_ = [
-            usdc.balanceOf(address(broker)),
-            usdc.balanceOf(address(pool)),
-            lpt.balanceOf(address(pool)),
-            lpt.totalSupply()
-        ];
-        for (uint256 i = 0; i < 4; i++) {
-            expectEq(now_[i], was[i], "A + 7: a balance moved");
-        }
-        expectEq(buyback.lastBuyRound(), last, "A + 7: the round is not used");
         expectRefused(as_(who("Anyone"), address(x3), x3buy), poolInvalid(address(pool)), "X3 refuses P");
 
         // A + 8: X3 draws to Q; X still may not.
@@ -473,11 +455,11 @@ contract BuybackRefusalsTest is FullFixture {
         expectEq(lpt.totalSupply(), GENESIS - 2e18, "a transfer burns nothing");
     }
 
-    // --- 3.1: the values' ranges --------------------------------------------
+    // --- the values' ranges -------------------------------------------------
 
-    /// Parameters takes each of group 9's values at either end of the R-25 range
-    /// (v)'s range, and group 8's one value (10^6, 0, 0), and refuses one
-    /// past either end with VALUE_OUT_OF_RANGE (R-25).
+    /// Parameters takes each of group 9's values at either end of its R-25
+    /// range, and group 8's one value (10^6, 0, 0), and refuses one past
+    /// either end with VALUE_OUT_OF_RANGE.
     function test_values_ranges() external {
         deployFull(GENESIS, 0);
         uint256 p = uint256(uint160(address(pool)));

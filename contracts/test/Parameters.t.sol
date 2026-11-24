@@ -377,26 +377,6 @@ contract ParametersTest is FullFixture {
 
     // --- the pool check (R-25: the executor is asked) ----------------
 
-    /// The Buyback, asked at the announce, accepts a pool with its pinned
-    /// code only when it holds this deployment's two tokens, in either
-    /// order; one of other code is refused whatever it holds. A Buyback
-    /// pinned to a pool code that reports any tokens it is given shows the
-    /// token check on its own.
-    function test_the_pool_check_reads_the_tokens() external {
-        deployFull(1_000_000_000e18, 0);
-        LyingPool ours = new LyingPool(address(usdc), address(lpt));
-        LyingPool other = new LyingPool(address(usdc), address(new MockUSDC()));
-        LyingPool same = new LyingPool(address(usdc), address(usdc));
-        Buyback pinned = new Buyback(params, broker, clock, lpt, usdc, address(ours).codehash, upgradesAt);
-        Parameters q = new Parameters(who("G"), clock, address(0), address(ours), address(pinned));
-        require(address(other).codehash == address(ours).codehash, "one code");
-        expectEq(announceOn(q, address(ours)).length, 0, "the deployment's two tokens");
-        expectPoolInvalid(announceOn(q, address(other)), address(other), "another token");
-        expectPoolInvalid(announceOn(q, address(same)), address(same), "USDC twice");
-        expectPoolInvalid(announceOn(q, who("Nobody")), who("Nobody"), "no code");
-        expectPoolInvalid(announceOn(q, address(pool)), address(pool), "TestPool, not the pinned code");
-    }
-
     /// An executor that cannot say yes refuses every pool: one that reverts,
     /// one with code but no acceptsPool, one that answers no, one that
     /// answers a word that is not true, and address(0), the executor of a

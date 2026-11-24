@@ -122,7 +122,7 @@ M = [
     (S, "        nodes[node].optedIn = true;\n", "        nodes[node].optedIn = true;\n        everyOptedIn.push(node);\n"),
     (S, "        if (k == 0) return MAX_SCORE;", "        for (uint256 q = 0; q < everyOptedIn.length; q++) {\n            if (everyOptedIn[q] == node) return MAX_SCORE;\n        }\n        if (k == 0) return MAX_SCORE;")], "test_gas_does_not_grow"),
 
- # Validator pay: R-10, R-14 and B1 to B5 in Claims.
+ # Validator pay: R-10 and R-14 in Claims.
  ("pay: members read when the mint runs, not as the round started", [(CL, "validators.membersAt(round)", "validators.membersAt(clock.currentRound())")], "test_a_node_seated_after_the_round"),
  ("pay: stake read when the mint runs", [(CL, "stakes[i] = ledger.stakeAt(members[i], round);", "stakes[i] = ledger.stakeAt(members[i], clock.currentRound());")], "test_ledger_mid_round"),
  ("pay: cut read when the mint runs", [(CL, "RewardMath.cutOf(paid, ledger.cutAt(m, round))", "RewardMath.cutOf(paid, ledger.cutAt(m, clock.currentRound()))")], "test_ledger_mid_round"),
@@ -168,7 +168,7 @@ M = [
  ("params: a score source word above 160 bits accepted", [(P, "return v.length == 1 && v[0] <= type(uint160).max && address(uint160(v[0])).code.length > 0;", "return v.length == 1 && address(uint160(v[0])).code.length > 0;")], "test_an_address_word_above_160_bits_is_out_of_range"),
  ("params: a pool word above 160 bits accepted", [(P, "return v.length == 4 && v[0] <= type(uint160).max && v[1] >= 1800", "return v.length == 4 && v[1] >= 1800")], "test_an_address_word_above_160_bits_is_out_of_range"),
  ("params: valuesAt answers a number with no group", [(P, "    function valuesAt(uint256 group, uint256 round) external view returns (uint256[] memory) {\n        if (group == 0 || group > BUYBACK_EXECUTOR) revert NOT_ADJUSTABLE();\n", "    function valuesAt(uint256 group, uint256 round) external view returns (uint256[] memory) {\n")], "test_the_views_refuse_a_number_with_no_group"),
- # the pool's runtime has no SELFDESTRUCT and no DELEGATECALL.
+ # The pool's runtime has no SELFDESTRUCT and no DELEGATECALL.
  ("pool: TestPool given a function that delegates", [(TP, "    constructor(address tokenA, address tokenB) {", "    function relay(address t) external returns (bool ok) {\n        (ok,) = t.delegatecall(\"\");\n    }\n\n    constructor(address tokenA, address tokenB) {")], "test_the_pool_runtime_has_no_selfdestruct_or_delegatecall"),
  ("pool: TestPool given a function that destroys it", [(TP, "    constructor(address tokenA, address tokenB) {", "    function close() external {\n        selfdestruct(payable(msg.sender));\n    }\n\n    constructor(address tokenA, address tokenB) {")], "test_the_pool_runtime_has_no_selfdestruct_or_delegatecall"),
  ("ceiling: one factor 2^-64 low", [(RM, "K9 = 0xa7c92571bd511e01b2", "K9 = 0xa7c92571bd511e00b2")], "check"),

@@ -8,8 +8,8 @@ import {TestLPT} from "../src/money/TestLPT.sol";
 import {Registry} from "../src/authority/Registry.sol";
 
 /// Runs the `ledger` cases with no claims, from
-/// vectors/october-main-text-v5.json, with the holding checks of rulebook
-/// v2 after every step; then the refusals no case reaches, the mint
+/// vectors/october-main-text-v5.json, with the holding checks after every
+/// step; then the refusals no case reaches, the mint
 /// refusals, and R-23's gas check. Claims.t.sol runs the cases with claims.
 contract StakeLedgerTest is RewardLedgerRunner {
     function setUp() external {
@@ -20,7 +20,7 @@ contract StakeLedgerTest is RewardLedgerRunner {
         runRewardCase("ledger-stake");
     }
 
-    // v1's ledger cases, unchanged in v2, on a rewards deployment.
+    // Ledger.t.sol's cases, here on a rewards deployment.
     function test_rewards_ledger_demo() external {
         runRewardCase("ledger-demo");
     }
@@ -128,18 +128,15 @@ contract StakeLedgerTest is RewardLedgerRunner {
 
     // --- amounts in the token's whole range ------------------------------
 
-    /// No rule caps a bond below what the token can hold (uint256), so the
-    /// ledger keeps every amount and count in that range. A test LPT whose
-    /// genesis exceeds 2**192 makes the boundary reachable.
-    function deployWithSupply(uint256 supply) internal {
-        deployRewards(supply);
-    }
+    // No rule caps a bond below what the token can hold (uint256), so the
+    // ledger keeps every amount and count in that range. A test LPT whose
+    // genesis exceeds 2**192 makes the boundary reachable.
 
     /// One holder bonds more than 2**192, then moves, unbonds, rebonds and
     /// withdraws it; every count and view holds the whole amount.
     function test_a_bond_above_2_192_is_kept_whole() external {
         uint256 big = 2 ** 192 + 5;
-        deployWithSupply(2 ** 200);
+        deployRewards(2 ** 200);
         address h = who("H");
         address p = who("P");
         address q = who("Q");
@@ -175,7 +172,7 @@ contract StakeLedgerTest is RewardLedgerRunner {
     /// the total hold the sum.
     function test_bonds_summing_across_2_192_are_counted_whole() external {
         uint256 each = 2 ** 191 + 3;
-        deployWithSupply(2 ** 200);
+        deployRewards(2 ** 200);
         address p = who("P");
         register("P");
         string[3] memory names = ["H1", "H2", "H3"];

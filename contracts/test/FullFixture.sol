@@ -123,7 +123,7 @@ contract OverPool is ShortPool {
     }
 }
 
-/// Payments's contracts, then the test LPT, the pool, a values source,
+/// The payments contracts, then the test LPT, the pool, a values source,
 /// Parameters naming the Buyback as the executor (group 10), and the
 /// Buyback; and the steps of a `buyback` case (rulebook v5, R-16).
 abstract contract FullFixture is PaymentsFixture {

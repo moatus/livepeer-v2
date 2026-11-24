@@ -10,10 +10,9 @@ import {RewardMath} from "../src/math/RewardMath.sol";
 import {IClaims} from "../interfaces/IClaims.sol";
 import {ITicketBroker} from "../interfaces/ITicketBroker.sol";
 
-/// Claims: the v2 `ledger` cases with claims,
-/// withdrawals, share mints and validator pots, from
-/// vectors/october-main-text-v5.json, with the after-step checks of the
-/// shared examples (RewardLedgerRunner); then the refusals and orders no case
+/// Claims: the `ledger` cases with claims, withdrawals, share mints and
+/// validator pots, from vectors/october-main-text-v5.json, with the
+/// after-step checks of the shared examples (RewardLedgerRunner); then the refusals and orders no case
 /// reaches, validator pay on the real Scores, and R-23's gas checks.
 contract ClaimsTest is RewardLedgerRunner {
     event log_named_uint(string key, uint256 val);

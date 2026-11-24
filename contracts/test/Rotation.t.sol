@@ -82,8 +82,9 @@ contract RotationTest is RewardsFixture {
         l[8] = "Upgrades.setStop(uint8)";
     }
 
-    /// One caller fixed at deployment, or open on a test token: the mints,
-    /// and the draw of the network share, which only the Buyback makes.
+    /// A caller fixed at deployment, or open on a test token: the mints;
+    /// and the draw of the network share, by the executor group 10 names
+    /// for the round.
     function restricted() internal pure returns (string[] memory l) {
         l = new string[](3);
         (l[0], l[1]) = ("TestLPT.mint(address,uint256)", "MockUSDC.mint(address,uint256)");

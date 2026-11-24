@@ -47,8 +47,8 @@ contract ScoreStub is IScoreSource {
 /// the steps a holder takes. Claims is created at the address the token
 /// was given at deployment, as the Broker is at the Registry's. Claims
 /// reads scores and members from the stub, or, deployed with
-/// deployRewardsWithScores, from the real Scores, as rewards deploys it:
-/// one contract as both the score source and the validator set.
+/// deployRewardsWithScores, from the real Scores: one contract as both
+/// the score source and the validator set.
 abstract contract RewardsFixture is PaymentsFixture {
     /// Test LPT's genesis supply, a test value outside every round's
     /// issuance. The test contract deploys the token, so it holds it.
@@ -91,7 +91,7 @@ abstract contract RewardsFixture is PaymentsFixture {
         deployRewards(GENESIS, true, true);
     }
 
-    /// Payments's five contracts, then the token, StakeLedger, the stub or
+    /// The five payments contracts, then the token, StakeLedger, the stub or
     /// Scores, the pool with `withBuyback`, Parameters and Claims, then the
     /// Buyback with `withBuyback`, then Upgrades: the Broker, StakeLedger and
     /// Scores are given the address Parameters will have, the token Claims',
