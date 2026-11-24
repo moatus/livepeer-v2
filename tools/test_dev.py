@@ -192,6 +192,7 @@ class Review(Fixture):
         _, out = self.dev("review", "--base", "HEAD~1")
         self.assertIn("COUNCIL RULING NEEDED** (rules: no council ruling named by the commits)", out)
         self.assertIn("It needs a council ruling before it lands.", out)
+        self.assertEqual(out.count("**Routing:"), 1, out)
 
     def test_a_council_ruling_with_no_record_waits_for_one(self):
         self.add("rulebook/R-03.md", "# R-03 Emission\n")
@@ -208,6 +209,7 @@ class Review(Fixture):
         self.assertIn("COUNCIL RULING NOT CHECKED** (rules: the record of D-03 is not on this machine)", out)
         self.assertIn("It names council ruling D-03, which is checked before it lands.", out)
         self.assertIn("The council's records are kept in the project's private repository", out)
+        self.assertNotIn("its pull request says what the rule should be", out)
         self.assertNotIn("no council record found", out)
         self.assertNotIn("lp2-research", out)
 

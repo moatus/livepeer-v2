@@ -564,8 +564,9 @@ def cmd_review(args) -> int:
         out(f"**Routing: {verdict}** ({', '.join(council)}: {unruled}).{told}")
         if not research:
             out("The council's records are kept in the project's private repository, where a rule change"
-                " is checked against its ruling before it lands. A change that names none is ruled on there:"
-                " its pull request says what the rule should be and why, citing the litepaper page.")
+                " is checked against its ruling before it lands."
+                + ("" if rulings else " One that names none is ruled on there: its pull request says what"
+                   " the rule should be and why, citing the litepaper page."))
     elif reasons:
         out(f"**Routing: agent review, then reported to the owner** ({', '.join(reasons)})."
             " It does not wait for the owner, who reads it afterwards.")
@@ -575,7 +576,7 @@ def cmd_review(args) -> int:
     elif ruled:
         out(f"**Routing: council ruling {', '.join(rulings)}, then agent review.** The owner is not waited for,"
             " and keeps or changes the ruling later.")
-    else:
+    elif not unruled:
         out("**Routing: agent review only.** No owner-routed seam was touched and no decision was named.")
     out()
 
