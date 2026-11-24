@@ -279,7 +279,7 @@ operator.
 | `LP2_PUBLIC_URL` | The node's URL as the sender reaches it, `http://` or `https://`. Required |
 | `LP2_POLL` | Seconds between checks, 30 unless set |
 | `LP2_EXPLORER_LISTEN` | Where the explorer listens inside the container, `0.0.0.0:8080` unless set |
-| `LP2_LABELS` | Optional: names for accounts, which the explorer shows, as a URL or a path. Read at each start, into `/data/labels.json`; if it cannot be read, the explorer keeps the labels it had and its pages say so. It holds `{"scenario": "…" or null, "accounts": {"0x…": {"name": "…", "simulated": true or false}}}`; a scenario shows on every page, and `simulated` marks an account that stands in for real use |
+| `LP2_LABELS` | Optional: names for accounts, which the explorer shows, as a URL or a path. Read at each start and kept in `/data/labels.kept.json`; if it cannot be read, or is not a labels file, the kept copy stays, the explorer shows the labels it had, and its pages say the labels file could not be read. The log names only a URL's scheme and host. It holds `{"scenario": "…" or null, "accounts": {"0x…": {"name": "…", "simulated": true or false}}}`; a scenario shows on every page, and `simulated` marks an account that stands in for real use |
 | `LP2_TEST_HOLD` | For tests only: `approved`, `started` or `claimed` stops the run after that step, so a test can kill it there |
 
 ## Try it on a local chain

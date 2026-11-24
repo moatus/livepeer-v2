@@ -466,8 +466,10 @@ def beside(label: str, got, want, fmt=str) -> None:
         FAILURES.append(f"{label}: explorer {got}, run and calculator {want}")
 
 
-def by_address(rows: list[dict]) -> dict[str, dict]:
-    return {name(r["address"]): r for r in rows}
+def by_address(rows: list[dict], unknown: bool = False) -> dict[str, dict]:
+    """Rows by the name of their address; with unknown, an address the run
+    did not name keys its row by itself."""
+    return {NAMES.get(r["address"].lower(), r["address"]) if unknown else name(r["address"]): r for r in rows}
 
 
 def check_against_views(when: str) -> int:

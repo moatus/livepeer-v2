@@ -151,16 +151,45 @@ fi
 mv "$DATA/deployment.new" "$DATA/deployment.json"
 
 # The labels file, optional: the names of accounts, and a scenario, that
-# the explorer shows. Read at each start; one that cannot be read leaves
-# the explorer the labels it had, and its pages say so.
+# the explorer shows. Read at each start and kept, once it is a labels file,
+# in labels.kept.json; the explorer reads labels.json, a copy of it. When it
+# cannot be read, or is not a labels file, the kept copy stays, and once the
+# explorer has taken it, its copy is removed, so the explorer shows the
+# labels it had and its pages say the labels file could not be read. Only
+# the URL's scheme and host are logged: the rest may carry a credential.
+# labels_file holds when $1 is what the explorer takes as a labels file:
+# one object, a scenario that is a string or null, accounts by address,
+# each a name and a simulated mark.
+labels_file() {
+    jq -se 'length == 1 and (.[0] | (.scenario | type == "null" or type == "string")
+        and ((.accounts // {}) | type == "object")
+        and all((.accounts // {}) | to_entries[]; (.key | test("^(0[xX])?[0-9a-fA-F]{40}$"))
+            and (.value | type == "null" or (type == "object" and (.name | type == "null" or type == "string")
+                and (.simulated | type == "null" or type == "boolean")))))' "$1" >/dev/null 2>&1
+}
 set --
+LABELS_UNREAD=
 if [ -n "${LP2_LABELS:-}" ]; then
     set -- --labels "$DATA/labels.json"
+    rm -f "$DATA/labels.json" "$DATA/labels.new"
     case $LP2_LABELS in
-    http://* | https://*) curl -fsS --max-time 60 -o "$DATA/labels.new" "$LP2_LABELS" ;;
-    *) cp "$LP2_LABELS" "$DATA/labels.new" ;;
-    esac && mv "$DATA/labels.new" "$DATA/labels.json" ||
-        log "could not read LP2_LABELS $LP2_LABELS; the explorer keeps the labels it had"
+    http://* | https://*)
+        from=${LP2_LABELS#*://}
+        from=${from%%/*}
+        from=${from##*@}
+        from=${LP2_LABELS%%://*}://${from%%[?#]*}
+        curl -fsS --max-time 60 -o "$DATA/labels.new" "$LP2_LABELS"
+        ;;
+    *)
+        from=$LP2_LABELS
+        cp "$LP2_LABELS" "$DATA/labels.new"
+        ;;
+    esac && labels_file "$DATA/labels.new" && mv "$DATA/labels.new" "$DATA/labels.kept.json" || {
+        LABELS_UNREAD=1
+        log "could not read LP2_LABELS from $from as a labels file; the explorer keeps the labels it had, and its pages say so"
+    }
+    rm -f "$DATA/labels.new"
+    [ ! -f "$DATA/labels.kept.json" ] || cp "$DATA/labels.kept.json" "$DATA/labels.json"
 fi
 
 # The two keys, made on first start; the password and keystores are never
@@ -209,10 +238,20 @@ log "node key N $N; operator key H $H"
 try read_state
 [ "$chain_id" = "$CHAIN_ID" ] || die "LP2_RPC_URL is chain $chain_id, but the deployment is on chain $CHAIN_ID"
 
+EXPLORER_LOG=$(cat "$DATA/logs/explorer.log" 2>/dev/null | wc -l)
 started lp2-explorer --rpc-url "$LP2_RPC_URL" --controller-address "$CONTROLLER" --parameters-address "$PARAMETERS" \
     --stake-ledger-address "$LEDGER" --claims-address "$CLAIMS" --usdc-address "$USDC" --first-block "$FIRST_BLOCK" \
     --lpt-address "$LPT" --index-dir "$DATA/index" --node "$N" --listen "$EXPLORER_LISTEN" "$@" >>"$DATA/logs/explorer.log" 2>&1
 log "explorer: the page of node $N on $EXPLORER_LISTEN inside the container"
+if [ -n "$LABELS_UNREAD" ] && [ -f "$DATA/labels.json" ]; then
+    # The explorer reads its labels before it serves.
+    n=0
+    until tail -n +$((EXPLORER_LOG + 1)) "$DATA/logs/explorer.log" | grep -q "serving on" || [ "$n" -ge 60 ]; do
+        n=$((n + 1))
+        pause 1
+    done
+    rm -f "$DATA/labels.json"
+fi
 
 # 1. Test ETH for both keys.
 while [ "$node_eth" = 0 ] || [ "$holder_eth" = 0 ]; do

@@ -36,7 +36,10 @@ The explorer of the container restarted after the fourth step opens on its
 node, keeps its index in /data/index and resumes it above the deployment's
 first block, and names N from LP2_LABELS, a file the demo writes into the
 data folder once N is known; the first container, started before it,
-says it could not read it.
+says it could not read it. Replaced by a file that is not a labels file
+before the container on public port 09000 starts, it is said, the copy
+kept stays, and the explorer names N from it with the labels file not
+read.
 
 Then the chain is read: no second registration, grant, bond or claim; N's
 key sent nothing after the node started but its own redemptions; N was
@@ -49,6 +52,7 @@ Exit 0 every check passed; 1 one failed; 2 the run could not run.
 """
 from __future__ import annotations
 
+import html
 import json
 import os
 import re
@@ -529,6 +533,8 @@ def main() -> int:
            f"lp2-stake state: the RPC provider http://host.docker.internal:{PROVIDER} redirected the request (HTTP 307)" in said,
            [c for c in CREDENTIALS if c in said], provider.followed), (1, True, True, [], 0))
     provider.forward()
+    kept = (DATA / "labels.kept.json").read_bytes()
+    (DATA / LABELS_GIVEN).write_text(json.dumps({"scenario": None, "accounts": {"not an address": {"name": "X"}}}))
     five = run_node(hold="started", ports=("explorer",), public="http://127.0.0.1:09000", rpc=KEYED)
     ports = wait_log(five, "ports:", 60).split(" ", 1)[1]
     say(f"  {ports}")
@@ -537,6 +543,19 @@ def main() -> int:
     wait_log(five, "holding after started", 180)
     check("on public port 09000, the node comes up and its discovery lists lp2-responder", running(five), True)
     shown = {"the explorer's JSON, the provider answering": json.dumps(explorer_status())}
+    unread = "the labels file: "
+    try:
+        rewards.wait("the explorer to say the labels file could not be read",
+                     lambda: any(x.startswith(unread) for x in explorer_status()["unavailable"]), 45)
+    except Failed:
+        pass
+    page = html.unescape(explorer_get(f"/orchestrators/{ADDR['N']}"))
+    check("LP2_LABELS replaced by a file that is not a labels file: the container says so, keeps the labels it had, and "
+          "N's page shows N's name from them with the labels file not read",
+          (f"could not read LP2_LABELS from /data/{LABELS_GIVEN} as a labels file" in clog(five),
+           (DATA / "labels.kept.json").read_bytes() == kept, explorer_status()["label"],
+           "<h1>N, the container's node</h1>" in page, f"<li>{unread}" in page),
+          (True, True, "N, the container's node", True, True))
     provider.reject()
     shown["the explorer's JSON, the provider rejecting the key"] = explorer_failing("refused the request (HTTP 401)")
     every_page(shown, "rejecting the key", "refused the request (HTTP 401)")

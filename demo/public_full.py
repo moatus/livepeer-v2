@@ -950,11 +950,11 @@ def check_explorer(since: int) -> bool:
     steps, expected = case["inputs"]["steps"], case["expected"]
     last = max(int(s["round"]) for s in steps)
     labels = json.loads((public.STATE_DIR / LABELS).read_text())
-    named = lambda rows: {NAMES.get(x["address"].lower(), x["address"]): x for x in rows}  # noqa: E731
     check("explorer: the scenario the run's labels.json names", net["scenario"], labels["scenario"])
-    nodes = named(docs["/orchestrators.json"]["orchestrators"])
+    nodes = rewards.by_address(docs["/orchestrators.json"]["orchestrators"], unknown=True)
     check(f"explorer: the validator set of round {r} is membersAt's at block {b}",
           sorted(NAMES.get(v["address"].lower(), v["address"]) for v in net["validators"]), rewards.members_at(r, block=b))
+    chain_fees: dict[str, dict[int, int]] = {}
     for n in ("N", "V"):
         doc = docs[f"/orchestrators/{ADDR[n].lower()}.json"]
         fees = {x["round"]: int(x["fees_usdc_micro"]) for x in doc["fees_by_round"]}
@@ -963,10 +963,11 @@ def check_explorer(since: int) -> bool:
                                    (C["Registry"], "isRegistered(address)", (ADDR[n],))] +
                                   [(C["Broker"], "feesOf(uint256,address)", (x, ADDR[n])) for x in range(1, r + 1)], b))
         stake, score, registered = next(views), next(views), next(views)
+        chain_fees[n] = {x: v for x, v in zip(range(1, r + 1), views) if v}
         check(f"explorer: {n} registered, its stake this round and score now, and its fees in every round, as the chain "
               f"has them at block {b}",
               (n in nodes, int(nodes[n]["stake_wei"]) if n in nodes else None, int(doc["node"]["score_now"]), fees),
-              (bool(registered), stake, score, {x: v for x, v in zip(range(1, r + 1), views) if v}))
+              (bool(registered), stake, score, chain_fees[n]))
         check(f"explorer: {n} named by the run's labels.json, not simulated", (doc["label"], doc["simulated"]),
               (labels["accounts"][ADDR[n]]["name"], False))
         rewards.beside(f"{n}: fees by round, rounds 1 to {last}", {x: v for x, v in fees.items() if x <= last},
@@ -974,7 +975,7 @@ def check_explorer(since: int) -> bool:
         rewards.beside(f"{n}: stake this round, the run's bonds to it",
                        int(doc["node"]["stake_wei"]),
                        sum(int(s["amount_wei"]) for s in steps if s["action"] == "bond" and s["node"] == n), lpt)
-    apps = named(docs["/apps.json"]["apps"])
+    apps = rewards.by_address(docs["/apps.json"]["apps"], unknown=True)
     check("explorer: the payers, P alone, named by the run's labels.json and marked simulated",
           {k: (x["label"], x["simulated"]) for k, x in apps.items()}, {"P": (labels["accounts"][ADDR["P"]]["name"], True)})
     doc = docs[f"/apps/{ADDR['P'].lower()}.json"]
@@ -985,6 +986,24 @@ def check_explorer(since: int) -> bool:
            {x["round"]: int(x["fees_usdc_micro"]) for x in doc["fees_by_round"]}),
           (words(C["Broker"], "earmarkOf(address,address)", ADDR["P"], common.ZERO, block=b)[:2],
            {x: v for x, v in zip(range(1, r + 1), totals) if v}))
+    of_p = lambda signature: [x for x in common.logs(C["Broker"], signature, b)  # noqa: E731
+                              if int(x["topics"][1], 16) == int(ADDR["P"], 16)]
+    funded = [(int(x["data"][2:66], 16), int(x["data"][66:130], 16)) for x in of_p("Funded(address,uint256,address,uint256)")]
+    released = [int(x["data"][2:66], 16) for x in of_p("Released(address,address,uint256)")]
+    check(f"explorer: P's funded total (each Funded's deposit and earmark) and released total (each Released's amount), "
+          f"as the chain's logs have them through block {b}",
+          (int(doc["funded_usdc_micro"]), int(doc["released_usdc_micro"])), (sum(d + e for d, e in funded), sum(released)))
+    run_funds = [(int(s["deposit_micro_usdc"]), int(s.get("earmark_micro_usdc", 0))) for s in steps
+                 if s["action"] == "fund" and s["payer"] == "P"]
+    check("the chain's first Funded events of P, deposit and earmark, are the fund steps of the run's ledger case",
+          funded[:len(run_funds)], run_funds)
+    flows = ("fees_usdc_micro", "node_usdc_micro", "network_usdc_micro")
+    check(f"explorer: P's fees by node are the nodes' feesOf over every round at block {b}, P the one payer",
+          {NAMES.get(x["address"].lower(), x["address"]): int(x["fees_usdc_micro"]) for x in doc["by_node"]},
+          {n: sum(f.values()) for n, f in chain_fees.items() if f})
+    check("explorer: P's fees, node and network totals are the sums of its rows by round and by node",
+          ([sum(int(x[k]) for x in doc["fees_by_round"]) for k in flows], [sum(int(x[k]) for x in doc["by_node"]) for k in flows]),
+          ([int(doc[k]) for k in flows],) * 2)
     split: dict[int, list[int]] = {}
     for s in steps:
         if s["action"] == "redeem" and s["payer"] == "P":
