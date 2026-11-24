@@ -105,6 +105,36 @@ class Verify(Fixture):
         self.assertEqual(code, 1, out)
         self.assertIn("failed   door rule one-funds-door", out)
 
+    def test_a_decision_number_in_a_comment_fails(self):
+        self.add("contracts/check", PASS, executable=True)
+        self.add("contracts/src/math/Score.sol", "// Rounds down, as D-07 ruled.\ncontract Score {}\n")
+        code, out = self.dev("verify")
+        self.assertEqual(code, 1, out)
+        self.assertIn("failed   names carry no planning labels", out)
+        self.assertIn("contracts/src/math/Score.sol:1: planning label 'D-07'", out)
+
+    def test_a_stage_number_in_a_file_name_fails(self):
+        self.add("demo/check", PASS, executable=True)
+        self.add("demo/stage4.py", "print('the buyback')\n")
+        code, out = self.dev("verify")
+        self.assertEqual(code, 1, out)
+        self.assertIn("demo/stage4.py: planning label 'stage4' in its name", out)
+
+    def test_spec_mission_and_phase_numbers_fail(self):
+        self.add("demo/check", PASS, executable=True)
+        self.add("demo/run", "# S-07, mission 10, phase 3\n", executable=True)
+        code, out = self.dev("verify")
+        self.assertEqual(code, 1, out)
+        for label in ("S-07", "mission 1", "phase 3"):
+            self.assertIn(f"planning label '{label}'", out)
+
+    def test_a_rule_number_and_a_rulebook_version_pass(self):
+        self.add("demo/check", PASS, executable=True)
+        self.add("demo/run", "# R-16, in rulebook october-main-text-v5, before the stage closes\n", executable=True)
+        code, out = self.dev("verify")
+        self.assertEqual(code, 0, out)
+        self.assertIn("passed   names carry no planning labels", out)
+
     def test_verify_needs_no_research_repository(self):
         shutil.rmtree(self.research)
         code, out = self.dev("verify", research=False)

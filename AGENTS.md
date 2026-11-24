@@ -57,7 +57,18 @@ on its own.
   addresses, no machine paths, no content of a private repository, no copy
   of someone else's document, no unpublished research text, no keys. This
   holds for every file, commit message and test fixture. The litepaper is
-  cited by page and a spec by its ID. Neither is copied.
+  cited by page and never copied.
+- **Names say what a thing is.** One name for each lasting idea. Code
+  identifiers, file names, commands, stored formats and every text a reader
+  of this repository sees are named for what the thing does, never for the
+  stage, mission, spec or phase of the plan that built it. A version
+  number marks a version something depends on, such as the rulebook
+  profile a deployment names, never which build replaced the last. A
+  reference is one a public reader can follow: a rule by its rulebook
+  number (`R-16`), the litepaper by its page. A private decision or spec
+  is not cited; the code or text states what it decided. The commit
+  trailers under "Commits" are the one place those references are kept.
+  `./dev verify` refuses the plain forms of these labels.
 
 ## How a change is made
 

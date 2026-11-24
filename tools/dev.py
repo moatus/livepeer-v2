@@ -38,6 +38,18 @@ NO_QUALIFY = {
 }
 QUALIFY_DIRS = tuple(folder for folder in CODE_DIRS if folder not in NO_QUALIFY)
 
+# A planning label names the plan, not the thing (AGENTS.md, "Names say what
+# a thing is"): a decision or spec number, or a numbered stage, mission or
+# phase. Like the door rules, the search is crude: it catches the plain forms
+# in every file's name and text, and review catches the rest.
+PLANNING_LABEL = re.compile(r"\b[DS]-\d+\b|[Ss]tage[ _-]?\d|[Mm]ission[ _-]?\d|[Pp]hase[ _-]?\d")
+# A file whose text the search does not read, with the reason. Its name is
+# still read.
+NAMING_EXEMPT = {
+    "tools/test_dev.py": "it seeds commit trailers, the one place a decision is named, and this search's"
+                         " own failures",
+}
+
 PASSED, FAILED, NOT_RUN, NA = "passed", "failed", "not_run", "n/a"
 
 
@@ -215,10 +227,31 @@ def check_components(kind: str) -> list[tuple[str, str, list[str]]]:
     return out
 
 
+def check_names(paths: list[str]) -> tuple[str, str, list[str]]:
+    """No file's name or text carries a planning label."""
+    name = "names carry no planning labels"
+    found = []
+    for path in paths:
+        found += [f"{path}: planning label {label!r} in its name" for label in PLANNING_LABEL.findall(path)]
+        if path in NAMING_EXEMPT:
+            continue
+        text = (ROOT / path).read_text(errors="ignore")
+        for number, line in enumerate(text.splitlines(), 1):
+            found += [f"{path}:{number}: planning label {label!r}" for label in PLANNING_LABEL.findall(line)]
+    if found:
+        shown = found[:10]
+        if len(found) > 10:
+            shown.append(f"and {len(found) - 10} more")
+        shown.append("name it for what it does, cite a rule by its R- number, or state what the decision"
+                     " decided (AGENTS.md, \"Names say what a thing is\")")
+        return name, FAILED, shown
+    return name, PASSED, []
+
+
 def run_verify(components: bool = True) -> list[tuple[str, str, list[str]]]:
     """The structure checks, then each component's own check."""
     paths, rows = files(), seams()
-    results = [check_cover(paths, rows), *check_doors(paths)]
+    results = [check_cover(paths, rows), *check_doors(paths), check_names(paths)]
     if components:
         results += check_components("check")
     return results
@@ -287,7 +320,7 @@ def cmd_qualify(_args) -> int:
 def cmd_demo(args) -> int:
     script = ROOT / "demo" / "run"
     if not script.is_file():
-        print("demo: not built yet (roadmap stage 2)")
+        print("demo: not built yet")
         return 2
     return subprocess.run([str(script), *args.rest], cwd=ROOT / "demo").returncode
 

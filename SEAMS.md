@@ -27,7 +27,7 @@ a row here.
   before it, so the owner can read it afterwards and go back if it should
   have gone another way. It does not wait for the owner. `council` means
   the change proceeds on a council ruling that its commits name
-  (`Council: D-03`) and the owner reviews the ruling later; with no ruling
+  (`Council: <D-xx>`) and the owner reviews the ruling later; with no ruling
   named, or no record of it, the change waits for a ruling. `agent` means
   the agent review is enough.
 - **Freeze** marks the seams that define what is being built. A change to one
