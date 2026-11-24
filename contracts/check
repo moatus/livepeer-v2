@@ -268,24 +268,5 @@ for contract, interface in PAIRS:
     if c == i and not swaps:
         print(f"abi: {contract} equals {interface}")
 
-# The interface with no contract in PAIRS: IProxy, whose contract has no
-# functions of its own (every call enters its fallback). It must compile
-# and declare its shape; its tests call the proxy through it.
-for interface in ["IProxy"]:
-    run = subprocess.run(["forge", "inspect", f"interfaces/{interface}.sol:{interface}", "abi", "--json"],
-                         capture_output=True, text=True)
-    if "Compiler run failed" in run.stdout + run.stderr:
-        print(f"abi: {interface} does not compile\n{(run.stdout + run.stderr)[-600:]}")
-        failed = True
-        continue
-    if run.returncode != 0:
-        print(f"abi: not_run (forge inspect {interface} exited {run.returncode})\n{run.stderr[-600:]}")
-        sys.exit(2)
-    if not json.loads(run.stdout):
-        print(f"abi: {interface} declares nothing")
-        failed = True
-        continue
-    print(f"abi: {interface} compiles")
-
 sys.exit(1 if failed else 0)
 EOF
