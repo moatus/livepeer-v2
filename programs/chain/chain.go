@@ -90,18 +90,23 @@ var Codes = []string{
 	"NOTHING_PENDING", "OPERATOR_INVALID",
 	"NOTHING_HELD", "NO_LIQUIDITY", "ALREADY_BOUGHT", "TWAP_NOT_READY", "SLIPPAGE", "NOT_DUE",
 	"POOL_INVALID", "LPT_SHORT",
+	"NOT_UPGRADEABLE", "CODE_INVALID", "UPGRADE_NOT_READY", "UPGRADE_LAPSED", "NOT_STOPPED", "KEY_INVALID",
 }
 
 // codeArgs are the argument types of the custom errors that carry
 // arguments; a code not named here has none. Its selector is that of
 // name(types), and Code names it whatever the arguments.
 var codeArgs = map[string]string{
-	"ALREADY_BOUGHT": "uint256",
-	"TWAP_NOT_READY": "uint256,uint256",
-	"SLIPPAGE":       "uint256,uint256",
-	"NOT_DUE":        "uint256",
-	"POOL_INVALID":   "address",
-	"LPT_SHORT":      "uint256,uint256",
+	"ALREADY_BOUGHT":    "uint256",
+	"TWAP_NOT_READY":    "uint256,uint256",
+	"SLIPPAGE":          "uint256,uint256",
+	"NOT_DUE":           "uint256",
+	"POOL_INVALID":      "address",
+	"LPT_SHORT":         "uint256,uint256",
+	"NOT_UPGRADEABLE":   "address",
+	"CODE_INVALID":      "address",
+	"UPGRADE_NOT_READY": "uint256",
+	"UPGRADE_LAPSED":    "uint256",
 }
 
 var parsedABI = func() abi.ABI {
