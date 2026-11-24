@@ -336,9 +336,10 @@ def main():
     c.check("round length refused: NOT_ADJUSTABLE", (code, "NOT_ADJUSTABLE" in out), (3, True))
 
     def buy_first():
-        # The keeper's buy empties networkHeld. Mine it before the job, one
-        # block per keeper transaction, so the node sizes its redemption's
-        # gas for the state it will run in, and the round keeps its blocks.
+        # Mine the keeper's buy before the job, one block per keeper
+        # transaction, so that every run draws the same amounts: round
+        # 11's buy the 1,500,000 micro-USDC held before the job, round
+        # 12's round 11's 500,000. The round keeps its blocks.
         c.rpc("evm_setIntervalMining", [0])
 
         def bought():

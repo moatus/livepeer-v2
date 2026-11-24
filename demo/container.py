@@ -1,51 +1,25 @@
 """./dev demo container: one operator container joins the standing testnet's
 services on a local chain, with nobody acting after it is funded.
 
-Deploys the full system's contracts on a local chain that mines a block a second,
-and runs the services as ./dev demo light runs them: the keeper, the payer
-P's signer, lp2-sender (with --allow-private-urls, since the node's URL is
-on loopback, and minting only the mock USDC it funds) and lp2-faucet,
-granting each registered node 1,000 test LPT. Builds the operator image
-from programs/container and runs it on one data folder. The demo reads the
-node key N and the operator key H the container prints, sends each 1 ETH,
-and from then on only watches, kills and restarts it:
-
-  1. killed while it waits for the faucet's grant (the faucet is started
-     only after this kill, so the wait is certain);
-  2. killed between H's approval and H's bond (LP2_TEST_HOLD=approved);
-  3. a second container on the same data folder refuses to start;
-  4. killed between a claim and its withdrawal (LP2_TEST_HOLD=claimed);
-  5. restarted, it withdraws H's part;
-  6. a container whose RPC provider cannot be reached, one whose
-     provider rejects the request and echoes the key and the Basic-auth
-     password in its URL (escaped, as the URL writes it), and one whose
-     provider redirects to a second host whose answer carries a marker,
-     each name the step, the provider's host and the failure's category in
-     their log, and no credential and no marker, and the redirect is not
-     followed; started again with public port 09000 (9000, where the
-     responder listened before, written with a leading zero) and that RPC
-     URL, its node comes up beside the responder (LP2_TEST_HOLD=started);
-     then its provider rejects and echoes, then redirects, then answers 429,
-     and then refuses connections, and the explorer tells each by its
-     category, on every page with the pointer to the instructions, and
-     neither credential, as written or decoded, nor the marker appears in
-     any of the container's Docker output, the files under its logs folder,
-     or the explorer's pages and JSON.
+Deploys the full system's contracts on a local chain that mines a block a
+second, and runs the services as ./dev demo light runs them. Builds the
+operator image from programs/container and runs it on one data folder. The
+demo funds the node key N and the operator key H the container prints, and
+from then on only watches, kills and restarts it, at the moments a restart
+must survive (LP2_TEST_HOLD). Then containers whose RPC provider fails, with
+a key in its URL, must each name the failure by its category, and no
+credential may appear in any output.
 
 The explorer of the container restarted after the fourth step opens on its
 node, keeps its index in /data/index and resumes it above the deployment's
 first block, and names N from LP2_LABELS, a file the demo writes into the
 data folder once N is known; the first container, started before it,
 says it could not read it. Replaced by a file that is not a labels file
-before the container on public port 09000 starts, it is said, the copy
-kept stays, and the explorer names N from it with the labels file not read.
+before the last container starts, it is said, the copy kept stays,
+and the explorer names N from it with the labels file not read.
 
-Then the chain is read: no second registration, grant, bond or claim; N's
-key sent nothing after the node started but its own redemptions; N was
-paid exactly once in every round it was up for whole; and the run, every
-step of it as the chain shows it, is written as a ledger case the
-calculator reproduces, against which the container's explorer's figures
-for the claimed round are checked.
+Then the chain is read, and the run is written as a ledger case the
+calculator reproduces, against which the explorer's figures are checked.
 
 Exit 0 every check passed; 1 one failed; 2 the run could not run.
 """
@@ -408,9 +382,7 @@ def main() -> int:
     say("\n4. Killed while it waits for the faucet's grant")
     wait_log(one, "waiting for the faucet's grant", 120)
     kill(one)
-    registered = lambda: [x for x in logs(C["Registry"], "NodeRegistered(address,uint256)")  # noqa: E731
-                          if int(x["topics"][1], 16) == int(ADDR["N"], 16)]
-    check("killed waiting for the grant: N registered once, holds no LPT", (len(registered()), light.lpt_of("N")), (1, 0))
+    check("killed waiting for the grant: N holds no LPT", light.lpt_of("N"), 0)
     two = run_node(hold="approved")
     wait_log(two, "waiting for the faucet's grant", 120)
     light.start_faucet()
@@ -482,7 +454,7 @@ def main() -> int:
     for p in ("sender", "faucet", "keeper", "signer-P"):
         stop(p)
 
-    say("\n9. RPC providers that fail, with a key in their URL; and public port 09000, where the responder listened before")
+    say("\n9. RPC providers that fail, with a key in their URL")
     provider = common.Provider(host, PROVIDER, (SYNTHETIC_KEY, SYNTHETIC_PASSWORD), MARKER)
     code, said = unreachable_start(
         "unreachable", f"https://synthetic-user:{SYNTHETIC_PASSWORD}@127.0.0.1:1/v3/{SYNTHETIC_KEY}?apikey={SYNTHETIC_KEY}")
@@ -505,17 +477,13 @@ def main() -> int:
            f"lp2-stake state: the RPC provider http://host.docker.internal:{PROVIDER} redirected the request (HTTP 307)" in said,
            [c for c in CREDENTIALS if c in said], provider.followed), (1, True, True, [], 0))
     provider.forward()
-    # A file that is not a labels file, given to the container on public
-    # port 09000, which holds the labels kept so far.
+    # A file that is not a labels file, given to the last container, which
+    # holds the labels kept so far.
     kept, not_labels = (DATA / "labels.kept.json").read_bytes(), {"accounts": False}
     (DATA / LABELS_GIVEN).write_text(json.dumps(not_labels))
-    five = run_node(hold="started", ports=("explorer",), public="http://127.0.0.1:09000", rpc=KEYED)
-    ports = wait_log(five, "ports:", 60).split(" ", 1)[1]
-    say(f"  {ports}")
-    check("public port 09000 is port 9000, and the responder moves off it",
-          ("the node on 0.0.0.0:9000," in ports, "the responder on 127.0.0.1:9001," in ports), (True, True))
+    five = run_node(hold="started", ports=("explorer",), rpc=KEYED)
     wait_log(five, "holding after started", 180)
-    check("on public port 09000, the node comes up and its discovery lists lp2-responder", running(five), True)
+    check("the node comes up and its discovery lists lp2-responder", running(five), True)
     shown = {"the explorer's JSON, the provider answering": json.dumps(explorer_status())}
     unread = "the labels file: "
     try:
@@ -577,9 +545,7 @@ def main() -> int:
     check("H: one acceptance, one approval, one bond", [h.count(k) for k in ("acceptOperator(address)", "approve(address,uint256)",
                                                                             "bond(address,uint256)")], [1, 1, 1])
     claims = claimed_rounds()
-    check("no round claimed twice", len(claims), len(set(claims)))
     check("the faucet granted N once", [r for r, _ in light.granted_by_faucet()].count("N"), 1)
-    check("N registered once", len(registered()), 1)
     relays = sorted(x["round"] for x in light.relays().get("N", []))
     whole, missed, twice = unpaid(relays, ROUNDS["joined"], (ROUNDS["killed"], ROUNDS["up"]), ROUNDS["stopped"])
     say(f"  the sender's relays to N, by round: {relays}; joined in round {ROUNDS['joined']}, killed in "

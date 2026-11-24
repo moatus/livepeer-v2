@@ -33,27 +33,8 @@ a local chain, once the explorer has caught up, serve checks N's, V's and
 P's figures in it against the chain's views at the explorer's block and
 against the run's ledger case, once.
 
-The path sends no anvil_* or evm_* call. Environment, as demo/public.py's,
-and for full also:
-  LP2_AUTHORITY_KEYSTORE       G's keystore file, outside the repository
-  LP2_AUTHORITY_PASSWORD_FILE  its password file, outside the repository
-  LP2_UPGRADER_KEYSTORE        U's keystore file, the upgrade key, outside the
-                               repository; full reads only its address
-  LP2_UPGRADER_PASSWORD_FILE   its password file, outside the repository
-  LP2_PAUSER_KEYSTORE          S's keystore file, the pause key, outside the
-                               repository; full reads only its address
-  LP2_PAUSER_PASSWORD_FILE     its password file, outside the repository
-  LP2_SENDER_URL               the sender's public URL, which deployment.json
-                               names; on a local chain, by default, its
-                               loopback address. Required on a public chain
-serve reads LP2_STATE_DIR, LP2_DEMO_PORT_BASE and, if set, LP2_RPC_URL (by
-default the URL the run used, kept in the state directory), LP2_SENDER_URL
-(a new one is written into deployment.json), LP2_SENDER_LISTEN and
-LP2_NODE_URL.
-
-Exit 0 every figure equal (serve: stopped); 1 a figure differed (serve: an
-explorer figure, said when it is stopped), a behaviour was missing or a
-service exited; 2 the run could not run or was refused.
+The path sends no anvil_* or evm_* call. demo/PUBLIC.md says what to set
+for each command and what its exit codes mean.
 """
 from __future__ import annotations
 
@@ -87,15 +68,15 @@ OPERATOR_NODE = ("job_price_usd", "price_unit", "wei_per_usd", "ticket_face_valu
 # A round that has not started for this long means the keeper cannot start
 # it: three rounds on Arbitrum Sepolia, thirty on a local chain.
 STALL_SECONDS = 1800
-# The keeper in the run and the services: Parameters' address, so it buys and
-# pokes at the executor in force, polled every 5 s (a round is 50 blocks).
 SYNC = "Sync(uint112,uint112)"
 OBSERVED = "Observed(address,uint256,uint256)"
 FEE_SETTLED = "FeeSettled(uint256,address,address,bytes32,uint256,uint256,uint256,address)"
-AUTHORITY: list[str] = []
-KEEPER_TX_GAS = 200_000   # lp2-params' signing flags: G's keystore and password file
+AUTHORITY: list[str] = []   # lp2-params' signing flags: G's keystore and password file
+KEEPER_TX_GAS = 200_000
 
 
+# The keeper in the run and the services: Parameters' address, so it buys and
+# pokes at the executor in force, polled every 5 s (a round is 50 blocks).
 def keeper_options() -> tuple[str, ...]:
     return ("--parameters-address", C["Parameters"], "--poll", "5s")
 

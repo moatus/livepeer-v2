@@ -1179,7 +1179,7 @@ def reconcile(title: str, extra: list[dict] | None = None, members: dict | None 
     for the same steps; record a failure for any that differ.
 
     `moved` is what a buyback moved where no ledger step can follow it
-    (demo/public.py's full system run): the network share its buys spent
+    (demo/public_full.py's run): the network share its buys spent
     (`spent_micro_usdc`) and the LPT they burned (`burned_wei`), as their
     Bought events give them, and the mock USDC minted to seed its pool
     (`seeded_micro_usdc`). The first two are added back to the chain's

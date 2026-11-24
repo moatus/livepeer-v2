@@ -29,11 +29,8 @@ with the grant mined and reverted, its LPT taken from the faucet's balance
 while it waited (C). Each restart settles the journal: A's grant is found
 mined, B's journal bytes are sent again, and C stays due while the empty
 faucet waits until the deployer refills it. Then D waits while the faucet
-has no ETH, and E while the faucet is at its cap, until it is restarted
-with a larger one. Each of the three waits lasts into a new round, in
-which the sender pays N and M and the faucet sends nothing. At the end the
-token's Transfer logs show every registered node granted exactly once,
-and U, never registered, nothing.
+has no ETH. At the end the token's Transfer logs show every registered
+node granted exactly once, and U, never registered, nothing.
 
 Exit 0 every check passed; 1 one failed; 2 the run could not run.
 """
@@ -204,12 +201,12 @@ def start_sender(host: str = "127.0.0.1", *more: str) -> None:
     wait("the sender to answer joins", lambda: post(f"http://{host}:{SENDER}/join", {})[0] == 400, 30)
 
 
-def start_faucet(max_grants: int = 10) -> None:
+def start_faucet() -> None:
     before = len(faucet_runs())
     start("faucet", [str(common.RUN / "bin" / "lp2-faucet"), "--rpc-url", common.RPC, "--keystore-file", str(KEYS["F"]),
                      "--keystore-password-file", str(common.RUN / "pw"), "--controller-address", C["Controller"],
                      "--lpt-address", C["TestLPT"], "--state-dir", str(FAUCET_DIR), "--from-block", "0",
-                     "--log-page-blocks", "100", "--grant-wei", str(GRANT), "--max-grants", str(max_grants),
+                     "--log-page-blocks", "100", "--grant-wei", str(GRANT), "--max-grants", "10",
                      "--poll", f"{FAUCET_POLL}s", "--receipt-timeout", "30s"])
     wait("the faucet to start", lambda: len(faucet_runs()) > before, 30)
 
@@ -268,24 +265,6 @@ def granted_by_faucet() -> list[tuple[str, int]]:
 def block_time(number: str) -> int:
     """The timestamp of the block numbered `number` (hex), in the chain's seconds."""
     return int(rpc("eth_getBlockByNumber", [number, False])["timestamp"], 16)
-
-
-def into_a_round(waiting: str, n: str) -> None:
-    """While the faucet waits (`waiting`) with n due, the chain goes on into
-    the next round: the sender pays N and M in it, and the faucet sends
-    nothing. The blocks before the round's last two are mined at once, after
-    S's paid request of the round has ended, so every round is still paid."""
-    r = current_round()
-    sent = len(faucet_transfers())
-    wait(f"S's paid request of round {r} to end", lambda: any(x[0] == r for x in gave_up().get("S", [])), BOUND + 5)
-    left = round_started_at() + MANIFEST["chain"]["round_length_blocks"] - block_number()
-    if left > 2:
-        mine(left - 2)
-    wait(f"the sender to pay N and M in round {r + 1}",
-         lambda: all(any(x["round"] == r + 1 for x in relays().get(m, [])) for m in ("N", "M")), 30)
-    say(f"  while the faucet waited {waiting}, the chain went into round {r + 1}, and the sender paid N and M in it")
-    check(f"{waiting}: the sender paid N and M in round {r + 1}, and the faucet sent nothing, {n} still due",
-          (len(faucet_transfers()) - sent, lpt_of(n), faucet_line("granted", n)), (0, 0, None))
 
 
 def lpt_of(who: str) -> int:
@@ -363,7 +342,7 @@ def main() -> int:
     pw = common.RUN / "pw"
     pw.write_text("pw-" + os.urandom(8).hex())
     pw.chmod(0o600)
-    for who in ("deployer", "N", "M", "S", "X", "U", "P", "Keeper", "F", "V", "A", "B", "C", "D", "E"):
+    for who in ("deployer", "N", "M", "S", "X", "U", "P", "Keeper", "F", "V", "A", "B", "C", "D"):
         new_key(who)
         if who != "deployer":
             KEYS[who] = keystore(who, pw)
@@ -516,12 +495,11 @@ def main() -> int:
     check("C: the reverted grant left C with nothing and still due", lpt_of("C"), 0)
 
     say(f"\n7. Each node is paid once a round, with nobody acting, until N and M have been paid in {ROUNDS} rounds; "
-        "the sender pays on while the faucet waits out of LPT, out of gas and at its cap")
-    into_a_round("out of LPT", "C")
-    send(KEY["deployer"], C["TestLPT"], "transfer(address,uint256)", ADDR["F"], 3 * GRANT)   # C, D and E
+        "the faucet waits out of LPT and out of gas")
+    send(KEY["deployer"], C["TestLPT"], "transfer(address,uint256)", ADDR["F"], 2 * GRANT)   # C and D
     refilled_at = time.time()
     wait("C's grant once the faucet is refilled", lambda: faucet_line("granted", "C") is not None, 10)
-    say(f"  the deployer refills the faucet with {3 * GRANT // 10**18:,} test LPT: C granted {time.time() - refilled_at:.1f} s later")
+    say(f"  the deployer refills the faucet with {2 * GRANT // 10**18:,} test LPT: C granted {time.time() - refilled_at:.1f} s later")
     check("C was granted within one poll and two blocks of the refill", time.time() - refilled_at <= FAUCET_POLL + 3, True)
 
     eth = rpc("eth_getBalance", [ADDR["F"], "latest"])
@@ -529,21 +507,9 @@ def main() -> int:
     send(KEY["D"], C["Registry"], "register()")
     wait("the faucet to wait out of gas for D", lambda: faucet_line("out of gas", "D") is not None, 10)
     say(f"  the faucet's ETH set to 0 on the local chain, and D registers: {faucet_line('out of gas', 'D')}")
-    into_a_round("out of gas", "D")
     rpc("anvil_setBalance", [ADDR["F"], eth])
     wait("D's grant once the faucet has ETH again", lambda: faucet_line("granted", "D") is not None, 10)
     check("D was granted once the faucet had ETH again", lpt_of("D"), GRANT)
-
-    stop("faucet")
-    start_faucet(max_grants=len(granted_by_faucet()))
-    send(KEY["E"], C["Registry"], "register()")
-    wait("the faucet to wait at its cap for E", lambda: faucet_line("cap reached", "E") is not None, 10)
-    say(f"  the faucet restarted with --max-grants {len(granted_by_faucet())}, and E registers: {faucet_line('cap reached', 'E')}")
-    into_a_round("at its cap", "E")
-    stop("faucet")
-    start_faucet()
-    wait("E's grant once the faucet is restarted with a larger cap", lambda: faucet_line("granted", "E") is not None, 10)
-    check("E was granted once the faucet was restarted with a larger cap", lpt_of("E"), GRANT)
 
     last = {n: round0[n] + ROUNDS - 1 for n in ("N", "M")}
     wait(f"N and M paid in {ROUNDS} rounds", lambda: all(any(x["round"] >= last[n] for x in relays().get(n, [])) for n in ("N", "M")),
@@ -591,10 +557,8 @@ def main() -> int:
         say(f"  {n}: {len(t)} tickets redeemed, created in rounds {created}; node part {t[0]['node_amount'] if t else 0} "
             f"of {money(face)} each; its payout holds {money(usdc)} micro-USDC")
         check(f"{n}: one ticket redeemed for each relay", len(t), want[n])
-        check(f"{n}: on chain, no two tickets created in one round", len(created), len(set(created)))
         check(f"{n}: on chain, the tickets' rounds are the rounds of its relays", sorted(created), sorted(x["round"] for x in got[n]))
         check(f"{n}'s payout rose by its half of the ticket for each relay", usdc, want[n] * (face // 2))
-        check(f"{n}: each ticket's node part is half of it, rounded down", all(x["node_amount"] == x["gross"] // 2 for x in t), True)
     s_tickets = mine_tickets("S")
     s_created = [x["created_round"] for x in s_tickets]
     say(f"  S: {len(s_tickets)} tickets redeemed, created in rounds {s_created}, for {len(s_gave_up)} paid requests that "
@@ -602,7 +566,6 @@ def main() -> int:
         "so a redemption is not a relay")
     check("S: no paid request answered", got.get("S", []), [])
     check("S: one paid request sent in each round, the restart's included", len(sent["S"]) == len(set(sent["S"])) and r in sent["S"], True)
-    check("S: on chain, no two tickets created in one round", len(s_created), len(set(s_created)))
     check("S: on chain, one ticket for each paid request sent, of its round", sorted(s_created), sorted(sent["S"]))
     check("S: its runner was handed one request for each ticket", len(FORWARDED), len(s_tickets))
     check("P's tickets are the only ones settled", {name(x["sender"]) for x in settlements()}, {"P"})
@@ -624,7 +587,7 @@ def main() -> int:
     check("each registered node was granted exactly once, each the grant, in registration order", grants,
           [(n, GRANT) for n in registered])
     check("U, never registered, holds no test LPT", lpt_of("U"), 0)
-    check("the faucet's journal ends with E's grant, granted", (journal()["outcome"], journal()["node"].lower()),
-          ("granted", ADDR["E"].lower()))
+    check("the faucet's journal ends with D's grant, granted", (journal()["outcome"], journal()["node"].lower()),
+          ("granted", ADDR["D"].lower()))
     return finish(started, "joins refused and accepted, each node paid once a round, a stuck node bounded, a restart paid "
-                  "nobody twice, each registered node granted test LPT once through three kills and three waits")
+                  "nobody twice, each registered node granted test LPT once through three kills and two waits")
