@@ -1,6 +1,6 @@
 {
   "testnet": "payments-local",
-  "about": "What the payments testnet contains and every stand-in it uses. It is deployed fresh on a local chain by ./dev demo at every run, so no address is fixed here: the demo prints the addresses of its run and writes them to .cache/demo/run/addresses.json. The demo reads the node, model, chain and flag values below from this file, so what runs is what this file says.",
+  "about": "What the payments testnet contains and every stand-in it uses. It is deployed fresh on a local chain by ./dev demo payments at every run, so no address is fixed here: the demo prints the addresses of its run and writes them to .cache/demo/run/addresses.json. The demo reads the node, model, chain and flag values below from this file, so what runs is what this file says.",
   "rulebook": "rulebook/october-main-text-v1.md",
   "vectors": "vectors/october-main-text-v1.json",
   "contracts": [

@@ -6,7 +6,7 @@ import time
 import urllib.error
 import urllib.request
 
-import rewards as rewards
+import rewards
 import buyback as bb
 import common as c
 

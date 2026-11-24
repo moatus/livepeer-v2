@@ -53,7 +53,7 @@ import urllib.request
 
 import common
 import light
-import rewards as rewards
+import rewards
 import buyback as bb
 import ledgercase
 common.use("full-local.json")
