@@ -377,6 +377,20 @@ contract ParametersTest is FullFixture {
 
     // --- the pool check (R-25: the executor is asked) ----------------
 
+    /// A pool with the pinned code that reports USDC as both of its tokens
+    /// is refused POOL_INVALID at the announce: the Buyback asks for one of
+    /// each of the deployment's two tokens, not two that each belong.
+    function test_a_pool_of_one_token_twice_is_refused() external {
+        deployFull(1_000_000_000e18, 0);
+        LyingPool ours = new LyingPool(address(usdc), address(lpt));
+        LyingPool same = new LyingPool(address(usdc), address(usdc));
+        Buyback pinned = new Buyback(params, broker, clock, lpt, usdc, address(ours).codehash, upgradesAt);
+        Parameters q = new Parameters(who("G"), clock, address(0), address(ours), address(pinned));
+        require(address(same).codehash == address(ours).codehash, "one code");
+        expectEq(announceOn(q, address(ours)).length, 0, "the deployment's two tokens");
+        expectPoolInvalid(announceOn(q, address(same)), address(same), "USDC twice");
+    }
+
     /// An executor that cannot say yes refuses every pool: one that reverts,
     /// one with code but no acceptsPool, one that answers no, one that
     /// answers a word that is not true, and address(0), the executor of a
