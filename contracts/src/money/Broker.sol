@@ -58,7 +58,13 @@ contract Broker is INetworkShareTicketBroker {
     mapping(bytes32 => bool) public usedTickets;
     mapping(uint256 => mapping(address => uint256)) public feesOf;
     mapping(uint256 => uint256) public totalFees;
-    uint256 public networkHeld;
+    /// The network share held, plus 1 once first written, so the slot never
+    /// returns to 0. A node sizes a redemption's gas by
+    /// estimating it; a draw that empties the share before the redemption
+    /// runs would otherwise make it write this slot from 0, about 17,000
+    /// gas more than the estimate, and it would run out. A slot never
+    /// written reads as 0 held.
+    uint256 private networkHeldPlusOne;
 
     constructor(IMockUSDC usdc_, IRegistry registry_, IRoundClock clock_, IParameters params_, IUpgrades upgrades_) {
         require(address(params_) != address(0) && address(upgrades_) != address(0), "zero address");
@@ -178,7 +184,7 @@ contract Broker is INetworkShareTicketBroker {
 
         uint256 nodeAmount = _nodeAmount(paid, round);
         uint256 networkAmount = paid - nodeAmount;
-        networkHeld += networkAmount;
+        _setNetworkHeld(networkHeld() + networkAmount);
         feesOf[round][t.recipient] += paid;
         totalFees[round] += paid;
 
@@ -189,6 +195,12 @@ contract Broker is INetworkShareTicketBroker {
 
     // --- the network share --------------------------------------------
 
+    /// The network share held: fees' network halves less what was drawn.
+    function networkHeld() public view returns (uint256) {
+        uint256 stored = networkHeldPlusOne;
+        return stored == 0 ? 0 : stored - 1;
+    }
+
     /// Only the executor in force for the current round, group 10: pays
     /// `amount` of the network share to `to`, the address it names (R-16
     /// rule 10). Refused with NOT_AUTHORIZED from any other caller, and from
@@ -198,8 +210,9 @@ contract Broker is INetworkShareTicketBroker {
         _running();
         address executor = address(uint160(params.valuesAt(BUYBACK_EXECUTOR, clock.currentRound())[0]));
         if (msg.sender != executor || executor == address(0)) revert NOT_AUTHORIZED();
-        if (amount > networkHeld) revert AMOUNT_TOO_LARGE();
-        networkHeld -= amount;
+        uint256 held = networkHeld();
+        if (amount > held) revert AMOUNT_TOO_LARGE();
+        _setNetworkHeld(held - amount);
         emit NetworkDrawn(to, amount);
         require(usdc.transfer(to, amount), "USDC transfer failed");
     }
@@ -218,6 +231,11 @@ contract Broker is INetworkShareTicketBroker {
     function _nodeAmount(uint256 paid, uint256 round) private view returns (uint256) {
         uint256 cut = params.valuesAt(FEE, round)[0];
         return paid / ONE * cut + paid % ONE * cut / ONE;
+    }
+
+    /// Stores `held` as the network share, kept off 0 (networkHeldPlusOne).
+    function _setNetworkHeld(uint256 held) private {
+        networkHeldPlusOne = held + 1;
     }
 
     /// Lowers a balance by what a ticket took, and its pending amount to
