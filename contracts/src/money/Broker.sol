@@ -63,8 +63,11 @@ contract Broker is INetworkShareTicketBroker {
     /// estimating it; a draw that empties the share before the redemption
     /// runs would otherwise make it write this slot from 0, about 17,000
     /// gas more than the estimate, and it would run out. A slot never
-    /// written reads as 0 held.
+    /// written reads as 0 held. The largest share has no plus one: it is
+    /// stored as the largest value with networkHeldIsMax set, which is read
+    /// only when this slot holds that value.
     uint256 private networkHeldPlusOne;
+    bool private networkHeldIsMax;
 
     constructor(IMockUSDC usdc_, IRegistry registry_, IRoundClock clock_, IParameters params_, IUpgrades upgrades_) {
         require(address(params_) != address(0) && address(upgrades_) != address(0), "zero address");
@@ -198,6 +201,7 @@ contract Broker is INetworkShareTicketBroker {
     /// The network share held: fees' network halves less what was drawn.
     function networkHeld() public view returns (uint256) {
         uint256 stored = networkHeldPlusOne;
+        if (stored == type(uint256).max && networkHeldIsMax) return stored;
         return stored == 0 ? 0 : stored - 1;
     }
 
@@ -234,8 +238,11 @@ contract Broker is INetworkShareTicketBroker {
     }
 
     /// Stores `held` as the network share, kept off 0 (networkHeldPlusOne).
+    /// The two shares stored as the largest value, it and one less, set
+    /// networkHeldIsMax to tell them apart; no other share touches it.
     function _setNetworkHeld(uint256 held) private {
-        networkHeldPlusOne = held + 1;
+        if (held >= type(uint256).max - 1) networkHeldIsMax = held == type(uint256).max;
+        networkHeldPlusOne = held == type(uint256).max ? held : held + 1;
     }
 
     /// Lowers a balance by what a ticket took, and its pending amount to

@@ -29,6 +29,7 @@ contract BrokerCounterFirst {
     mapping(uint256 => mapping(address => uint256)) public feesOf;
     mapping(uint256 => uint256) public totalFees;
     uint256 private networkHeldPlusOne;
+    bool private networkHeldIsMax;
 
     constructor(IMockUSDC, IRegistry, IRoundClock, IParameters, IUpgrades) {}
 }
@@ -49,6 +50,7 @@ contract BrokerBalanceReordered {
     mapping(uint256 => mapping(address => uint256)) public feesOf;
     mapping(uint256 => uint256) public totalFees;
     uint256 private networkHeldPlusOne;
+    bool private networkHeldIsMax;
 
     constructor(IMockUSDC, IRegistry, IRoundClock, IParameters, IUpgrades) {}
 }
