@@ -359,8 +359,10 @@ The whole run is about 30 million gas, about 0.0015 to 0.0025 Sepolia ETH
 in fees. Most of it is the 21 contract creations. Fund
 the deployer with 0.03 Sepolia ETH: 0.015 of it goes to the five role
 accounts as gas money. Fund G with 0.001. An upgrade deploys the new code
-and sends two transactions with U: give U 0.002 for one, and S 0.001 for
-a stop.
+and sends two transactions with U, the announcement and the apply: about 3
+million gas for the Broker, most of it the new code's creation (2.8
+million on a local chain), about 0.00015 Sepolia ETH at the rewards run's
+price. Fund U with 0.002, and S with 0.001 for its stops.
 
 The keeper keeps spending after the run. It sends two transactions a
 round, one to start the round and one to mint the ended round's shares,
