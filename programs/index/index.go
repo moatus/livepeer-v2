@@ -75,7 +75,6 @@ type Index struct {
 	header     *Header
 	headerEnd  int64 // the file's length with its first line alone
 
-	seen    map[key]bool
 	totals  *Totals
 	through *uint64 // the last checkpoint's block, nil before the first
 	hash    common.Hash
@@ -135,7 +134,7 @@ func (ix *Index) Close() {
 // checkpoint. A line that cannot be read before the last checkpoint is an
 // error; what follows the last checkpoint is cut off.
 func (ix *Index) load() error {
-	ix.seen, ix.totals, ix.through, ix.header, ix.headerEnd = map[key]bool{}, newTotals(), nil, nil, 0
+	ix.totals, ix.through, ix.header, ix.headerEnd = newTotals(), nil, nil, 0
 	if _, err := ix.file.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
@@ -177,7 +176,7 @@ func (ix *Index) load() error {
 				return fmt.Errorf("%s, before its last checkpoint: %w", ix.path, bad)
 			}
 			for i := range page {
-				ix.add(&page[i])
+				ix.totals.fold(&page[i])
 			}
 			page = page[:0]
 			through := *cp.Through
@@ -206,25 +205,6 @@ func (ix *Index) load() error {
 	return nil
 }
 
-// add folds one event in, once.
-func (ix *Index) add(e *Event) {
-	if ix.seen[e.key()] {
-		return
-	}
-	ix.seen[e.key()] = true
-	ix.totals.fold(e)
-}
-
-// Check refuses a file that names another Controller or first block. A
-// file with no first line yet passes.
-func (ix *Index) Check(controller common.Address, first uint64) error {
-	if h := ix.header; h != nil && (h.Controller != controller || h.FirstBlock != first) {
-		return fmt.Errorf("%w: %s holds Controller %s from block %d, and this explorer reads Controller %s from block %d; give a new folder",
-			ErrDeployment, ix.path, h.Controller.Hex(), h.FirstBlock, controller.Hex(), first)
-	}
-	return nil
-}
-
 // Begin writes the file's first line, or refuses a file that belongs to
 // another deployment.
 func (ix *Index) Begin(h Header) error {
@@ -247,9 +227,6 @@ func (ix *Index) Begin(h Header) error {
 	ix.header, ix.headerEnd = &h, int64(len(line)+1)
 	return nil
 }
-
-// Begun says whether the file has its first line.
-func (ix *Index) Begun() bool { return ix.header != nil }
 
 func (ix *Index) write(b []byte) error {
 	if _, err := ix.file.Write(b); err != nil {
@@ -274,7 +251,7 @@ func (ix *Index) commit(events []Event, through uint64, hash common.Hash) error 
 		return err
 	}
 	for i := range events {
-		ix.add(&events[i])
+		ix.totals.fold(&events[i])
 	}
 	ix.through, ix.hash = &through, hash
 	return nil
@@ -292,7 +269,7 @@ func (ix *Index) reset() error {
 	if err := ix.file.Sync(); err != nil {
 		return err
 	}
-	ix.seen, ix.totals, ix.through, ix.resumed, ix.deployed = map[key]bool{}, newTotals(), nil, nil, nil
+	ix.totals, ix.through, ix.resumed, ix.deployed = newTotals(), nil, nil, nil
 	ix.rollbacks++
 	return nil
 }
@@ -356,8 +333,7 @@ var (
 // an unreachable provider is not.
 func tooLarge(err error) bool {
 	var h rpc.HTTPError
-	var hp *rpc.HTTPError
-	if errors.As(err, &h) || errors.As(err, &hp) {
+	if errors.As(err, &h) {
 		return false
 	}
 	var re rpc.Error
@@ -479,8 +455,7 @@ func (ix *Index) deploymentExecutor(ctx context.Context, src *Source, c Contract
 
 // header is what the index reads of a block.
 type header struct {
-	Hash common.Hash    `json:"hash"`
-	Time hexutil.Uint64 `json:"timestamp"`
+	Hash common.Hash `json:"hash"`
 }
 
 // hashes reads the hash of each block: the zero hash for a block the

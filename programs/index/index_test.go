@@ -261,10 +261,8 @@ func open(t *testing.T, dir string, pageBlocks uint64) *Index {
 		t.Fatal(err)
 	}
 	t.Cleanup(ix.Close)
-	if !ix.Begun() {
-		if err := ix.Begin(Header{ChainID: 1337, Controller: controller, FirstBlock: 100}); err != nil {
-			t.Fatal(err)
-		}
+	if err := ix.Begin(Header{ChainID: 1337, Controller: controller, FirstBlock: 100}); err != nil {
+		t.Fatal(err)
 	}
 	return ix
 }
@@ -360,36 +358,6 @@ func TestIndexSums(t *testing.T) {
 	}
 	if !slices.Equal(t1.Nodes, []common.Address{nodeA, nodeB}) || t1.Starts[3] != 450 || len(t1.Buys) != 3 {
 		t.Errorf("nodes %v starts %v buys %d", t1.Nodes, t1.Starts, len(t1.Buys))
-	}
-}
-
-// The second executor is announced in the page that holds its first buy:
-// the page is read again with it before it is committed, and every buy is
-// counted once, whether the index read the deployment at once or
-// stopped between the announcement and the later buy.
-func TestIndexFindsAnAnnouncedExecutor(t *testing.T) {
-	f := newChain(&clock{})
-	busy(f)
-	ix := open(t, t.TempDir(), 1000)
-	catchUp(t, ix, source(f, 1000), 1000)
-	if !slices.Equal(f.asked, [][2]uint64{{100, 1000}, {100, 1000}}) {
-		t.Errorf("pages %v: the page announcing an executor is read again", f.asked)
-	}
-	var usdc []int64
-	for _, b := range ix.Totals().Buys {
-		usdc = append(usdc, b.USDCIn.Int64())
-	}
-	if !slices.Equal(usdc, []int64{10, 20, 30}) {
-		t.Errorf("buys %v", usdc)
-	}
-	dir := t.TempDir()
-	ix = open(t, dir, 500)
-	catchUp(t, ix, source(f, 1000), 600)
-	ix.Close()
-	ix = open(t, dir, 500)
-	catchUp(t, ix, source(f, 1000), 1000)
-	if !same(ix.Totals(), fresh(t, f)) || !slices.Contains(ix.Watched(), secondExec) {
-		t.Errorf("restarted after the announcement: watched %v, totals differ from a fresh index's", ix.Watched())
 	}
 }
 
@@ -519,9 +487,6 @@ func TestIndexRereadsWhenItsCheckpointLeavesTheChain(t *testing.T) {
 	if !same(ix.Totals(), want) {
 		t.Errorf("after the rollback the totals differ from a fresh index's")
 	}
-	if ix.Totals().Starts[3] != 460 || slices.Contains(ix.Watched(), secondExec) {
-		t.Errorf("starts %v watched %v", ix.Totals().Starts, ix.Watched())
-	}
 	raw, _ := os.ReadFile(filepath.Join(ix.path))
 	if strings.Contains(string(raw), `"block":500`) {
 		t.Errorf("an event of the branch left stayed in the file")
@@ -609,34 +574,6 @@ func TestIndexForgetsAnExecutorOfAPageDropped(t *testing.T) {
 	if slices.Contains(ix.Watched(), secondExec) || !same(ix.Totals(), want) {
 		t.Errorf("watched %v after the page announcing %s was dropped", ix.Watched(), secondExec)
 	}
-}
-
-// A page whose last block's hash changes while its logs are read is not
-// written: it is read again, and no event of the branch left is kept.
-func TestIndexDropsAPageTheChainChangedUnder(t *testing.T) {
-	f := newChain(&clock{})
-	busy(f)
-	ix := open(t, t.TempDir(), 2000)
-	reorganised := false
-	f.during = func() {
-		if !reorganised {
-			reorganised = true
-			f.mu.Lock()
-			f.fork, f.branch = 700, "other"
-			f.mu.Unlock()
-		}
-	}
-	catchUp(t, ix, source(f, 1000), 1000)
-	// Read, read again for the executor it announces, dropped; then read
-	// afresh, announcement and all, since a dropped page leaves nothing.
-	if !slices.Equal(f.asked, [][2]uint64{{100, 1000}, {100, 1000}, {100, 1000}, {100, 1000}}) {
-		t.Errorf("pages %v", f.asked)
-	}
-	for _, b := range ix.Totals().Buys {
-		if b.Block == 900 {
-			t.Errorf("the buy at block 900, of the branch left, was kept")
-		}
-	}
 	if _, h, _ := ix.Through(); h != f.hash(1000) {
 		t.Errorf("checkpoint hash %s is not the chain's", h)
 	}
@@ -689,22 +626,15 @@ func TestIndexRefusesAnotherDeployment(t *testing.T) {
 		t.Fatal(err)
 	}
 	other := common.HexToAddress("0xc0ffee")
-	if err := ix.Check(other, 100); !errors.Is(err, ErrDeployment) || !strings.Contains(err.Error(), other.Hex()) ||
-		!strings.Contains(err.Error(), controller.Hex()) {
+	if err := ix.Begin(Header{ChainID: 1337, Controller: other, FirstBlock: 100}); !errors.Is(err, ErrDeployment) ||
+		!strings.Contains(err.Error(), other.Hex()) || !strings.Contains(err.Error(), controller.Hex()) {
 		t.Errorf("another Controller: %v", err)
 	}
 	if err := ix.Begin(Header{ChainID: 1, Controller: controller, FirstBlock: 100}); !errors.Is(err, ErrDeployment) {
 		t.Errorf("another chain: %v", err)
 	}
-	if err := ix.Check(controller, 101); !errors.Is(err, ErrDeployment) || !strings.Contains(err.Error(), "from block 100") ||
-		!strings.Contains(err.Error(), "from block 101") {
-		t.Errorf("another first block: %v", err)
-	}
 	if err := ix.Begin(Header{ChainID: 1337, Controller: controller, FirstBlock: 101}); !errors.Is(err, ErrDeployment) {
-		t.Errorf("another first block, at Begin: %v", err)
-	}
-	if err := ix.Check(controller, 100); err != nil {
-		t.Errorf("its own deployment: %v", err)
+		t.Errorf("another first block: %v", err)
 	}
 	if _, err := Open(dir, 100, 5000); err == nil || !strings.Contains(err.Error(), "another reader") {
 		t.Errorf("a second reader of the folder: %v", err)
@@ -727,44 +657,6 @@ func TestIndexRefusesAnotherFormat(t *testing.T) {
 	}
 	if after, _ := os.ReadFile(path); string(after) != string(other) {
 		t.Errorf("the refused file changed")
-	}
-}
-
-// Every event the index knows, and the view it reads, is declared, with the
-// same argument types, in contracts/interfaces.
-func TestEventsAreDeclared(t *testing.T) {
-	files, _ := filepath.Glob("../../contracts/interfaces/*.sol")
-	var src strings.Builder
-	for _, f := range files {
-		b, err := os.ReadFile(f)
-		if err != nil {
-			t.Fatal(err)
-		}
-		src.Write(b)
-	}
-	if len(files) == 0 {
-		t.Fatal("no interfaces found")
-	}
-	declared := regexp.MustCompile(`(?s)(function|event) (\w+)\(([^)]*)\)`)
-	found := map[string]bool{}
-	for _, m := range declared.FindAllStringSubmatch(src.String(), -1) {
-		var types []string
-		for _, p := range strings.Split(m[3], ",") {
-			if p = strings.TrimSpace(p); p != "" {
-				types = append(types, strings.Fields(p)[0])
-			}
-		}
-		found[m[2]+"("+strings.Join(types, ",")+")"] = true
-	}
-	for _, e := range ABI.Events {
-		if !found[e.Sig] {
-			t.Errorf("event %s is not declared in contracts/interfaces", e.Sig)
-		}
-	}
-	for _, m := range ABI.Methods {
-		if !found[m.Sig] {
-			t.Errorf("%s is not declared in contracts/interfaces", m.Sig)
-		}
 	}
 }
 

@@ -43,11 +43,10 @@ type Claim struct {
 // if its emitter is the executor in force for its round, which the reader
 // checks against Parameters.
 type Buy struct {
-	Executor                        common.Address
-	Round, Block                    uint64
-	Tx                              common.Hash
-	Held, USDCIn, LPTBought, Burned *big.Int
-	TwapX112, MaxIn                 *big.Int
+	Executor                  common.Address
+	Round, Block              uint64
+	Tx                        common.Hash
+	USDCIn, LPTBought, Burned *big.Int
 }
 
 // Totals is everything derived from the events: built by folding each
@@ -58,14 +57,15 @@ type Totals struct {
 	Registered map[common.Address]uint64 // the round each registered in
 	Payers     []common.Address          // in the order they first appear
 	PayerOf    map[common.Address]*Payer
-	// Fees is each round's fees by node: the sum of FeeSettled.gross.
+	// Fees is each round's fees by node: the sums of FeeSettled's gross,
+	// node and network amounts.
 	Fees     map[uint64]map[common.Address]*Flow
 	NodeFees map[common.Address]*Flow // every round's
 	Claims   map[common.Address]map[uint64]Claim
 	Starts   map[uint64]uint64 // the block each round started in
 	Buys     []Buy
-	// Executors is every address named for the buyback executor: the
-	// deployment's, and every value announced for its group.
+	// Executors is every value announced for the buyback executor's group;
+	// the deployment's own executor is read apart (Index.Watched).
 	Executors map[common.Address]bool
 }
 
@@ -140,7 +140,6 @@ func (t *Totals) fold(e *Event) {
 		}
 	case "Bought":
 		t.Buys = append(t.Buys, Buy{Executor: e.Address, Round: e.Int("round").Uint64(), Block: e.Block, Tx: e.Tx,
-			Held: e.Int("held"), USDCIn: e.Int("usdcIn"), LPTBought: e.Int("lptBought"), Burned: e.Int("burned"),
-			TwapX112: e.Int("twapX112"), MaxIn: e.Int("maxIn")})
+			USDCIn: e.Int("usdcIn"), LPTBought: e.Int("lptBought"), Burned: e.Int("burned")})
 	}
 }

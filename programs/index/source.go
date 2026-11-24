@@ -122,11 +122,7 @@ func (s *Source) batch(ctx context.Context, what string, part []rpc.BatchElem) e
 // limited says whether err is an HTTP 429.
 func limited(err error) bool {
 	var h rpc.HTTPError
-	if errors.As(err, &h) {
-		return h.StatusCode == 429
-	}
-	var hp *rpc.HTTPError
-	return errors.As(err, &hp) && hp.StatusCode == 429
+	return errors.As(err, &h) && h.StatusCode == 429
 }
 
 // take waits until n more elements can be sent without more than

@@ -53,15 +53,6 @@ type Event struct {
 	Fields  map[string]any
 }
 
-// key is what makes an event one: its block, transaction and log index.
-type key struct {
-	block uint64
-	tx    common.Hash
-	log   uint
-}
-
-func (e *Event) key() key { return key{e.Block, e.Tx, e.Log} }
-
 // Int is the uint256 field name.
 func (e *Event) Int(name string) *big.Int { return e.Fields[name].(*big.Int) }
 
