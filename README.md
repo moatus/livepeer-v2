@@ -26,7 +26,7 @@ be deployed on a public test chain.
 
 | Part | State |
 |---|---|
-| Rulebook and shared examples | `october-main-text-v5`: the full system's rules, with the buyback executor a parameter, and 98 worked cases (the earlier versions are kept) |
+| Rulebook and shared examples | `october-main-text-v6`: the full system's rules, with the buyback executor a parameter and the contracts' upgrades and stops, and 104 worked cases (the earlier versions are kept) |
 | Independent calculator | Computes every shared example from the rulebook alone |
 | Contracts | Payments: Controller, Registry, RoundClock, Broker, MockUSDC. Rewards: TestLPT, StakeLedger, Scores, Claims. Full system: Parameters, TestPool, Buyback. Upgrades: `Upgrades`, the admin of a `Proxy` in front of each of Parameters, Registry, RoundClock, Broker, StakeLedger, Claims, Scores and the Buyback, holding the notice, the two stops and the upgrade and pause keys |
 | Node integration | The unmodified node, configured by flags alone; no fork |
