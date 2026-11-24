@@ -28,8 +28,9 @@ import {RewardMath} from "../math/RewardMath.sol";
 /// force in the round the claim runs in; who may act for the node and its
 /// payout address from the Registry at execution.
 ///
-/// Two addresses answer for scores , the same contract in the rewards deployment: the score source, for scoreOf, which Parameters' group 6 replaces
-/// (R-20, R-25), and the validator set, for membersAt, which stays.
+/// Two addresses answer for scores, the same contract in the rewards
+/// deployment: the score source, for scoreOf, which Parameters' group 6
+/// replaces (R-20, R-25), and the validator set, for membersAt, which stays.
 ///
 /// There is no round 0 (R-18): every call that names it is refused with
 /// NO_SUCH_ROUND, after who and before anything else.
@@ -198,7 +199,7 @@ contract Claims is IClaims {
     ///
     /// Each input is the round's own: the members of `round`, fixed when it
     /// started, and each one's stake and cut at its start. Only the payout
-    /// address is read now . The loop runs over the members, at most
+    /// address is read now. The loop runs over the members, at most
     /// 33 (R-13), never over holders or opted-in nodes (R-23).
     function mintRoundShares(uint256 round) external {
         _running();

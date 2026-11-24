@@ -180,8 +180,8 @@ contract Parameters is IParameters {
         (v[0], v[1], v[2], v[3]) = (uint256(uint160(pool)), 3600, 10_000, 1);
     }
 
-    /// Each value within its group's range and the group's count of values
-    ///. `inForce` is the group's values in the announcing round.
+    /// Each value within its group's range and the group's count of values.
+    /// `inForce` is the group's values in the announcing round.
     function _inRange(uint256 group, uint256[] calldata v, uint256[] memory inForce) private view returns (bool) {
         if (group == FEE) return v.length == 2 && v[0] <= ONE && v[1] <= ONE;
         if (group == EMISSION) return v.length == 3 && v[0] <= ONE && v[1] <= ONE && v[2] <= ONE;

@@ -93,9 +93,9 @@ interface ITicketBroker {
     // hash", for a creation round not started, which the node treats as final.
 }
 
-/// The broker with network-share withdrawals (rulebook october-main-text-v5, R-16):
-/// ITicketBroker and the draw of the network share by the executor that
-/// group 10 of the Parameters names for the round the draw runs in.
+/// The broker with network-share withdrawals (R-16): ITicketBroker and the
+/// draw of the network share by the executor that group 10 of the Parameters
+/// names for the round the draw runs in.
 interface INetworkShareTicketBroker is ITicketBroker {
     /// Only the executor in force for the current round (R-25 group 10):
     /// pays `amount` of the network share to `to`, the address it names,

@@ -16,8 +16,9 @@ import {IUpgrades} from "../../interfaces/IUpgrades.sol";
 /// allows over the pool's two-slot TWAP. Anyone may poke, which
 /// starts the TWAP on a pool and records an observation when one is due.
 /// It is the executor for TestPool (R-16 rule 13): it draws only in a round
-/// whose group 10 names it, which the Broker checks. It has no owner and no setting: every value comes from the values source
-/// fixed at deployment, read once per buy or poke for the current round.
+/// whose group 10 names it, which the Broker checks. It has no owner and no
+/// setting: every value comes from the values source fixed at deployment,
+/// read once per buy or poke for the current round.
 contract Buyback is IBuyback {
     uint256 private constant ONE = 1_000_000;
 
@@ -185,10 +186,10 @@ contract Buyback is IBuyback {
         if (upgrades.stopped(IUpgrades.Side.LPT)) revert STOPPED();
     }
 
-    /// Rule 13 (_accepts, as acceptsPool), then the reserves (NO_LIQUIDITY) and the cumulative price
-    /// of LPT in µUSDC per wei now, as v2's oracle library reads it: the
-    /// stored cumulative plus the spot price times the seconds since the
-    /// pool's last update.
+    /// Rule 13 (_accepts, as acceptsPool), then the reserves (NO_LIQUIDITY)
+    /// and the cumulative price of LPT in µUSDC per wei now, as v2's oracle
+    /// library reads it: the stored cumulative plus the spot price times the
+    /// seconds since the pool's last update.
     function _read(address pool) private view returns (Pool memory p) {
         (bool ok, bool usdcIs0) = _accepts(pool);
         if (!ok) revert POOL_INVALID(pool);

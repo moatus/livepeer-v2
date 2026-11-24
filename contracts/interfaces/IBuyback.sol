@@ -3,14 +3,15 @@ pragma solidity 0.8.30;
 
 import {IBuybackExecutor} from "./IBuybackExecutor.sol";
 
-/// The executor for TestPool (R-16 rule 13). Buys LPT with the network share and burns it (rulebook R-16). Anyone may
-/// buy, once every buyEveryRounds rounds, and the buy computes its own
-/// amount: the least of the share held and the most the slippage bound
-/// allows over the pool's two-slot TWAP. What it cannot buy stays held for a
-/// later round. Anyone may poke, which starts the TWAP on a pool and records
-/// an observation when one is due. It accepts a pool with poolCodeHash
-/// whose two tokens are this deployment's MockUSDC and TestLPT, in either
-/// order. It draws only in a round whose group 10 names it.
+/// The executor for TestPool (R-16 rule 13). Buys LPT with the network share
+/// and burns it (rulebook R-16). Anyone may buy, once every buyEveryRounds
+/// rounds, and the buy computes its own amount: the least of the share held
+/// and the most the slippage bound allows over the pool's two-slot TWAP.
+/// What it cannot buy stays held for a later round. Anyone may poke, which
+/// starts the TWAP on a pool and records an observation when one is due. It
+/// accepts a pool with poolCodeHash whose two tokens are this deployment's
+/// MockUSDC and TestLPT, in either order. It draws only in a round whose
+/// group 10 names it.
 ///
 /// constructor(IBuybackValues values, INetworkShareTicketBroker broker, IRoundClock clock,
 ///             IBurnableTestLPT lpt, IMockUSDC usdc, bytes32 poolCodeHash)

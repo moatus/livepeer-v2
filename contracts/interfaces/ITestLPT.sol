@@ -27,8 +27,7 @@ interface ITestLPT {
     error NOT_AUTHORIZED();
 }
 
-/// Test LPT with burning (rulebook october-main-text-v4, R-16):
-/// ITestLPT and a real burn.
+/// Test LPT with burning (R-16): ITestLPT and a real burn.
 interface IBurnableTestLPT is ITestLPT {
     /// Anyone burns from its own balance: the balance and totalSupply fall
     /// by amount, with Transfer(caller, address(0), amount). Refused as a

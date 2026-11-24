@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-/// The registry of nodes and their operator keys (rulebook october-main-text-v3): who is
-/// a node and where its USDC half is paid (R-01), and each node's one
-/// operator key (R-26), the node itself until a proposed key accepts. Only
-/// that key acts for the node.
+/// The registry of nodes and their operator keys: who is a node and where its
+/// USDC half is paid (R-01), and each node's one operator key (R-26), the
+/// node itself until a proposed key accepts. Only that key acts for the node.
 interface IRegistry {
     /// Anyone, at any time, free. Registration is permanent; registering
     /// again changes nothing and is not refused.
