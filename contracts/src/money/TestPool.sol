@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity 0.8.30;
 
 import {ITestPool} from "../../interfaces/ITestPool.sol";
@@ -10,7 +10,9 @@ import {ITestPool} from "../../interfaces/ITestPool.sol";
 /// of one deployment's two tokens has one runtime code hash, which the
 /// Buyback pins. It has no owner, proxy, upgrade or self-destruct, no
 /// protocol fee and no flash swaps. Its liquidity shares are counted but
-/// not transferable: a stand-in needs only the first mint.
+/// not transferable: a stand-in needs only the first mint. Uniswap v2 is
+/// licensed GPL-3.0-or-later, so this file is too; the rest of the
+/// repository is MIT (LICENSE).
 contract TestPool is ITestPool {
     uint256 private constant MINIMUM_LIQUIDITY = 1000;
     uint224 private constant Q112 = 2 ** 112;
