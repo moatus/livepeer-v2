@@ -130,11 +130,6 @@ def build_image() -> None:
         raise NotRun(f"could not build the image: {done.stderr.strip()[-600:]}")
 
 
-# The contracts the deployment file names, as demo/public-run full's handover
-# writes them: Upgrades too, so an operator can see a stop.
-OPERATOR_CONTRACTS = ("Controller", "Parameters", "StakeLedger", "Claims", "TestLPT", "MockUSDC", "Upgrades")
-
-
 def write_deployment(first_block: int) -> None:
     """The operator-facing deployment file the container reads."""
     price = MANIFEST["price"]

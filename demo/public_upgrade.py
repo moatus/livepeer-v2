@@ -5,38 +5,8 @@ key S on a running deployment (rulebook R-27), beside demo/public-run serve.
   demo/public-run stop usdc|lpt|both
   demo/public-run lift usdc|lpt|both
 
-upgrade replaces the code of CONTRACT, one of the deployment's contracts
-behind a proxy, with the contract SOURCE names (a file in the repository and
-the contract's name, as in contracts/test/BrokerWithTicketCount.sol:
-BrokerWithTicketCount), at the same address and with every stored figure
-kept. Before it sends anything it checks the chain id, that the proxy is
-this deployment's with Upgrades as its admin, that the key given is the
-upgrade key in force, and two gates against the record the run kept of the
-code in force: the new code's constructor takes the same parameter types in
-the same order, and is built with the arguments the code in force was
-built with; its storage layout begins with the layout of the code in force,
-entry by entry and each type in full. Code in force the run has no record
-of is refused.
-
-It then decides from the chain, never from a file of its own: code in force
-that is already the new code (the same runtime code and the same wiring)
-only writes the manifest; a pending, unlapsed announcement of the same code
-and call is waited for and applied; a different one is refused unless
---replace, which announces over it; with none, it deploys the new code with
-U's key, announces it and prints the round it applies from and the round it
-lapses at. It waits for that round, which the standing keeper starts, or
-applies at once while the contract's side is stopped. After the apply it
-checks that the proxy runs the new code with every address unchanged, and
-writes the code in force into the run's manifest. So a command stopped at
-any point and run again sends no second announcement and no second apply.
-
-stop sets a stop with the pause key S (in force from its round through
-six more; the Broker's payments, or bonding, claims and the buy, or both),
-and lift lifts one with U. Neither waits for anything.
-
-The commands hold their own lock in the state directory, one for U's
-sends and one for S's, never the run's, so demo/public-run serve keeps
-running beside them. Each sends only to chains on the run's allow-list.
+What each command checks and decides, its gates and its locks, is in
+demo/PUBLIC.md, "Upgrades and stops".
 
 Environment:
   LP2_RPC_URL                  the chain's JSON-RPC URL
@@ -68,7 +38,6 @@ import public
 from common import NotRun, Failed, say, C
 
 SIDES = {"usdc": 0, "lpt": 1, "both": 2}
-SIDE_NAMES = ("USDC", "LPT", "both")
 HOLDS = ("deployed", "announced", "applied")
 POLL = 2   # seconds between reads of the round while waiting
 RECORDS = "upgrades.json"   # the record of each code this command deployed, for the next upgrade's gates
@@ -124,13 +93,7 @@ def open_run(role: str) -> None:
     if "Upgrades" not in C:
         raise NotRun("this state directory's deployment has no Upgrades: it predates upgrades")
     var = "UPGRADER" if role == "upgrader" else "PAUSER"
-    keystore = public.outside_repo(f"LP2_{var}_KEYSTORE", True)
-    password = public.outside_repo(f"LP2_{var}_PASSWORD_FILE", True)
-    got = subprocess.run(["cast", "wallet", "address", "--keystore", str(keystore), "--password-file", str(password)],
-                         capture_output=True, text=True)
-    if got.returncode != 0:
-        raise NotRun(f"LP2_{var}_KEYSTORE could not be opened with its password file. Nothing was sent")
-    address = got.stdout.strip()
+    address, keystore, password = public.keystore_address(var, f"LP2_{var}_KEYSTORE")
     owners = {STATE.get("deployer", "").lower(): "the deployer's", STATE.get("authority", "").lower(): "G's"}
     if address.lower() in owners:
         raise NotRun(f"LP2_{var}_KEYSTORE is {owners[address.lower()]} key, not the {role} key. Nothing was sent")
@@ -173,9 +136,10 @@ def refusal(data: str) -> str:
     return f"{name}({', '.join(shown)})" if shown else name
 
 
-def simulate(to: str, data: str) -> str | None:
-    """The refusal a call from the key would meet now, or None."""
-    a, = common.rpc_batch([("eth_call", [{"from": KEY["address"], "to": to, "data": data}, "latest"])])
+def simulate(to: str, data: str, sender: str | None = None) -> str | None:
+    """The refusal a call from the key, or from `sender`, would meet now,
+    or None."""
+    a, = common.rpc_batch([("eth_call", [{"from": sender or KEY["address"], "to": to, "data": data}, "latest"])])
     if "error" not in a:
         return None
     return refusal(a["error"].get("data") or "")
@@ -355,7 +319,7 @@ def upgrade(contract: str, given: str, call: list[str] | None, replace: bool) ->
         raise NotRun(f"{contract}'s proxy does not name this deployment's Upgrades as its admin. Nothing was sent")
     side = common.call(C["Upgrades"], "sideOf(address)", proxy)
     in_force = slot(proxy, common.IMPLEMENTATION_SLOT)
-    say(f"Upgrade {contract} ({proxy}, the {SIDE_NAMES[side]} side) from its code in force {in_force} to {given}")
+    say(f"Upgrade {contract} ({proxy}, the {common.SIDES[side]} side) from its code in force {in_force} to {given}")
     old = records().get(in_force.lower())
     if not old:
         raise NotRun(f"the code in force at {in_force} has no recorded constructor arguments or storage layout: "
@@ -414,8 +378,8 @@ def pending(proxy: str) -> tuple[str, str, int, int]:
     return (address_of(w[0]) if w[0] else ""), data, w[2], w[3]
 
 
-def deploy(source: str, record: dict) -> str:
-    argv = ["forge", "create", "--root", str(common.ROOT / "contracts"), "--rpc-url", common.RPC, *KEY["signer"],
+def deploy(source: str, record: dict, signer: list[str] | None = None) -> str:
+    argv = ["forge", "create", "--root", str(common.ROOT / "contracts"), "--rpc-url", common.RPC, *(signer or KEY["signer"]),
             "--broadcast", source]
     if record["args"]:
         argv += ["--constructor-args", *record["args"]]
@@ -440,7 +404,7 @@ def wait_and_apply(proxy: str, side: int, code: str, applies: int, lapses: int) 
             break
         if now != seen:
             say(f"  {time.strftime('%H:%M:%S')} round {now}; it applies from round {applies}, or at once under a "
-                f"{SIDE_NAMES[side]} stop")
+                f"{common.SIDES[side]} stop")
             seen = now
         time.sleep(POLL)
     if pending(proxy)[0].lower() != code.lower():
@@ -476,7 +440,7 @@ def stop(side: str) -> int:
     for lg in event(r, "StopSet(uint8,uint256,uint256)"):
         _, ends = words_of(lg["data"])[:2]
         set_in = words_of(lg["data"])[0]
-        say(f"  the {SIDE_NAMES[int(lg['topics'][1], 16)]} stop is set in round {set_in}: in force through round "
+        say(f"  the {common.SIDES[int(lg['topics'][1], 16)]} stop is set in round {set_in}: in force through round "
             f"{ends - 1}, ending at the start of round {ends} unless U lifts it (tx {r['transactionHash']})")
     return 0
 
@@ -485,7 +449,7 @@ def lift(side: str) -> int:
     open_run("upgrader")
     r = send(C["Upgrades"], "liftStop(uint8)", SIDES[side])
     for lg in event(r, "StopLifted(uint8,uint256)"):
-        say(f"  the {SIDE_NAMES[int(lg['topics'][1], 16)]} stop is lifted in round {words_of(lg['data'])[0]} "
+        say(f"  the {common.SIDES[int(lg['topics'][1], 16)]} stop is lifted in round {words_of(lg['data'])[0]} "
             f"(tx {r['transactionHash']})")
     return 0
 

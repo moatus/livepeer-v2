@@ -254,28 +254,15 @@ bridge address, where the container reaches them.
 
 ### Replacing a contract's code in place
 
-`./dev demo upgrade` runs the full system on a local chain, with N's node,
-the keeper, three validators and a payer, and replaces the Broker's code
-with `BrokerWithTicketCount` (the Broker with a ticket counter) by the
-same command a team runs on the public testnet, `demo/public-run upgrade`.
-The upgrade and pause keys are throwaway keystores outside the
-repository. Before it sends anything the command refuses new code whose
-storage layout does not begin with the Broker's, new code that reorders
-the members of a struct held in a mapping, new code whose constructor
-takes its parameter types in another order, and, later, a contract whose
-code in force the run has no record of. The command is killed after it
-deploys, after it announces and after its apply is mined, and run again
-each time: one announcement and one apply in all. Through the seven
-rounds of notice N is paid by the old code and an early apply is refused.
-At the apply every view function of nine contracts, over every account,
-round, group and ticket of the run, reads the same at the block before
-and at the apply's block; after it, a ticket made before is redeemed
-through the new code, a used one is refused again, the counter counts, and
-N's claims of rounds earned before are paid once. A stop drill follows:
-the pause key stops the LPT side, a claim is refused while N is still
-paid, the upgrade key applies code at once and lifts the stop, and the
-claim is paid. Every figure is reconciled against the calculator. A run
-takes about four minutes; it uses the rewards demo's ports and Docker.
+`./dev demo upgrade` replaces the Broker's code on a running full system,
+on a local chain, with `BrokerWithTicketCount` (the Broker with a ticket
+counter), by the same command a team runs on the public testnet,
+`demo/public-run upgrade`. It shows the command's gates refusing before
+anything is sent, the command killed and run again at each step with one
+announcement and one apply in all, every view reading the same across the
+apply, and a stop drill, with every figure reconciled against the
+calculator; `demo/upgrade.py` describes each step. A run takes about four
+minutes; it uses the rewards demo's ports and Docker.
 
 ### Run results
 

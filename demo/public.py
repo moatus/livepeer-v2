@@ -145,9 +145,7 @@ def check_deployment() -> None:
 def save() -> None:
     STATE["records"] = RECORDS
     STATE["vrecords"] = rewards.VRECORDS
-    tmp = STATE_DIR / "state.json.tmp"
-    tmp.write_text(json.dumps(STATE, indent=1, default=list))
-    tmp.replace(STATE_DIR / "state.json")
+    write_whole(STATE_DIR / "state.json", json.dumps(STATE, indent=1, default=list))
 
 
 def step(name: str, fn, sends: bool = True):
@@ -576,6 +574,20 @@ def fill_contracts(m: dict) -> None:
         c["address"] = C[c["contract"]]
         if c["contract"] in code:
             c["implementation"] = common.sh(["cast", "to-check-sum-address", code[c["contract"]]])
+
+
+def keystore_address(var: str, what: str) -> tuple[str, Path, Path]:
+    """The address of the keystore LP2_<var>_KEYSTORE names, opened with
+    LP2_<var>_PASSWORD_FILE, both outside the repository, and the two
+    files; refused, with nothing sent, when it does not open. `what` names
+    the keystore in the refusal."""
+    keystore = outside_repo(f"LP2_{var}_KEYSTORE", True)
+    password = outside_repo(f"LP2_{var}_PASSWORD_FILE", True)
+    got = subprocess.run(["cast", "wallet", "address", "--keystore", str(keystore), "--password-file", str(password)],
+                         capture_output=True, text=True)
+    if got.returncode != 0:
+        raise NotRun(f"{what} could not be opened with its password file. Nothing was sent")
+    return got.stdout.strip(), keystore, password
 
 
 def write_whole(path: Path, text: str) -> None:

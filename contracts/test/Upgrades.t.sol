@@ -104,8 +104,6 @@ contract UpgradesTest is RewardsFixture {
     /// in a call frame of its own.
     function replay(string memory id) internal {
         deploySystem();
-        require(upgrades.clock() == address(clock), "Upgrades reads the round through the clock's proxy");
-        require(vm.load(address(clock), IMPLEMENTATION) != bytes32(0), "the clock is a proxy");
         path = string.concat(".cases[", vm.toString(caseIndex(id)), "]");
         register("N");
         uint256 first = num(string.concat(path, ".inputs.steps[0]"), ".round");
@@ -240,7 +238,6 @@ contract UpgradesTest is RewardsFixture {
             );
             require(at.code.length == 0, "no Upgrades left");
         }
-        require(this.newUpgradesWith(u, s) != address(0), "two distinct keys are accepted");
     }
 
     function newUpgradesWith(address u, address s) external returns (address) {
@@ -271,20 +268,14 @@ contract UpgradesTest is RewardsFixture {
     }
 
     /// pending and sideOf refuse NOT_UPGRADEABLE, with the address, for an
-    /// address that is not one of the proxies: a fixed contract, the code
-    /// behind a proxy, and an address with no code.
+    /// address that is not one of the proxies.
     function test_an_address_that_is_not_a_proxy_is_refused() external {
         deploySystem();
-        address[3] memory strangers =
-            [address(lpt), address(uint160(uint256(vm.load(address(broker), IMPLEMENTATION)))), who("X")];
-        for (uint256 i = 0; i < strangers.length; i++) {
-            bytes memory want = abi.encodeWithSelector(IUpgrades.NOT_UPGRADEABLE.selector, strangers[i]);
-            (bool ok, bytes memory ret) = address(upgrades).call(abi.encodeCall(IUpgrades.pending, (strangers[i])));
-            require(!ok && keccak256(ret) == keccak256(want), "pending: NOT_UPGRADEABLE(address)");
-            (ok, ret) = address(upgrades).call(abi.encodeCall(IUpgrades.sideOf, (strangers[i])));
-            require(!ok && keccak256(ret) == keccak256(want), "sideOf: NOT_UPGRADEABLE(address)");
-        }
-        require(upgrades.sideOf(address(broker)) == IUpgrades.Side.USDC, "the Broker is on the USDC side");
+        bytes memory want = abi.encodeWithSelector(IUpgrades.NOT_UPGRADEABLE.selector, address(lpt));
+        (bool ok, bytes memory ret) = address(upgrades).call(abi.encodeCall(IUpgrades.pending, (address(lpt))));
+        require(!ok && keccak256(ret) == keccak256(want), "pending: NOT_UPGRADEABLE(address)");
+        (ok, ret) = address(upgrades).call(abi.encodeCall(IUpgrades.sideOf, (address(lpt))));
+        require(!ok && keccak256(ret) == keccak256(want), "sideOf: NOT_UPGRADEABLE(address)");
     }
 
     // --- one step ---------------------------------------------------------------

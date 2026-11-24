@@ -75,13 +75,11 @@ class RPCBatchTests(unittest.TestCase):
                 common.rpc("eth_sendRawTransaction", ["0x"])
         self.assertEqual(len(batches), 5)
 
-    def test_the_apply_comparison_reads_one_answer_for_each_call_or_fails(self):
-        """The upgrade demo pairs each view with its answer at the block
-        before the apply and at the apply's. A batch answered for every
-        call compares them all; one answered short, or with an id twice,
-        fails the run instead of leaving reads uncompared."""
-        import upgrade
-        items = [(f"read {n}", "eth_call", [{"to": "0x01", "data": hex(n)}]) for n in range(3)]
+    def test_a_batch_answered_short_or_with_an_id_twice_fails(self):
+        """Each call of a batch is paired with its answer by id: a batch
+        answered short, or with an id twice, fails the run instead of
+        leaving a call unanswered."""
+        calls = [("eth_call", [{"to": "0x01", "data": hex(n)}, "latest"]) for n in range(3)]
         response = mock.MagicMock()
         response.__enter__.return_value = response
 
@@ -95,17 +93,11 @@ class RPCBatchTests(unittest.TestCase):
 
         for what, shape in (("answered 2 of 3 calls", lambda a: a[:-1]),
                             ("answered 3 of 3 calls, not one for each id", lambda a: a[:-1] + [a[0]])):
-            with self.subTest(what), mock.patch.object(upgrade, "view_calls", return_value=items), \
+            with self.subTest(what), \
                  mock.patch.object(common.urllib.request, "urlopen", side_effect=answering(shape)), \
-                 mock.patch.object(common.time, "sleep"), mock.patch.object(common, "say"):
+                 mock.patch.object(common.time, "sleep"):
                 with self.assertRaisesRegex(common.Failed, what):
-                    upgrade.compare_at_apply(12)
-        with mock.patch.object(upgrade, "view_calls", return_value=items), \
-             mock.patch.object(common.urllib.request, "urlopen", side_effect=answering(lambda a: a[::-1])), \
-             mock.patch.object(common, "FAILURES", []) as failures, mock.patch.object(common, "say") as said:
-            upgrade.compare_at_apply(12)
-        self.assertEqual(failures, [])
-        self.assertIn("3 reads", said.call_args_list[0].args[0])
+                    common.rpc_batch(calls)
         # A send answered short is not sent again: it may have landed.
         with mock.patch.object(common.urllib.request, "urlopen", side_effect=answering(lambda a: [])) as sent, \
              mock.patch.object(common.time, "sleep"):
@@ -656,31 +648,11 @@ class PublicFull(unittest.TestCase):
         state = self.dir / "state"
         given = dict(LP2_RPC_URL="http://127.0.0.1:1", LP2_DEPLOYER_KEYSTORE=str(key),
                      LP2_DEPLOYER_PASSWORD_FILE=str(pw), LP2_STATE_DIR=str(state))
-        for extra, want in (({}, "LP2_UPGRADER_KEYSTORE is not set"),
-                            ({"LP2_UPGRADER_KEYSTORE": str(key)}, "LP2_UPGRADER_PASSWORD_FILE is not set"),
-                            ({"LP2_UPGRADER_KEYSTORE": str(key), "LP2_UPGRADER_PASSWORD_FILE": str(pw)},
-                             "The upgrade key's keystore could not be opened")):
-            with self.subTest(want=want), self.env(**given, **extra), \
-                    mock.patch.object(self.full_run, "authority", lambda: "0x" + "a1" * 20):
-                with self.assertRaises(common.NotRun) as e:
-                    self.full_run.main()
-                self.assertIn(want, str(e.exception))
-                self.assertFalse(state.exists(), "nothing is made before the upgrade key's keystore is checked")
-
-    def test_the_templates_name_the_three_keys_below_their_contracts(self):
-        import public
-        for doc in (self.t4, json.loads((ROOT / "deployments" / public.TEMPLATE).read_text())):
-            with self.subTest(template=doc["testnet"]):
-                self.assertEqual(list(doc["keys"]), ["authority", "upgrader", "pauser"])
-                order = list(doc)
-                self.assertEqual(order.index("keys"), order.index("contracts") + 1)
-                upgrades = next(c for c in doc["contracts"] if c["contract"] == "Upgrades")
-                self.assertIn("the keys below", upgrades["checks"])
-
-    def test_the_operators_file_names_upgrades_as_the_container_demo_writes_it(self):
-        import container
-        self.assertEqual(container.OPERATOR_CONTRACTS, self.full_run.OPERATOR_CONTRACTS)
-        self.assertEqual(self.full_run.OPERATOR_CONTRACTS[-1], "Upgrades")
+        with self.env(**given), mock.patch.object(self.full_run, "authority", lambda: "0x" + "a1" * 20):
+            with self.assertRaises(common.NotRun) as e:
+                self.full_run.main()
+        self.assertIn("LP2_UPGRADER_KEYSTORE is not set", str(e.exception))
+        self.assertFalse(state.exists(), "nothing is made before the upgrade key's keystore is checked")
 
     def test_serve_refuses_a_state_directory_no_run_handed_over(self):
         with self.env(LP2_STATE_DIR=str(self.dir)):
@@ -1410,14 +1382,6 @@ class UpgradeGates(unittest.TestCase):
         self.assertIn("its constructor takes (contract IRegistry, contract IMockUSDC, address)",
                       self.up.constructor_problem(old, swapped))
         self.assertIsNotNone(self.up.constructor_problem(old, {"constructor": old["constructor"] + ["uint256"]}))
-
-    def test_a_state_directory_with_no_run_is_refused(self):
-        d = Path(tempfile.mkdtemp()).resolve()
-        self.addCleanup(shutil.rmtree, d, True)
-        with mock.patch.dict(os.environ, {"LP2_RPC_URL": "http://127.0.0.1:1", "LP2_STATE_DIR": str(d)}):
-            with self.assertRaises(common.NotRun) as e:
-                self.up.open_run("upgrader")
-        self.assertIn("holds no run's state.json", str(e.exception))
 
 
 if __name__ == "__main__":

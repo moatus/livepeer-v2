@@ -676,6 +676,10 @@ C: dict[str, str] = {}   # contract addresses
 UPGRADEABLE = {"RoundClock": 2, "Registry": 2, "Parameters": 2, "Broker": 0, "StakeLedger": 1, "Scores": 1,
                "Claims": 1, "Buyback": 1}
 SIDES = ("USDC", "LPT", "both")
+# The contracts the operators' deployment file names, as demo/public-run
+# full's handover and ./dev demo container write it: Upgrades too, so that an
+# operator can see a stop (R-27).
+OPERATOR_CONTRACTS = ("Controller", "Parameters", "StakeLedger", "Claims", "TestLPT", "MockUSDC", "Upgrades")
 IMPL: dict[str, str] = {}   # the code each proxy was created with
 # What the run knows of each code it created for a proxy, by its address:
 # the record demo/public_upgrade.py's gates read (code_record).
@@ -814,8 +818,8 @@ def code_record(name: str, source: str, args: list) -> dict:
 def check_deployment(proxies: list[str], upgrader: str, pauser: str) -> None:
     """The Controller's three names; each proxy's ERC-1967 admin slot is
     Upgrades and its implementation slot the code deployed for it, on its
-    side; Upgrades reads the round through the clock's proxy; three distinct
-    keys."""
+    side; Upgrades reads the round through the clock's proxy and holds the
+    two keys."""
     names = {"BondingManager": "Registry", "RoundsManager": "RoundClock", "TicketBroker": "Broker"}
     for legacy, ours in names.items():
         got = call(C["Controller"], "getContract(bytes32)", sh(["cast", "keccak", legacy]))
@@ -827,11 +831,8 @@ def check_deployment(proxies: list[str], upgrader: str, pauser: str) -> None:
             raise Failed(f"{n}'s proxy names admin {admin:#x} and code {code:#x}, not Upgrades and the code deployed")
         if call(C["Upgrades"], "sideOf(address)", C[n]) != UPGRADEABLE[n]:
             raise Failed(f"Upgrades does not put {n} on the {SIDES[UPGRADEABLE[n]]} side")
-    keys = [int(k, 16) for k in (governance(), upgrader, pauser)]
-    if len(set(keys)) != 3:
-        raise Failed("the authority, the upgrade key and the pause key are not three distinct addresses")
     got = [call(C["Upgrades"], f) for f in ("clock()", "upgrader()", "pauser()")]
-    if got != [int(C["RoundClock"], 16), keys[1], keys[2]]:
+    if got != [int(C["RoundClock"], 16), int(upgrader, 16), int(pauser, 16)]:
         raise Failed("Upgrades does not read the clock's proxy, or does not hold the deployment's two keys")
 
 

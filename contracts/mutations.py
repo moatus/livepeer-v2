@@ -235,14 +235,14 @@ M = [
  ("six lists: a listed function the ABI does not have", [(RT, '        l = new string[](9);\n        (l[0], l[1]) = ("Parameters.announce(uint256,uint256[])", "Parameters.withdraw(uint256)");', '        l = new string[](10);\n        l[9] = "Parameters.cancel(uint256)";\n        (l[0], l[1]) = ("Parameters.announce(uint256,uint256[])", "Parameters.withdraw(uint256)");')], "test_every_state_changing_function"),
  # Upgrades and the proxy (R-27): who replaces code, the keys, the notice
  # and the stops.
- ("proxy: any caller may upgrade", [(PX, "if (msg.sender == admin && msg.sig", "if (msg.sig")], "testFuzz_only_upgrades_replaces_code"),
+ ("proxy: any caller may upgrade", [(PX, "if (msg.sender == admin && msg.sig", "if (msg.sig")], "test_a_colliding_selector_runs_the_code_in_force"),
  ("proxy: the admin read from the slot code in force can write", [(PX, "if (msg.sender == admin && msg.sig", "if (msg.sender == _slotAdmin() && msg.sig"), (PX, "    /// Refuses an address without code,", "    function _slotAdmin() private view returns (address a) {\n        assembly {\n            a := sload(ADMIN)\n        }\n    }\n\n    /// Refuses an address without code,")], "test_the_admin_is_the_fixed_one"),
  ("upgrades: one key as both U and S accepted", [(UP, " || upgrader_ == pauser_) revert KEY_INVALID();", ") revert KEY_INVALID();")], "test_creation_refuses"),
  ("upgrades: anyone removes the pause key", [(UP, "    function removePauser() external {\n        if (msg.sender != upgrader) revert NOT_AUTHORIZED();\n", "    function removePauser() external {\n")], "test_only_the_upgrade_key_removes"),
  ("upgrades: U may set a stop", [(UP, "if (msg.sender != key || key == address(0)) revert NOT_AUTHORIZED();", "if ((msg.sender != key && msg.sender != upgrader) || key == address(0)) revert NOT_AUTHORIZED();")], "test_the_upgrade_key_cannot_set_a_stop"),
  ("upgrades: notice of 6 rounds", [(UP, "NOTICE = 7;", "NOTICE = 6;")], "test_upgrades_"),
  ("stop: Claims.claim not stopped", [(CL, "    function claim(address node, uint256 round) external {\n        _running();\n", "    function claim(address node, uint256 round) external {\n")], "test_upgrades_sides"),
- ("stop: the Broker's draw not stopped", [(B, "    function drawNetwork(uint256 amount, address to) external {\n        _running();\n", "    function drawNetwork(uint256 amount, address to) external {\n")], "test_a_ready_buy_waits_for_the_usdc_stop"),
+ ("stop: the Broker's draw not stopped", [(B, "    function drawNetwork(uint256 amount, address to) external {\n        _running();\n", "    function drawNetwork(uint256 amount, address to) external {\n")], "test_upgrades_sides"),
 ]
 
 ROOT = pathlib.Path(__file__).resolve().parent

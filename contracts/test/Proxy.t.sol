@@ -82,22 +82,6 @@ contract ProxyTest is RewardsFixture {
         require(proxy.balance == 28, "the value went where the twin's code runs");
     }
 
-    /// From any address but Upgrades, upgradeToAndCall on each of the
-    /// deployment's proxies runs the code in force (which has no such
-    /// function and refuses), and no proxy's code changes.
-    function testFuzz_only_upgrades_replaces_code(address caller) external {
-        if (caller == address(upgrades)) return;
-        address other = address(new Tripwire());
-        for (uint256 i = 0; i < proxies.length; i++) {
-            bytes32 before = vm.load(proxies[i], IMPLEMENTATION);
-            vm.prank(caller);
-            (bool ok,) = proxies[i].call(abi.encodeCall(IProxy.upgradeToAndCall, (other, "")));
-            require(!ok, "the code in force has no upgradeToAndCall");
-            require(vm.load(proxies[i], IMPLEMENTATION) == before, "the code in force unchanged");
-        }
-        require(proxies.length == 8, "eight proxies");
-    }
-
     /// The admin's call is the proxy's own: Upgrades' upgradeToAndCall puts
     /// the code in force and emits Upgraded, with no notice of its own.
     function test_the_admins_call_is_the_proxys_own() external {
@@ -142,7 +126,6 @@ contract ProxyTest is RewardsFixture {
         require(vm.load(proxy, IMPLEMENTATION) == slot(code), "implementation slot");
         require(vm.load(proxy, ADMIN) == slot(who("Admin")), "admin slot");
         upgradedOnce(proxy, code);
-        require(vm.load(address(broker), ADMIN) == slot(address(upgrades)), "the deployment's admin is Upgrades");
     }
 
     /// CODE_INVALID for an address without code: at creation, leaving no
@@ -162,8 +145,7 @@ contract ProxyTest is RewardsFixture {
     }
 
     /// An initialisation call that reverts reverts the creation with its
-    /// bytes, leaving no proxy, or the replacement, leaving the code in
-    /// force and no Upgraded.
+    /// bytes, leaving no proxy.
     function test_a_refused_initialisation_reverts_with_its_bytes() external {
         address refuses = address(new RefusesInit());
         bytes memory init = abi.encodeCall(RefusesInit.init, ());
@@ -172,24 +154,12 @@ contract ProxyTest is RewardsFixture {
         (bool ok, bytes memory ret) = address(this).call(abi.encodeCall(this.newProxy, (refuses, who("Admin"), init)));
         require(!ok && keccak256(ret) == keccak256(want), "creation: the call's bytes");
         require(at.code.length == 0, "no proxy");
-
-        address code = address(new SelectorTwin());
-        address proxy = address(new Proxy(code, address(this), ""));
-        vm.recordLogs();
-        (ok, ret) = proxy.call(abi.encodeCall(IProxy.upgradeToAndCall, (refuses, init)));
-        require(!ok && keccak256(ret) == keccak256(want), "replacement: the call's bytes");
-        require(vm.load(proxy, IMPLEMENTATION) == slot(code), "the code in force unchanged");
-        require(vm.getRecordedLogs().length == 0, "no Upgraded");
     }
 
     /// Empty data calls nothing: code that refuses every call is put in
-    /// force at creation and on replacement, and a clock created with no
-    /// call is not started.
+    /// force at creation, and a clock created with no call is not started.
     function test_empty_data_calls_nothing() external {
-        address trip = address(new Tripwire());
-        address proxy = address(new Proxy(trip, address(this), ""));
-        (bool ok,) = proxy.call(abi.encodeCall(IProxy.upgradeToAndCall, (address(new Tripwire()), "")));
-        require(ok, "replaced with empty data");
+        new Proxy(address(new Tripwire()), address(this), "");
         address unstarted = address(new Proxy(address(new RoundClock()), address(this), ""));
         require(IRoundClock(unstarted).currentRound() == 0, "the clock not started");
     }

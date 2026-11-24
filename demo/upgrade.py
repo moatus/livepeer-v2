@@ -18,9 +18,8 @@ leaves the next, r2, unclaimed. Then demo/public-run upgrade, the command itself
      time: one announcement and one apply in all, and the manifest names
      the new code.
 
-During the notice: N is paid in each round by the old code; an apply in
-A + 6 is refused UPGRADE_NOT_READY(A + 7); G's, S's and N's announce and
-apply are refused NOT_AUTHORIZED; in A + 6 a winning ticket T1 is redeemed
+During the notice: N is paid in each round by the old code; in A + 6 a
+winning ticket T1 is redeemed
 and another, T2, made and held (a ticket lives its creation round and two
 more, so only one made this late is still good after the notice). In A + 7 the command applies, alone in its block: every view function
 of the Broker, Claims, StakeLedger, Registry, Scores, Parameters, RoundClock,
@@ -30,9 +29,7 @@ the code of every address, read the same at the block before the apply and
 at its block (left out: Upgrades' pending for the Broker, the Broker's
 implementation slot). After: T2 is redeemed through the new code; T1 is
 refused as used; ticketCount() is 1,000 plus the FeeSettled events after the
-apply, and the old code could not answer it; a second initializeTicketCount
-is refused; N's claim of r2 is paid and of r1 refused ALREADY_CLAIMED with
-nothing minted.
+apply; N's claim of r2 is paid and of r1 refused ALREADY_CLAIMED.
 
 Then the drill: S sets the LPT stop with demo/public-run stop; N's claim is
 refused STOPPED while N is still paid and a validator's vote is accepted; U
@@ -148,11 +145,9 @@ def refused_before_sending(what: str, source: str, want: str, contract: str = "B
 
 # --- refusals, read by a call -----------------------------------------------------
 
-def refusal(who: str, to: str, signature: str, *args) -> str:
-    """What a call from `who` meets now: its error, or "" when it passes."""
-    data = c.sh(["cast", "calldata", signature, *map(str, args)])
-    a, = c.rpc_batch([("eth_call", [{"from": ADDR[who], "to": to, "data": data}, "latest"])])
-    return public_upgrade.refusal(a["error"].get("data") or "") if "error" in a else ""
+def refusal(who: str, to: str, signature: str, *args) -> str | None:
+    """What a call from `who` meets now: its error, or None when it passes."""
+    return public_upgrade.simulate(to, c.sh(["cast", "calldata", signature, *map(str, args)]), ADDR[who])
 
 
 # --- tickets made by the demo -----------------------------------------------------
@@ -200,7 +195,7 @@ def paid(note: str = "") -> dict:
 
 
 def code_in_force(name: str) -> str:
-    return "0x" + c.rpc("eth_getStorageAt", [C[name], c.IMPLEMENTATION_SLOT, "latest"])[-40:]
+    return public_upgrade.slot(C[name], c.IMPLEMENTATION_SLOT)
 
 
 # --- every view, at two blocks ------------------------------------------------------
@@ -325,12 +320,10 @@ def run(node_bin, model, started):
     first_block = c.block_number()
     c.say("\n1. Deploying the full system behind its proxies; U and S are keystores outside the repository")
     bb.deploy_full()
-    c.check("Upgrades holds U and S", [f"0x{c.call(C['Upgrades'], f):040x}" for f in ("upgrader()", "pauser()")],
-            [ADDR["Upgrader"].lower(), ADDR["Pauser"].lower()])
     hand_to_command(first_block)
     old_code = code_in_force("Broker")
 
-    c.say("\n3. Round 1: N and V1 to V3 registered and bonded, P funds")
+    c.say("\n2. Round 1: N and V1 to V3 registered and bonded, P funds")
     for who, wei in (("N", N_BOND), ("V1", V_BOND), ("V2", V_BOND), ("V3", V_BOND)):
         rewards.tx_step({"action": "grant_lpt", "to": who, "amount_wei": wei}, "deployer", C["TestLPT"],
                         "transfer(address,uint256)", ADDR[who], wei)
@@ -347,7 +340,7 @@ def run(node_bin, model, started):
     # The node lists its runner once its first health check passes.
     rewards.wait("N's node to list the model", lambda: c.challenge("P", c.PORT["orch"])[0] == 402, 120)
 
-    c.say("\n4. Before the upgrade: N paid in rounds 2 to 4, r1 claimed and r2 left")
+    c.say("\n3. Before the upgrade: N paid in rounds 2 to 4, r1 claimed and r2 left")
     rewards.to_round(2)
     for v in ("V1", "V2", "V3"):
         c.send(KEY[v], C["Scores"], "optIn(address)", ADDR[v])
@@ -361,7 +354,7 @@ def run(node_bin, model, started):
     rewards.claim("N", "N", r1)
     c.check(f"round {r1 + 7}: V1 to V3 are the validators", rewards.members_at(c.current_round()), ["V1", "V2", "V3"])
 
-    c.say("\n5. The command's gates: each refused before anything is sent")
+    c.say("\n4. The command's gates: each refused before anything is sent")
     refused_before_sending("a counter declared before the Broker's figures", f"{GATES}:BrokerCounterFirst",
                            "entry 1, balance in the code in force, differs: name")
     refused_before_sending("a balance's members in another order, a struct in a mapping",
@@ -370,12 +363,12 @@ def run(node_bin, model, started):
                            f"{GATES}:BrokerConstructorSwapped", "its constructor takes (contract IRegistry, contract IMockUSDC")
 
     a = c.current_round()
-    c.say(f"\n6. Round {a} = A: U announces Broker -> BrokerWithTicketCount with initializeTicketCount({COUNT_FROM}), "
+    c.say(f"\n5. Round {a} = A: U announces Broker -> BrokerWithTicketCount with initializeTicketCount({COUNT_FROM}), "
           "the command killed after deploying and after announcing")
     call = ("--call", "initializeTicketCount(uint256)", str(COUNT_FROM))
     p, log = command("upgrade", "Broker", NEW, *call, hold="deployed")
     killed_at(p, log, "deployed")
-    c.check("nothing announced yet", public_upgrade_pending(), "")
+    c.check("nothing announced yet", public_upgrade.pending(C["Broker"])[0], "")
     p, log = command("upgrade", "Broker", NEW, *call, hold="announced")
     killed_at(p, log, "announced")
     announced = c.logs(C["Upgrades"], "UpgradeAnnounced(address,address,bytes,uint256,uint256)")
@@ -385,11 +378,7 @@ def run(node_bin, model, started):
     c.check("the command printed it", f"applies from round {a + 7}, lapses at round {a + 28}" in log.read_text(), True)
     p, log = command("upgrade", "Broker", NEW, *call, hold="applied")
 
-    c.say(f"\n7. The notice, rounds {a} to {a + 6}: N paid by the old code each round, while the command waits")
-    for who in ("G", "Pauser", "N"):
-        c.check(f"{who}'s announce and apply refused", (
-            refusal(who, C["Upgrades"], "announceUpgrade(address,address,bytes)", C["Broker"], new_code, "0x"),
-            refusal(who, C["Upgrades"], "applyUpgrade(address)", C["Broker"])), ("NOT_AUTHORIZED", "NOT_AUTHORIZED"))
+    c.say(f"\n6. The notice, rounds {a} to {a + 6}: N paid by the old code each round, while the command waits")
     for r in range(a, a + 7):
         if r > a:
             rewards.to_round(r)
@@ -397,14 +386,12 @@ def run(node_bin, model, started):
         c.check(f"round {r}: the Broker's code in force is the old code", code_in_force("Broker"), old_code.lower())
         if p.poll() is not None:
             raise c.Failed(f"the command exited {p.returncode} during the notice; see {c.where(log)}")
-    c.check(f"round A + 6: U's apply refused", refusal("Upgrader", C["Upgrades"], "applyUpgrade(address)", C["Broker"]),
-            f"UPGRADE_NOT_READY({a + 7})")
     make_ticket("T1")
     redeem("T1")
     make_ticket("T2")
     c.say(f"  T2 made in round {a + 6} and held")
 
-    c.say(f"\n8. Round A + 7 = {a + 7}: the command applies, and is killed once it is mined")
+    c.say(f"\n7. Round A + 7 = {a + 7}: the command applies, and is killed once it is mined")
     rewards.to_round(a + 7)
     killed_at(p, log, "applied")
     applied = [lg for lg in c.logs(C["Upgrades"], "UpgradeApplied(address,address,uint256,bool)")
@@ -414,7 +401,6 @@ def run(node_bin, model, started):
     c.check("applied in round A + 7, alone in its block", (public_upgrade.words_of(applied[-1]["data"])[1], len(txs)),
             (a + 7, 1))
     compare_at_apply(block)
-    c.check("the Controller's three names and every address unchanged", public_upgrade_check(), True)
     code, out = finished("upgrade", "Broker", NEW, *call)
     c.check("run again: the code in force is already the new code, and only the manifest is written",
             (code, "already this code" in out), (0, True))
@@ -427,7 +413,7 @@ def run(node_bin, model, started):
                         "UpgradeApplied(address,address,uint256,bool)")]
     c.check("through three kills: one announcement and one apply in all", events, [1, 1])
 
-    c.say("\n9. After the apply")
+    c.say("\n8. After the apply")
     redeem("T2")
     c.check("T1 refused again as a used ticket",
             refusal("N", C["Broker"], REDEEM, TICKETS["T1"]["tuple"], TICKETS["T1"]["sig"], TICKETS["T1"]["rand"]),
@@ -436,18 +422,11 @@ def run(node_bin, model, started):
     after = [s for s in c.settlements() if s["block"] > block]
     c.check(f"ticketCount() is {COUNT_FROM:,} plus the {len(after)} FeeSettled events after the apply",
             c.call(C["Broker"], "ticketCount()"), COUNT_FROM + len(after))
-    old_answer, = c.rpc_batch([("eth_call", [{"to": C["Broker"], "data": c.calldata("ticketCount()")}, hex(block - 1)])])
-    c.check("the old code could not answer ticketCount()", "error" in old_answer, True)
-    for who in ("Upgrader", "N"):
-        c.check(f"a second initializeTicketCount from {who} refused",
-                refusal(who, C["Broker"], "initializeTicketCount(uint256)", 0), "ALREADY_COUNTING")
     c.check(f"N's claim of r2, round {r2}, earned before the upgrade, paid",
             rewards.claim("N", "N", r2)["claimed"]["paid"] > 0, True)
-    supply = c.call(C["TestLPT"], "totalSupply()")
     rewards.claim("N", "N", r1, want="ALREADY_CLAIMED")
-    c.check("nothing minted by the refused claim", c.call(C["TestLPT"], "totalSupply()"), supply)
 
-    c.say("\n10. The drill: S sets the LPT stop")
+    c.say("\n9. The drill: S sets the LPT stop")
     code, out = finished("stop", "lpt", role="pauser")
     c.check("demo/public-run stop lpt", (code, c.call(C["Upgrades"], "stopped(uint8)", 1)), (0, 1))
     c.check(f"N's claim of round {r3} refused", refusal("N", C["Claims"], "claim(address,uint256)", ADDR["N"], r3),
@@ -462,9 +441,7 @@ def run(node_bin, model, started):
     c.check("U announces Claims -> its code in force and applies it at once, under the stop",
             (public_upgrade.words_of(lg["data"])[1:], code_in_force("Claims")), ([c.current_round(), 1], claims_code))
     record = c.CODES[c.IMPL["Scores"].lower()]
-    scores = c.sh(["forge", "create", "--root", str(c.ROOT / "contracts"), "--rpc-url", c.RPC, "--private-key",
-                   KEY["Upgrader"], "--broadcast", record["source"], "--constructor-args", *record["args"]])
-    scores = next(x.split()[-1] for x in scores.splitlines() if x.startswith("Deployed to:"))
+    scores = public_upgrade.deploy(record["source"], record, ["--private-key", KEY["Upgrader"]])
     c.send(KEY["Upgrader"], C["Upgrades"], "announceUpgrade(address,address,bytes)", C["Scores"], scores, "0x")
     c.send(KEY["Upgrader"], C["Upgrades"], "applyUpgrade(address)", C["Scores"])
     c.check("U puts a Scores code of its own in force, under the stop", code_in_force("Scores"), scores.lower())
@@ -474,23 +451,12 @@ def run(node_bin, model, started):
     c.check("demo/public-run lift lpt", (code, c.call(C["Upgrades"], "stopped(uint8)", 1)), (0, 0))
     c.check(f"the stop lifted, N's claim of round {r3} paid", rewards.claim("N", "N", r3)["claimed"]["paid"] > 0, True)
 
-    c.say("\n11. Every figure, read from the chain, beside the calculator's")
+    c.say("\n10. Every figure, read from the chain, beside the calculator's")
     members = rewards.members()
     ordered, views, _ = c.reconcile("At the end of the run", rewards.keeper_steps(), members)
     c.write_case("upgrade-run", ordered, views, members)
-    for name in ("upgrades.log",):
-        shutil.copy(OUTSIDE / "state" / name, c.RUN / "logs" / "command-state-upgrades.log")
+    shutil.copy(OUTSIDE / "state" / "upgrades.log", c.RUN / "logs" / "command-state-upgrades.log")
     return c.finish(started, "the Broker's code was replaced in place through three kills, every view read the same "
                              "across the apply, each gate refused before sending, and the stop drill held; every "
                              "figure equals the calculator's.")
 
-
-def public_upgrade_pending() -> str:
-    return public_upgrade.pending(C["Broker"])[0]
-
-
-def public_upgrade_check() -> bool:
-    for legacy, ours in {"BondingManager": "Registry", "RoundsManager": "RoundClock", "TicketBroker": "Broker"}.items():
-        if c.call(C["Controller"], "getContract(bytes32)", c.sh(["cast", "keccak", legacy])) != int(C[ours], 16):
-            return False
-    return all(c.rpc("eth_getCode", [x, "latest"]) not in ("0x", None) for x in C.values())

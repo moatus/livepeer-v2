@@ -73,7 +73,7 @@ import public
 import rewards
 import buyback as bb
 import ledgercase
-from common import NotRun, Failed, say, check, call, words, money, lpt, C, ADDR, NAMES, PORT, MANIFEST
+from common import NotRun, Failed, say, check, call, words, money, lpt, C, ADDR, NAMES, PORT, MANIFEST, OPERATOR_CONTRACTS
 
 TEMPLATE = "public-arbitrum-sepolia-full.json"
 ROLES = ("N", "P", "V", "Keeper", "Faucet")
@@ -81,9 +81,8 @@ SERVICES = "services.json"
 OPERATORS = "deployment.json"   # the deployment file operators give their node container
 LABELS = "labels.json"          # the names the explorer beside serve shows
 # What the operator container reads from it (programs/container/README.md):
-# each a string or a number, and nothing else.
-# Upgrades, so that an operator can see a stop (R-27).
-OPERATOR_CONTRACTS = ("Controller", "Parameters", "StakeLedger", "Claims", "TestLPT", "MockUSDC", "Upgrades")
+# each a string or a number, and nothing else. Its contracts are
+# common.OPERATOR_CONTRACTS.
 OPERATOR_NODE = ("job_price_usd", "price_unit", "wei_per_usd", "ticket_face_value", "ticket_win_prob")
 # A round that has not started for this long means the keeper cannot start
 # it: three rounds on Arbitrum Sepolia, thirty on a local chain.
@@ -117,27 +116,9 @@ def use_template(doc: dict, chain_id: int) -> None:
 def authority() -> str:
     """G's address, from the keystore the environment names. Checked before
     anything is made or sent: the run does not start without it."""
-    keystore = public.outside_repo("LP2_AUTHORITY_KEYSTORE", True)
-    password = public.outside_repo("LP2_AUTHORITY_PASSWORD_FILE", True)
-    got = subprocess.run(["cast", "wallet", "address", "--keystore", str(keystore), "--password-file", str(password)],
-                         capture_output=True, text=True)
-    if got.returncode != 0:
-        raise NotRun("the authority's keystore could not be opened with its password file. Nothing was sent")
+    address, keystore, password = public.keystore_address("AUTHORITY", "the authority's keystore")
     AUTHORITY[:] = ["--keystore-file", str(keystore), "--keystore-password-file", str(password)]
-    return got.stdout.strip()
-
-
-def key_address(var: str, what: str) -> str:
-    """The address of the keystore LP2_<var>_KEYSTORE names, opened with
-    its password file, both outside the repository. The run reads the
-    address only and sends nothing with the key."""
-    keystore = public.outside_repo(f"LP2_{var}_KEYSTORE", True)
-    password = public.outside_repo(f"LP2_{var}_PASSWORD_FILE", True)
-    got = subprocess.run(["cast", "wallet", "address", "--keystore", str(keystore), "--password-file", str(password)],
-                         capture_output=True, text=True)
-    if got.returncode != 0:
-        raise NotRun(f"{what}'s keystore could not be opened with its password file. Nothing was sent")
-    return got.stdout.strip()
+    return address
 
 
 def lp2_params(*argv: str) -> str:
@@ -179,8 +160,10 @@ def main() -> int:
     started = time.time()
     g = authority()
     # The upgrade key U and the pause key S (R-27): named in Upgrades at
-    # deployment; demo/public-run upgrade, stop and lift send with them.
-    u, s = key_address("UPGRADER", "The upgrade key"), key_address("PAUSER", "The pause key")
+    # deployment; demo/public-run upgrade, stop and lift send with them. The
+    # run reads their addresses only and sends nothing with them.
+    u = public.keystore_address("UPGRADER", "The upgrade key's keystore")[0]
+    s = public.keystore_address("PAUSER", "The pause key's keystore")[0]
     if len({g.lower(), u.lower(), s.lower()}) != 3:
         raise NotRun("the authority, the upgrade key and the pause key must be three different keys. Nothing was sent")
     public.ROLES = ROLES
