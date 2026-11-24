@@ -28,7 +28,7 @@ be deployed on a public test chain.
 |---|---|
 | Rulebook and shared examples | `october-main-text-v6`: the full system's rules, with the buyback executor a parameter and the contracts' upgrades and stops, and 104 worked cases (the earlier versions are kept) |
 | Independent calculator | Computes every shared example from the rulebook alone |
-| Contracts | Payments: Controller, Registry, RoundClock, Broker, MockUSDC. Rewards: TestLPT, StakeLedger, Scores, Claims. Full system: Parameters, TestPool, Buyback. Upgrades: `Upgrades`, the admin of a `Proxy` in front of each of Parameters, Registry, RoundClock, Broker, StakeLedger, Claims, Scores and the Buyback, holding the notice, the two stops and the upgrade and pause keys |
+| Contracts | Payments: Controller, Registry, RoundClock, Broker, MockUSDC, Parameters. Rewards: TestLPT, StakeLedger, Scores, Claims. Full system: TestPool, Buyback. Upgrades: `Upgrades`, the admin of a `Proxy` in front of each of Parameters, Registry, RoundClock, Broker, StakeLedger, Claims, Scores and the Buyback, holding the notice, the two stops and the upgrade and pause keys |
 | Node integration | The unmodified node, configured by flags alone; no fork |
 | One-command demo | `./dev demo` (rewards); `./dev demo payments` runs paid jobs; `./dev demo full` runs the full system; `./dev demo buyback` runs the buyback's walk; `./dev demo light` runs the services that pay each node that joins and grant each registered node test LPT; `./dev demo container` runs the operator container against them; `./dev demo upgrade` replaces the Broker's code on a running system |
 
@@ -87,7 +87,7 @@ an opt-in), not whenever stake moves.
 `./dev demo payments` runs paid jobs against the payments rulebook. What it
 does, in this order, printing each step:
 
-1. Starts a fresh local chain, deploys the five contracts, and starts the
+1. Starts a fresh local chain, deploys the payments contracts, and starts the
    tiny model, the node's orchestrator for a node N, and a signer for each
    of two payers, P and P2.
 2. **Refusal 1.** N is not registered, so the orchestrator will not issue a
@@ -100,7 +100,7 @@ does, in this order, printing each step:
 4. **Six real jobs**, each paid with one ticket of 10,001 micro-USDC, which
    the node redeems itself. Every balance read from the chain is printed
    beside the calculator's figure for the same steps, and then checked
-   against the stage's worked figures: P's deposit 9,939,994, the earmark
+   against the worked figures: P's deposit 9,939,994, the earmark
    20,000, N's wallet 30,000, the network share 30,006, N's fees 60,006.
    The USDC the Broker actually holds is checked too: it must equal the
    deposits, earmarks and network share, and all mock USDC in existence
@@ -189,18 +189,12 @@ node operator needs an orchestrator reachable at a public URL, its runner,
 and test ETH for gas: one registration, then one redemption for each paid
 request, about one a round, since every ticket wins.
 
-The demo sends each refused join and checks its code, and that it left no
-earmark and no line in the sender's list. Nodes N and M join; each is sent
-a paid request at once (the demo fails if a first relay comes more than
-60 s after the join) and then one a round, with nobody acting. A third
-node, S, whose runner answers its health check and never a request, joins;
-the demo shows its requests given up at the 10 s bound while N and M are
-still paid within seconds of each round. The sender is stopped and
-restarted within a round, while S's paid request of that round hangs, and
-pays nobody twice in it. After four rounds the nodes redeem, and the demo
-reads from the chain, for each node, one ticket per round and one for each
-paid request sent, and N's and M's payouts up by half of each. A run takes
-about three and a half minutes, and uses 25 ports from 47700.
+The demo sends each join that should be refused and checks its code. It
+then shows nodes N and M paid once a round with nobody acting, a node whose
+runner never answers given up at the 10 s bound while they are still paid,
+and a sender restarted within a round paying nobody twice, and it reads
+each node's tickets and payouts from the chain. A run takes about three
+and a half minutes, and uses 25 ports from 47700.
 
 Beside the sender runs `lp2-faucet`, which holds a faucet account's key and
 gives each node the Registry shows registered one grant of test LPT (1,000
@@ -210,14 +204,9 @@ test LPT. Before it broadcasts a grant it writes the signed transaction to
 a journal, so a crash at any moment never grants a node twice and never
 loses a grant; the header of
 [`programs/cmd/lp2-faucet/main.go`](programs/cmd/lp2-faucet/main.go) says
-how, the log lines it writes, and how to run it. In the demo the deployer
-funds the faucet; it grants each node registered before it starts and one
-registered while it runs, and is killed three times with a grant in flight:
-after the broadcast reached the chain, with the broadcast dropped from the
-chain's pool, and with the grant mined and reverted. It then waits out of
-test LPT, out of gas and at its cap in turn, each into a new round in which
-the sender pays on. The token's Transfer logs then show every registered
-node granted exactly once.
+how, the log lines it writes, and how to run it. The demo kills it three
+times with a grant in flight, and the token's Transfer logs then show every
+registered node granted exactly once.
 
 ### The operator container: a node from one command
 
@@ -236,21 +225,17 @@ how to run it, what to fund, which port must be reachable, how long each
 step takes and how to read its explorer.
 
 `./dev demo container` builds the image and runs it on the full system's
-contracts on a local chain mining a block a second, with the keeper, the
-sender and the faucet running as `./dev demo light` runs them. After it
-sends the two keys 1 ETH each, the demo only kills and restarts the
-container: while it waits for the grant, between the operator key's
-approval and its bond, and between its first claim and the withdrawal; a
-second container on the same data folder refuses to start. It then reads
-from the chain that nothing was done twice and that the node key sent
-nothing after the node started but its own redemptions, writes the run as
-a ledger case that `./calculator/check` reproduces, and checks the
-container's explorer for the claimed round against it. The pool is not
-seeded, so no buy draws the network share or burns LPT and the case holds
-every LPT and USDC movement. A run takes about 12 minutes once the image
-is built. It uses six local ports, from `LP2_DEMO_PORT_BASE` (47700 unless
-set) to 24 above it; the chain and the sender also listen on Docker's
-bridge address, where the container reaches them.
+contracts on a local chain mining a block a second, with the services
+running as `./dev demo light` runs them. After it funds the two keys, the
+demo only kills and restarts the container, at the moments a restart must
+survive. It then reads from the chain that nothing was done twice, writes
+the run as a ledger case that `./calculator/check` reproduces, and checks
+the container's explorer against it. The pool is not seeded, so no buy
+draws the network share or burns LPT and the case holds every LPT and USDC
+movement. A run takes about 12 minutes once the image is built. It uses
+six local ports, from `LP2_DEMO_PORT_BASE` (47700 unless set) to 24 above
+it; the chain and the sender also listen on Docker's bridge address, where
+the container reaches them.
 
 ### Replacing a contract's code in place
 
@@ -297,45 +282,27 @@ it reads its settings from.
 
 `demo/public-run` deploys the reward system to a chain it does not
 control, such as Arbitrum Sepolia, from an RPC URL and a deployer keystore
-you give it. It runs the team's node through one paid job and one reward
-cycle in real time, then reconciles every figure against the calculator.
-`demo/public-run full` does the same for the full system: the
-network's share of a paid job buys test LPT and burns it, and a parameter
-change announced by an authority key you give it counts seven rounds
-later. When every figure is equal, it hands the deployment over to
-`demo/public-run serve`, which keeps the node, the keeper, a validator,
-`lp2-sender` and `lp2-faucet` running without the deployer's key, so a
-node that registers is granted test LPT and a node that joins is paid,
-with `lp2-explorer` beside them. It also writes `deployment.json`, the
-file an operator gives the node container, and `labels.json`, which names
-the run's accounts in the explorer and marks the sender's payer simulated.
-`demo/public-run upgrade` replaces a contract's code on that running
-deployment with the upgrade key, after seven rounds' notice or at once
-under a stop, beside the running services; `demo/public-run stop` and
-`lift` set and lift a stop. `demo/PUBLIC.md` says what to set, what it
-costs, how long it takes and where that file is published.
+you give it, runs the team's node through one paid job and one reward
+cycle in real time, and reconciles every figure against the calculator.
+`demo/public-run full` does the same for the full system and, when every
+figure is equal, hands the deployment over to `demo/public-run serve`, the
+services that keep it running without the deployer's key. `demo/PUBLIC.md`
+says what to set, what it costs, how long it takes, and how `upgrade`,
+`stop` and `lift` replace a contract's code and stop a side.
 
 `programs/cmd/lp2-explorer` shows a deployment read from the chain. It
 holds no key and sends nothing. Give it the RPC URL, the Controller,
 Parameters, StakeLedger, Claims and mock USDC addresses, the deployment's
 first block and a folder for its index of the deployment's events, from
 which it resumes after a restart. Its JSON, served on
-`http://127.0.0.1:8080/`, is `/network.json` (the round, fees by round,
-total stake, the buys and burns, the validator set), `/orchestrators.json`
-and `/orchestrators/<address>.json` (every registered node: stake, cut,
-score, fees, claims), and `/apps.json` and `/apps/<address>.json` (every
-payer: deposit, funded, released, and its fees by node). Each has its
-page at the same path without `.json`, in the look of the Livepeer
-Explorer beta, light or dark as the reader's system is, with no
-JavaScript and nothing loaded from elsewhere. Every page shows the RPC
-provider by scheme and host and whether it answers, the index's progress,
-the round clock and, while the provider fails, a banner naming the
-failure. Without a node's address, `/` is the Network page. Given one,
-`/` is a page for that node's operator, which
-`programs/container/README.md` describes ("Read the explorer");
-`/orchestrators/<address>.json` holds the same figures. Every 15 seconds it reads the chain, every figure at one
-block. A figure it could not read is shown as unavailable, never as 0.
-Its header comment says where each figure comes from.
+`http://127.0.0.1:8080/`, is `/network.json`, `/orchestrators.json` and
+`/orchestrators/<address>.json`, and `/apps.json` and
+`/apps/<address>.json`. Each has its page at the same path without
+`.json`, with no JavaScript and nothing loaded from elsewhere. Given a
+node's address, `/` is a page for that node's operator, which
+`programs/container/README.md` describes ("Read the explorer"); without
+one, it is the Network page. Its header comment says where each figure
+comes from.
 
 ## How the code is arranged
 
@@ -345,9 +312,11 @@ Its header comment says where each figure comes from.
   `contracts/` runs every one through the contracts.
 - `programs/` holds what runs beside the node: the funding program, the
   round keeper, `lp2-stake` for holders and nodes, `lp2-params` for the
-  governance authority, `lp2-explorer`, the explorer of a deployment, for
-  the testnet or one node's operator, and the scripted validators; `demo/` holds the
-  one-command demo.
+  governance authority, `lp2-sender` and `lp2-faucet`, `lp2-responder`,
+  `lp2-explorer`, the explorer of a deployment, for the testnet or one
+  node's operator, and its index (`programs/index`), the scripted
+  validators, and the operator container (`programs/container`); `demo/`
+  holds the one-command demo.
 - `deployments/` names what each testnet version contains.
 - `SEAMS.md` names the places where something important crosses (rules,
   contract interfaces, money, authority, the node) and what enforces each.

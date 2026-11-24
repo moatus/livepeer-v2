@@ -9,6 +9,10 @@ and claims and withdraws each round's LPT reward when it becomes
 claimable. A page on your own machine shows all of it, read from the
 chain.
 
+No public deployment of the full system runs yet, so no deployment file
+is published for it. Until one is, "Try it on a local chain" below runs the
+container against the testnet's services on your own machine.
+
 Everything here is a test network. The ETH is test ETH, the USDC is a mock
 anyone can mint, and the LPT is test LPT with no value. Never send real
 funds to the addresses the container prints.
@@ -271,7 +275,6 @@ operator.
 | `LP2_POLL` | Seconds between checks, 30 unless set |
 | `LP2_EXPLORER_LISTEN` | Where the explorer listens inside the container, `0.0.0.0:8080` unless set |
 | `LP2_LABELS` | Optional: names for accounts, which the explorer shows, as a URL or a path. Read at each start and kept in `/data/labels.kept.json`; if it cannot be read, or is not a labels file, the kept copy stays, the explorer shows the labels it had, and its pages say the labels file could not be read. The log names only a URL's scheme and host. It holds `{"scenario": "…" or null, "accounts": {"0x…": {"name": "…", "simulated": true or false}}}`; a scenario shows on every page, and `simulated` marks an account that stands in for real use |
-| `LP2_TEST_HOLD` | For tests only: `approved`, `started` or `claimed` stops the run after that step, so a test can kill it there |
 
 ## Try it on a local chain
 

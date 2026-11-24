@@ -3,15 +3,18 @@
 `demo/public-run` deploys the reward system to a chain it does not control
 and runs the team's node through one paid job and one full reward cycle in
 real time. Then it reads every figure from the chain and prints it beside
-the independent calculator's figure. It is the path for the first public
-deployment (Arbitrum Sepolia). It uses the demo's code: the same node,
+the independent calculator's figure. It made the first public deployment,
+on Arbitrum Sepolia on 2026-11-21
+(`deployments/public-arbitrum-sepolia-2026-11-21.json`). It uses the demo's code: the same node,
 programs, steps and reconciliation. `demo/public-run full` does the same
 for the full system and hands it over to services that keep it running;
 see “Buyback, parameter changes and key rotation” below.
 
 The run does the following, in order:
 
-1. It deploys the ten contracts. Round 1 starts at deployment.
+1. It deploys the ten contracts, the seven upgradeable ones each behind a
+   proxy, and `Upgrades`: 18 contract creations. Round 1 starts at
+   deployment.
 2. The deployer pays gas money to four accounts that the run makes: the
    node N, the payer P, the validator V and the keeper.
 3. N registers with no stake. N and V each bond 1,000 test LPT to
@@ -58,7 +61,7 @@ Docker.
 
 ## Against Arbitrum Sepolia
 
-Before the run, the owner makes the deployer key and funds it from a faucet. Then:
+Before the run, make the deployer key and fund it from a faucet. Then:
 
 ```sh
 export LP2_RPC_URL=...                       # an Arbitrum Sepolia endpoint
@@ -75,16 +78,19 @@ directory into `deployments/` as the record of the deployment.
 
 ### What it costs
 
-The first run on Arbitrum Sepolia sent 45 transactions and paid about
-0.001 Sepolia ETH in fees, the L1 data fee included. Fund the deployer with
-0.02 Sepolia ETH: 0.012 of it goes to the four role accounts as gas money,
-and most of that is still theirs at the end. The run prints its fees by
-account at the end: the deployer's from the receipts of what it sent, and
-each role account's as its gas money less what it holds now.
+The first run on Arbitrum Sepolia, on 2026-11-21, came before the proxies:
+it created 9 contracts where the run now creates 18. It sent 45
+transactions and paid about 0.001 Sepolia ETH in fees, the L1 data fee
+included, with the deployer funded with 0.02 Sepolia ETH, 0.012 of which
+went to the four role accounts as gas money. These figures have not been
+measured again since the proxies; the full run's table below was. The run
+prints its fees by account at the end: the deployer's from the receipts of
+what it sent, and each role account's as its gas money less what it holds
+now.
 
 | Account | Transactions | What it sends |
 |---|---|---|
-| Deployer | 16 | 9 contract creations, 4 gas payments, 2 test LPT grants, 1 mock USDC mint |
+| Deployer | 16 on the first run; now 25 | 9 contract creations on the first run, now 18; 4 gas payments, 2 test LPT grants, 1 mock USDC mint |
 | N | 6 | register; approve and bond; the ticket redemption (sent by the node); the claim; the withdrawal |
 | P | 2 | approve and fund |
 | V | 4 | register; approve and bond; opt in |
@@ -154,8 +160,8 @@ The run does the following, in order:
 1. It deploys the full system's twelve contracts: the rewards contracts, the test pool,
    Parameters naming the Buyback as the buyback executor, and the Buyback,
    eight of them behind a proxy, then `Upgrades`, which holds U and S (see
-   "Upgrades and stops"). Parameters' one authority is G, the key the owner
-   gives the run. Round 1 starts at deployment.
+   "Upgrades and stops"). Parameters' one authority is G, the key you
+   give the run. Round 1 starts at deployment.
 2. The deployer pays gas money to five accounts the run makes: N, P, V,
    the keeper and the faucet. It seeds the pool with 500,000 mock USDC and
    100,000 test LPT, and grants the faucet 1,000,000 test LPT. Under
@@ -225,14 +231,16 @@ As for the rewards run, and also:
 | `LP2_UPGRADER_PASSWORD_FILE` | A file that holds its password, outside the repository |
 | `LP2_PAUSER_KEYSTORE` | S's keystore file, the pause key, outside the repository, made the same way. `Upgrades` names it at deployment; it sets a stop and does nothing else. The run reads only its address |
 | `LP2_PAUSER_PASSWORD_FILE` | A file that holds its password, outside the repository |
-| `LP2_SENDER_URL` | The sender's public URL, where operators' nodes join: `deployment.json` names it. It is an origin: `http://` or `https://`, a host name or address and an optional port, with no user, no path but `/`, no query and no fragment. An IPv6 address carries no zone (`%`), and the port is written as a plain number, so `lp2-stake` reads the URL as the run does. Nodes join at its `/join`, so a proxy in front of the sender serves `/join` at that origin. It is not the RPC endpoint: not the RPC URL's scheme, host and port (a port left out is the scheme's default). It may be on the RPC's host at another port or scheme. Required on a public chain, where its host must resolve, on the machine that runs the run, only to public addresses, by the rule `lp2-sender` applies to a node's URL. A name is read as it is, in any case and with or without its trailing dot. On a local chain it is by default the sender's loopback address |
+| `LP2_SENDER_URL` | The sender's public URL, where operators' nodes join: `deployment.json` names it. An origin (`http://` or `https://`, a host and an optional port), not the RPC endpoint. Required on a public chain, where its host must resolve only to public addresses. On a local chain it is by default the sender's loopback address |
 
 The run refuses to start without the first six, before it makes or sends
 anything, and refuses an upgrade or pause key that is G's, the deployer's
 or the other one: the authority, U and S are three different keys. A
-state directory records all three, and a run given another is refused. On a public chain it refuses to start without `LP2_SENDER_URL`,
-before it sends anything. G sends one transaction, the announcement, so it needs gas money
-of its own. `LP2_ROLE_GAS_WEI` now applies to five accounts.
+state directory records all three, and a run given another is refused. On
+a public chain it refuses to start without `LP2_SENDER_URL`, before it
+sends anything, and says why it refuses one. G sends one transaction, the
+announcement, so it needs gas money of its own. `LP2_ROLE_GAS_WEI` applies
+to five accounts.
 
 ### The services
 
@@ -312,7 +320,7 @@ handover, and `public-run.log` keeps them.
 
 ### Against Arbitrum Sepolia
 
-Before the run, the owner makes four keys, the deployer, G, U and S, each
+Before the run, make four keys, the deployer, G, U and S, each
 for the testnet alone, and funds the deployer and G from a faucet. U needs
 gas money only for an upgrade (`demo/public-run upgrade` deploys the new
 code with it), and S only to set a stop. Then:
@@ -341,7 +349,7 @@ keystores can be moved off the machine first. Copy the run's
 ### Publishing the deployment file
 
 Operators start their node container with `LP2_DEPLOYMENT` set to the
-URL of the testnet's deployment file. The owner publishes `deployment.json`
+URL of the testnet's deployment file. The project publishes `deployment.json`
 from the state directory unchanged, through a pull request, in the same
 change that adds the dated manifest. It goes in `deployments/` beside the
 manifest, named for it with `.operator.json` in place of `.json`, for
@@ -349,7 +357,7 @@ example `deployments/public-arbitrum-sepolia-full-<date>.operator.json`.
 Operators are given the raw URL of that file on the repository's host,
 which serves it over HTTPS. A new deployment gets a new file. If the
 sender moves, `serve` writes its new URL into `deployment.json`, and the
-owner publishes the file again under the same name.
+project publishes the file again under the same name.
 
 ### What it costs
 
@@ -392,9 +400,8 @@ about 14 rounds.
 
 ### How long it takes
 
-A round is 50 blocks of the node's clock (R-18): about 10 minutes on
-Arbitrum Sepolia and 50 seconds on a local chain that mines one block a
-second. Two waits make up most of the run, and they overlap:
+A round lasts as in the rewards run. Two waits make up most of the run,
+and they overlap:
 
 - the change, announced in round 1, counts from round 8. The run reads it
   in round 7 and again in round 8, about 60 and 70 minutes after the
@@ -408,13 +415,9 @@ second. Two waits make up most of the run, and they overlap:
 Against Arbitrum Sepolia the run takes about 80 to 90 minutes, as the
 rewards run does. The deployment takes a few minutes of that, and the
 reconciliation a few more. On a local chain mining one block a second it
-took 61 minutes, a 2-minute stop included. Most of that is the hour of the
-price window; the change counted 7 minutes after the deployment. Nothing
-in the run moves time. The window is Parameters' value at deployment,
-3,600 s, fixed by the contract.
-R-25 allows a window as short as 1,800 s, but that needs an announcement
-and seven rounds' wait, which on Arbitrum Sepolia is longer than the half
-hour it would save.
+takes about an hour, most of it the price window. Nothing in the run moves
+time. The window is Parameters' value at deployment, 3,600 s, fixed by the
+contract.
 
 ### A second run, or an interrupted one
 
@@ -428,9 +431,7 @@ started again. The keeper, node and validator then restart with the same
 keys and data and pick up where the chain is. If the run comes back after
 the round before the change has ended, it reads that round's value late.
 A round that has started keeps its values, and the run says when a read
-was late. Once V has opted in, a restarted validator is given nothing to
-send. Its script's opt-in line would otherwise be sent again, late, since
-the contract takes a second opt-in.
+was late.
 
 A state directory records which system it holds. `demo/public-run` refuses
 a full system state directory, and `demo/public-run full` refuses a rewards
