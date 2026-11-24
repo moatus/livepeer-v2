@@ -540,8 +540,10 @@ class Provider:
     redirect() it answers each with a 307 to a second host (the same
     server, named by its address), which answers with a 307 whose Location
     carries `marker` and cannot be read, and counts in followed each
-    request that reaches it; after refuse() it no longer listens, so each
-    connection is refused. forward() makes it forward again."""
+    request that reaches it; after limit() it answers each with 429 and a
+    Retry-After of one second, as a provider that limits the rate of
+    requests does; after refuse() it no longer listens, so each connection
+    is refused. forward() makes it forward again."""
 
     def __init__(self, host: str, port: int, secrets: tuple[str, str] = ("", ""), marker: str = ""):
         import http.server
@@ -561,6 +563,12 @@ class Provider:
                 if provider.mode == "redirect":
                     self.send_response(307)
                     self.send_header("Location", f"http://{host}:{port}/second")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                if provider.mode == "limit":
+                    self.send_response(429)
+                    self.send_header("Retry-After", "1")
                     self.send_header("Content-Length", "0")
                     self.end_headers()
                     return
@@ -605,6 +613,9 @@ class Provider:
 
     def redirect(self) -> None:
         self.mode = "redirect"
+
+    def limit(self) -> None:
+        self.mode = "limit"
 
     def refuse(self) -> None:
         self.server.shutdown()

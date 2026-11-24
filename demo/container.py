@@ -25,11 +25,18 @@ and from then on only watches, kills and restarts it:
      followed; started again with public port 09000 (9000, where the
      responder listened before, written with a leading zero) and that RPC
      URL, its node comes up beside the responder (LP2_TEST_HOLD=started);
-     then its provider rejects and echoes, then redirects, and then refuses
-     connections, and the explorer tells each by its category, and neither
-     credential, as written or decoded, nor the marker appears in any of
-     the container's Docker output, the files under its logs folder, or
-     the explorer's page and JSON.
+     then its provider rejects and echoes, then redirects, then answers 429,
+     and then refuses connections, and the explorer tells each by its
+     category, on every page with the pointer to the instructions, and
+     neither credential, as written or decoded, nor the marker appears in
+     any of the container's Docker output, the files under its logs folder,
+     or the explorer's pages and JSON.
+
+The explorer of the container restarted after the fourth step opens on its
+node, keeps its index in /data/index and resumes it above the deployment's
+first block, and names N from LP2_LABELS, a file the demo writes into the
+data folder once N is known; the first container, started before it,
+says it could not read it.
 
 Then the chain is read: no second registration, grant, bond or claim; N's
 key sent nothing after the node started but its own redemptions; N was
@@ -73,6 +80,7 @@ SYNTHETIC_PASSWORD = "synthetic%40provider-password"  # a Basic-auth password, e
 MARKER = "provider-written-marker"  # what the host a provider redirects to writes; in no URL the demo configures
 CREDENTIALS = (SYNTHETIC_KEY, SYNTHETIC_PASSWORD, urllib.parse.unquote(SYNTHETIC_PASSWORD), MARKER)
 PROVIDER = BASE + 30         # the stand-in RPC provider whose URL carries the credentials
+LABELS_GIVEN = "labels-given.json"  # LP2_LABELS, in the data folder: written once N is known
 KEYED = (f"http://synthetic-user:{SYNTHETIC_PASSWORD}@host.docker.internal:{PROVIDER}"
          f"/v3/{SYNTHETIC_KEY}?apikey={SYNTHETIC_KEY}")
 
@@ -155,6 +163,7 @@ def container_argv(name: str, hold: str | None, ports: tuple[str, ...], public: 
         argv += ["-p", f"127.0.0.1:{PORT['explorer']}:8080"]
     if hold:
         argv += ["-e", f"LP2_TEST_HOLD={hold}"]
+    argv += ["-e", f"LP2_LABELS=/data/{LABELS_GIVEN}"]
     return argv + [IMAGE]
 
 
@@ -326,6 +335,28 @@ def explorer_get(path: str) -> str:
         return r.read().decode()
 
 
+def every_page(shown: dict, label: str, why: str) -> None:
+    """Each of the explorer's six pages, once each shows the banner: the
+    provider's failure by its category, and the pointer to the instructions
+    for getting an RPC URL, within 45 seconds. Each goes into shown, which
+    is read for the credentials."""
+    told = f"The RPC provider is failing:</strong> the RPC provider http://host.docker.internal:{PROVIDER} {why}"
+    paths = ("/", "/network", "/orchestrators", f"/orchestrators/{ADDR['N']}", "/apps", f"/apps/{ADDR['P']}")
+    got: dict[str, str] = {}
+
+    def read() -> bool:
+        got.update({p: explorer_get(p) for p in paths})
+        return all(told in v and "Getting an RPC URL" in v for v in got.values())
+    try:
+        rewards.wait(f"every page of the explorer to show the banner, the provider {why}", read, 45)
+    except Failed:
+        pass
+    check(f"every page shows the banner, the provider {label}: its category, and the pointer to the instructions",
+          {p: (told in v, "Getting an RPC URL" in v) for p, v in got.items()}, {p: (True, True) for p in paths})
+    for p, v in got.items():
+        shown[f"the explorer's page {p}, the provider {label}"] = v
+
+
 def unreachable_start(label: str, rpc: str) -> tuple[int, str]:
     """A container on a data folder of its own whose RPC provider fails from
     the first request: its exit code and its whole Docker output."""
@@ -395,6 +426,8 @@ def main() -> int:
     for who in ("N", "H"):
         sh(["cast", "send", "--rpc-url", common.RPC, "--private-key", KEY["deployer"], ADDR[who], "--value", str(FUNDED_WEI)])
     say(f"  the demo sends N and H {FUNDED_WEI // 10**18} ETH each; from here it only watches, kills and restarts")
+    (DATA / LABELS_GIVEN).write_text(json.dumps({"scenario": None, "accounts": {
+        ADDR["N"]: {"name": "N, the container's node", "simulated": False}, ADDR["P"]: {"name": "P", "simulated": True}}}))
 
     say("\n4. Killed while it waits for the faucet's grant")
     wait_log(one, "waiting for the faucet's grant", 120)
@@ -458,6 +491,13 @@ def main() -> int:
     page = urllib.request.urlopen(f"http://127.0.0.1:{PORT['explorer']}/", timeout=30).read().decode()
     ports = sh(["docker", "port", four])
     check("the explorer is published on the host's loopback only", f"8080/tcp -> 127.0.0.1:{PORT['explorer']}" in ports, True)
+    check("restarted after a kill, the explorer opens on its own node, keeps its index in /data/index and resumes it above "
+          "the deployment's first block",
+          ("Your node" in page and ADDR["N"].lower() in page.lower(), (DATA / "index" / "events.jsonl").is_file(),
+           (status["index"]["resumed_from"] or 0) > first_block), (True, True, True))
+    check("LP2_LABELS: the first container could not read it, and says so; the restarted one names N from it",
+          ("could not read LP2_LABELS" in (common.RUN / "logs" / f"{one}.log").read_text(), status["label"]),
+          (True, "N, the container's node"))
     ROUNDS["stopped"] = current_round()
     sh(["docker", "stop", "-t", "20", four])
     keep(four)
@@ -499,15 +539,19 @@ def main() -> int:
     shown = {"the explorer's JSON, the provider answering": json.dumps(explorer_status())}
     provider.reject()
     shown["the explorer's JSON, the provider rejecting the key"] = explorer_failing("refused the request (HTTP 401)")
-    shown["the explorer's page, the provider rejecting the key"] = explorer_get("/")
+    every_page(shown, "rejecting the key", "refused the request (HTTP 401)")
     provider.redirect()
     shown["the explorer's JSON, the provider redirecting"] = explorer_failing("redirected the request (HTTP 307)")
-    shown["the explorer's page, the provider redirecting"] = explorer_get("/")
+    every_page(shown, "redirecting", "redirected the request (HTTP 307)")
+    provider.limit()
+    every_page(shown, "answering 429", "rate-limited the request (HTTP 429)")
+    shown["the explorer's JSON, the provider answering 429"] = explorer_get(f"/orchestrators/{ADDR['N']}.json")
     provider.refuse()
     shown["the explorer's JSON, the provider refusing connections"] = explorer_failing("could not be reached")
-    shown["the explorer's page, the provider refusing connections"] = explorer_get("/")
+    every_page(shown, "refusing connections", "could not be reached")
     kill(five)
-    failing = [json.loads(shown[k])["unavailable"] for k in shown if "JSON" in k and "answering" not in k]
+    failing = [json.loads(shown[f"the explorer's JSON, the provider {x}"])["unavailable"]
+               for x in ("rejecting the key", "redirecting", "refusing connections")]
     say(f"  the explorer, its provider failing: {'; '.join(f[0][:160] for f in failing)}")
     told = f"the chain's newest block: the RPC provider http://host.docker.internal:{PROVIDER} "
     check("the explorer shows each failure as unavailable, naming what it could not read and the failure's category",

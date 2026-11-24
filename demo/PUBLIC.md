@@ -188,8 +188,8 @@ The run does the following, in order:
 
    The run writes the cases into `ledger-case.json` and
    `full-cases.json`, and `./calculator/check` reproduces both files.
-8. The handover, only when every figure is equal. The run writes two
-   files into the state directory. Its manifest gets neither file: it
+8. The handover, only when every figure is equal. The run writes three
+   files into the state directory. Its manifest gets none of them: it
    records the services, the faucet, the change and the first buy:
    - `deployment.json`, the testnet's deployment file, which operators
      give the node container (`programs/container/README.md`, "The
@@ -202,10 +202,14 @@ The run does the following, in order:
    - `services.json`, for `serve`. It holds the chain id, the deployment's
      first block, every contract, the executor in force, G's address and
      the role key files, relative to the state directory. It holds no key
-     or keystore path of the deployer's or G's.
+     or keystore path of the deployer's or G's;
+   - `labels.json`, for the explorer `serve` runs. It names N, P, V, the
+     keeper and the faucet by their roles, marks P simulated, since the
+     sender's paid requests stand in for users' demand, and names the
+     scenario: the sender pays each node that joins one request a round.
 
    A run with a figure that differs hands nothing over, and removes the
-   two files if an earlier run wrote them, so `serve` refuses the state
+   first two files if an earlier run wrote them, so `serve` refuses the state
    directory. Every program the run started stops with it. Until the
    services start, a round just lasts longer.
 
@@ -267,7 +271,16 @@ chain. It needs no Docker and no model. It starts these services:
   test LPT, once, up to 100 nodes. That includes N and V, at its first
   start. A node is never granted twice, by a faucet restarted or not
   (`programs/cmd/lp2-faucet/main.go`). It sends one transaction per grant
-  from the faucet's gas money.
+  from the faucet's gas money;
+- `lp2-explorer`, with no node, so its `/` is the Network page, on
+  `http://127.0.0.1:` and port 14 above `LP2_DEMO_PORT_BASE`. It keeps its
+  index of the deployment's events in `index/` in the state directory and
+  resumes it at each start, and names accounts from `labels.json`. On a
+  local chain, once it has caught up, `serve` checks N's, V's and P's
+  figures in it once: against the chain's views at the explorer's block,
+  and, for the rounds of the run's ledger case and the run's bonds,
+  against the case. It prints each check, and if one failed, says so
+  again and exits 1 when it is stopped.
 
 If `LP2_SENDER_URL` is set and differs from the URL `deployment.json`
 names, `serve` writes the new one into it and says to publish it again.
@@ -287,7 +300,7 @@ and the sender still pays every other node that joins.
 `serve` prints each round as it starts, and each relay the sender logs,
 and logs each program in `logs/`.
 It runs until it gets SIGTERM or Ctrl-C, then stops its programs and exits
-0. If a program exits, `serve` exits 1 and names that program and its log,
+0, or 1 if a check of the explorer's figures failed. If a program exits, `serve` exits 1 and names that program and its log,
 so a supervisor such as systemd can start it again. It holds the state
 directory's lock as the run does, so the run and the services never run at
 once. To read the run's figures again, stop the services. Then run

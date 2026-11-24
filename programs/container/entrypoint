@@ -15,8 +15,10 @@
 # and withdrawal is the operator key H's.
 #
 # Environment: LP2_DEPLOYMENT (a path inside the container or an http(s)
-# URL), LP2_RPC_URL, LP2_PUBLIC_URL; optional LP2_POLL (seconds, 30) and
-# LP2_EXPLORER_LISTEN (0.0.0.0:8080). LP2_TEST_HOLD=approved, started or
+# URL), LP2_RPC_URL, LP2_PUBLIC_URL; optional LP2_POLL (seconds, 30),
+# LP2_EXPLORER_LISTEN (0.0.0.0:8080) and LP2_LABELS (the explorer's labels
+# file: a path inside the container or an http(s) URL, read at each start).
+# LP2_TEST_HOLD=approved, started or
 # claimed stops the run after that step, for a test to kill it there.
 set -eu
 
@@ -148,6 +150,19 @@ if [ -f "$DATA/deployment.json" ]; then
 fi
 mv "$DATA/deployment.new" "$DATA/deployment.json"
 
+# The labels file, optional: the names of accounts, and a scenario, that
+# the explorer shows. Read at each start; one that cannot be read leaves
+# the explorer the labels it had, and its pages say so.
+set --
+if [ -n "${LP2_LABELS:-}" ]; then
+    set -- --labels "$DATA/labels.json"
+    case $LP2_LABELS in
+    http://* | https://*) curl -fsS --max-time 60 -o "$DATA/labels.new" "$LP2_LABELS" ;;
+    *) cp "$LP2_LABELS" "$DATA/labels.new" ;;
+    esac && mv "$DATA/labels.new" "$DATA/labels.json" ||
+        log "could not read LP2_LABELS $LP2_LABELS; the explorer keeps the labels it had"
+fi
+
 # The two keys, made on first start; the password and keystores are never
 # printed.
 if [ ! -s "$KEYS/password" ]; then
@@ -196,7 +211,7 @@ try read_state
 
 started lp2-explorer --rpc-url "$LP2_RPC_URL" --controller-address "$CONTROLLER" --parameters-address "$PARAMETERS" \
     --stake-ledger-address "$LEDGER" --claims-address "$CLAIMS" --usdc-address "$USDC" --first-block "$FIRST_BLOCK" \
-    --lpt-address "$LPT" --index-dir "$DATA/index" --node "$N" --listen "$EXPLORER_LISTEN" >>"$DATA/logs/explorer.log" 2>&1
+    --lpt-address "$LPT" --index-dir "$DATA/index" --node "$N" --listen "$EXPLORER_LISTEN" "$@" >>"$DATA/logs/explorer.log" 2>&1
 log "explorer: the page of node $N on $EXPLORER_LISTEN inside the container"
 
 # 1. Test ETH for both keys.

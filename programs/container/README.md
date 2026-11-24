@@ -19,9 +19,62 @@ funds to the addresses the container prints.
 - A TCP port the internet can reach on that machine (8935 below). See
   "Ports" for what a home router or a mobile network does to that.
 - A JSON-RPC URL for the testnet's chain (Arbitrum Sepolia for the public
-  testnet), from any provider or your own node.
+  testnet), from any provider or your own node: see "Getting an RPC URL".
 - Test ETH for that chain, from a public faucet, to fund two addresses.
 - The testnet's deployment file: a URL (or a file) the testnet publishes.
+
+## Getting an RPC URL
+
+The container reads and writes the chain only through `LP2_RPC_URL`: the
+node, the steps the container takes and the explorer all use it. For the
+public testnet it is an HTTPS JSON-RPC endpoint of Arbitrum Sepolia.
+
+- **Where to get one.** Arbitrum runs a public endpoint,
+  `https://sepolia-rollup.arbitrum.io/rpc`, which needs no key and limits
+  how fast it answers. Hosted RPC providers give a free plan with a key of
+  your own, which they write into the URL they give you; Arbitrum's
+  documentation lists them under "RPC endpoints and providers". Your own
+  Arbitrum Sepolia node works too.
+- **What it is asked.** Ordinary JSON-RPC over HTTP, several requests to a
+  batch: reading views (`eth_call`) and blocks, sending the two keys'
+  transactions, and reading the deployment's events (`eth_getLogs`). The
+  explorer reads events in pages of 5,000 blocks, halves the page for the
+  rest of its run whenever the provider answers that a range or a result
+  is too large, and sends at most 5 requests a second. Free plans limit
+  both the blocks one `eth_getLogs` may cover and the requests a second or
+  a day, each provider differently.
+- **How long the explorer takes to catch up.** It reads the deployment's
+  events once, from the deployment's first block, keeps them in
+  `/data/index`, and from then on reads only new blocks, after a restart
+  too. Every page shows how far it has read ("block X of Y") until it has
+  caught up. How long the first read takes through a free endpoint has
+  not been measured yet: any figure for it, or for the page size such an
+  endpoint accepts, would be an estimate.
+- **How to set it.** Give it as `-e LP2_RPC_URL=…` when you start the
+  container. To change it, remove the container and start it again on the
+  same data folder with the new URL; nothing else changes. The container
+  stops if the URL is another chain than the deployment's.
+
+The key in the URL is never shown: the log and the explorer name the
+provider by its scheme and host only (see "Read the explorer").
+
+When requests fail, every page of the explorer shows a banner from the
+first failed request until the next one answered. It names the provider
+and what went wrong, in fixed words; the container's log uses the same
+words for the step that failed.
+
+| The RPC provider ... | What it means | What to do |
+|---|---|---|
+| could not be reached | No connection: the host does not resolve, nothing listens at the port, or a firewall is in the way | Check the URL's host and port, and that the machine reaches the internet |
+| did not answer in time | It took the connection but gave no answer in time (the explorer waits 30 seconds) | Wait for it, or use another provider |
+| rate-limited the request (HTTP 429) | More requests than the plan allows, in a second or in a day | Nothing, if the banner comes and goes: the explorer waits (as long as the provider asks, or from 1 second doubling to 60) and asks again, and the container's steps try again every `LP2_POLL` seconds. If it stays, the plan's quota is spent: use another key or provider |
+| refused the request (HTTP status) | An error status, most often 401 or 403: the key is wrong or no longer valid, or its plan does not include Arbitrum Sepolia | Check the key and its plan, and copy the URL again from the provider |
+| redirected the request (HTTP status) | It answered with a redirect, which the container never follows | Give `LP2_RPC_URL` the URL it redirects to |
+| answered with an error (code) | A JSON-RPC error, such as a method its plan does not offer | Use a plan or provider that offers `eth_getLogs` and batched requests |
+| 's answer could not be read | Not a JSON-RPC answer, such as a web page: often a URL that is not the RPC endpoint itself | Check that the URL is the RPC endpoint the provider gives, path included |
+
+While the banner shows, the figures on the page are those read last, at
+the block the page names.
 
 ## Build the image
 
@@ -226,6 +279,7 @@ operator.
 | `LP2_PUBLIC_URL` | The node's URL as the sender reaches it, `http://` or `https://`. Required |
 | `LP2_POLL` | Seconds between checks, 30 unless set |
 | `LP2_EXPLORER_LISTEN` | Where the explorer listens inside the container, `0.0.0.0:8080` unless set |
+| `LP2_LABELS` | Optional: names for accounts, which the explorer shows, as a URL or a path. Read at each start, into `/data/labels.json`; if it cannot be read, the explorer keeps the labels it had and its pages say so. It holds `{"scenario": "…" or null, "accounts": {"0x…": {"name": "…", "simulated": true or false}}}`; a scenario shows on every page, and `simulated` marks an account that stands in for real use |
 | `LP2_TEST_HOLD` | For tests only: `approved`, `started` or `claimed` stops the run after that step, so a test can kill it there |
 
 ## Try it on a local chain

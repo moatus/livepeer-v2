@@ -318,11 +318,13 @@ change announced by an authority key you give it counts seven rounds
 later. When every figure is equal, it hands the deployment over to
 `demo/public-run serve`, which keeps the node, the keeper, a validator,
 `lp2-sender` and `lp2-faucet` running without the deployer's key, so a
-node that registers is granted test LPT and a node that joins is paid. It
-also writes `deployment.json`, the file an operator gives the node
-container. `demo/public-run upgrade` replaces a contract's code on that
-running deployment with the upgrade key, after seven rounds' notice or at
-once under a stop, beside the running services; `demo/public-run stop` and
+node that registers is granted test LPT and a node that joins is paid,
+with `lp2-explorer` beside them. It also writes `deployment.json`, the
+file an operator gives the node container, and `labels.json`, which names
+the run's accounts in the explorer and marks the sender's payer simulated.
+`demo/public-run upgrade` replaces a contract's code on that running
+deployment with the upgrade key, after seven rounds' notice or at once
+under a stop, beside the running services; `demo/public-run stop` and
 `lift` set and lift a stop. `demo/PUBLIC.md` says what to set, what it
 costs, how long it takes and where that file is published.
 

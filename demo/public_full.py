@@ -19,13 +19,19 @@ buyback case; the change as a parameters case. Only when every figure is
 equal does the run hand over: it writes deployment.json, the file operators
 give their node container, and services.json, in the state directory, and
 the same in its manifest, with what the standing services need and no key of
-the deployer's or G's. A run that fails removes both, so serve refuses it.
+the deployer's or G's, and labels.json, naming the run's accounts for the
+explorer, P marked simulated. A run that fails removes both deployment.json
+and services.json, so serve refuses it.
 
 serve starts the standing services from services.json and the role keys in
 the state directory alone: N's node with the light responder, the keeper, the
-scripted validator V, lp2-sender and lp2-faucet. It never reads the
-deployer's or G's keystore. It runs until it is stopped, and exits when one
-of its programs does, naming it.
+scripted validator V, lp2-sender and lp2-faucet, and beside them lp2-explorer
+with no node, its index in index/ in the state directory, naming accounts
+from labels.json. It never reads the deployer's or G's keystore. It runs
+until it is stopped, and exits when one of its programs does, naming it. On
+a local chain, once the explorer has caught up, serve checks N's, V's and
+P's figures in it against the chain's views at the explorer's block and
+against the run's ledger case, once.
 
 The path sends no anvil_* or evm_* call. Environment, as demo/public.py's,
 and for full also:
@@ -45,8 +51,9 @@ default the URL the run used, kept in the state directory), LP2_SENDER_URL
 (a new one is written into deployment.json), LP2_SENDER_LISTEN and
 LP2_NODE_URL.
 
-Exit 0 every figure equal (serve: stopped); 1 a figure differed, a behaviour
-was missing or a service exited; 2 the run could not run or was refused.
+Exit 0 every figure equal (serve: stopped); 1 a figure differed (serve: an
+explorer figure, said when it is stopped), a behaviour was missing or a
+service exited; 2 the run could not run or was refused.
 """
 from __future__ import annotations
 
@@ -58,6 +65,7 @@ import socket
 import subprocess
 import time
 import urllib.parse
+import urllib.request
 from pathlib import Path
 
 import common
@@ -71,6 +79,7 @@ TEMPLATE = "public-arbitrum-sepolia-full.json"
 ROLES = ("N", "P", "V", "Keeper", "Faucet")
 SERVICES = "services.json"
 OPERATORS = "deployment.json"   # the deployment file operators give their node container
+LABELS = "labels.json"          # the names the explorer beside serve shows
 # What the operator container reads from it (programs/container/README.md):
 # each a string or a number, and nothing else.
 # Upgrades, so that an operator can see a stop (R-27).
@@ -556,6 +565,16 @@ def services_doc(chain_id: int) -> dict:
                          "lp2-faucet, granting each registered node test LPT once, from the deployment's first block"]}
 
 
+def labels_doc() -> dict:
+    """The explorer's labels file: each of the run's accounts named by its
+    role, and P marked simulated, since the sender's paid requests stand in
+    for users' demand."""
+    names = {"N": "N, the team's node", "P": "P, the sender's payer", "V": "V, the team's validator",
+             "Keeper": "the keeper", "Faucet": "the faucet"}
+    return {"scenario": "the sender pays each node that joins one request a round",
+            "accounts": {ADDR[k]: {"name": names[k], "simulated": k == "P"} for k in ROLES}}
+
+
 # The pinned node's destination policy (destination.Public in
 # github.com/livepeer/node, the version programs/go.mod pins), which
 # lp2-sender applies to every node URL: an address is public when it is in
@@ -791,12 +810,14 @@ def handover(chain_id: int) -> None:
                                                                    "authority", "accounts")}}
     public.write_manifest(chain_id, more)
     write_public(public.STATE_DIR / OPERATORS, op_text, 0o644)
+    write_public(public.STATE_DIR / LABELS, json.dumps(labels_doc(), indent=1) + "\n", 0o644)
     write_public(public.STATE_DIR / SERVICES, text, 0o600)   # last: serve starts from it
     say(f"  wrote deployment.json for operators: chain {chain_id}, first block {operators['first_block']}, "
         f"{len(operators['contracts'])} contracts, the node's price and tickets, and the sender at "
         f"{operators['sender_url']}. Publish it (demo/PUBLIC.md)")
     say(f"  wrote services.json: chain {chain_id}, first block {svc['from_block']}, {len(svc['contracts'])} contracts, "
         f"executor in force {svc['executor']}, and the key files of {', '.join(svc['keys'])}")
+    say("  wrote labels.json: the explorer beside serve names the run's accounts, P marked simulated")
     say("  the run's programs stop with it; until the services start, a round just lasts longer")
 
 
@@ -891,6 +912,95 @@ def join_n(listen: str, chain_id: int) -> None:
         raise Failed(f"N's join was refused: HTTP {status} {text.strip()[:200]}")
 
 
+def start_explorer(state_dir: Path, from_block: int) -> None:
+    """lp2-explorer beside the services, with no node, so / is the Network
+    page: its index in index/ in the state directory, kept across
+    restarts, and the accounts named by the labels.json the run wrote."""
+    labels = state_dir / LABELS
+    common.start("explorer", [str(state_dir / "bin" / "lp2-explorer"), "--rpc-url", common.RPC,
+                              "--controller-address", C["Controller"], "--parameters-address", C["Parameters"],
+                              "--stake-ledger-address", C["StakeLedger"], "--claims-address", C["Claims"],
+                              "--usdc-address", C["MockUSDC"], "--lpt-address", C["TestLPT"],
+                              "--first-block", str(from_block), "--index-dir", str(state_dir / "index"),
+                              *(["--labels", str(labels)] if labels.is_file() else []),
+                              "--listen", f"127.0.0.1:{PORT['explorer']}"])
+    public.note_holders()
+    say(f"  lp2-explorer on http://127.0.0.1:{PORT['explorer']}/, its index in index/ in the state directory"
+        + ("" if labels.is_file() else f"; no {LABELS} in the state directory, so it names no account"))
+
+
+def check_explorer(since: int) -> bool:
+    """Once the explorer has caught up to block `since`: N's, V's and P's
+    figures in it, all read at its block, against the chain's views at that
+    block, and those the run fixed (the rounds of its ledger case, and its
+    bonds) against the case. False while the explorer is catching up."""
+    net = rewards.explorer_json("/network.json")
+    if not net or not net["index"]["caught_up"] or (net["block"] or 0) < since:
+        return False
+    docs = rewards.explorer_docs(since)
+    net, b = docs["/network.json"], docs["/network.json"]["block"]
+    r = net["round"]
+    say(f"\n  The explorer at block {b}, round {r}: N's, V's and P's figures against the chain's views at that block and "
+        "the run's ledger case")
+    missing = {p: d["unavailable"] for p, d in docs.items() if d["unavailable"]}
+    check("explorer: no figure unavailable on any document", missing, {})
+    if missing:
+        return True
+    case = next(c for c in json.loads((public.STATE_DIR / "ledger-case.json").read_text())["cases"] if c["id"] == "public-run")
+    steps, expected = case["inputs"]["steps"], case["expected"]
+    last = max(int(s["round"]) for s in steps)
+    labels = json.loads((public.STATE_DIR / LABELS).read_text())
+    named = lambda rows: {NAMES.get(x["address"].lower(), x["address"]): x for x in rows}  # noqa: E731
+    check("explorer: the scenario the run's labels.json names", net["scenario"], labels["scenario"])
+    nodes = named(docs["/orchestrators.json"]["orchestrators"])
+    check(f"explorer: the validator set of round {r} is membersAt's at block {b}",
+          sorted(NAMES.get(v["address"].lower(), v["address"]) for v in net["validators"]), rewards.members_at(r, block=b))
+    for n in ("N", "V"):
+        doc = docs[f"/orchestrators/{ADDR[n].lower()}.json"]
+        fees = {x["round"]: int(x["fees_usdc_micro"]) for x in doc["fees_by_round"]}
+        views = iter(common.calls([(C["StakeLedger"], "stakeAt(address,uint256)", (ADDR[n], r)),
+                                   (C["Scores"], "scoreOf(address)", (ADDR[n],)),
+                                   (C["Registry"], "isRegistered(address)", (ADDR[n],))] +
+                                  [(C["Broker"], "feesOf(uint256,address)", (x, ADDR[n])) for x in range(1, r + 1)], b))
+        stake, score, registered = next(views), next(views), next(views)
+        check(f"explorer: {n} registered, its stake this round and score now, and its fees in every round, as the chain "
+              f"has them at block {b}",
+              (n in nodes, int(nodes[n]["stake_wei"]) if n in nodes else None, int(doc["node"]["score_now"]), fees),
+              (bool(registered), stake, score, {x: v for x, v in zip(range(1, r + 1), views) if v}))
+        check(f"explorer: {n} named by the run's labels.json, not simulated", (doc["label"], doc["simulated"]),
+              (labels["accounts"][ADDR[n]]["name"], False))
+        rewards.beside(f"{n}: fees by round, rounds 1 to {last}", {x: v for x, v in fees.items() if x <= last},
+                       {int(x): int(f[n]) for x, f in expected["fees_micro_usdc"].items() if n in f})
+        rewards.beside(f"{n}: stake this round, the run's bonds to it",
+                       int(doc["node"]["stake_wei"]),
+                       sum(int(s["amount_wei"]) for s in steps if s["action"] == "bond" and s["node"] == n), lpt)
+    apps = named(docs["/apps.json"]["apps"])
+    check("explorer: the payers, P alone, named by the run's labels.json and marked simulated",
+          {k: (x["label"], x["simulated"]) for k, x in apps.items()}, {"P": (labels["accounts"][ADDR["P"]]["name"], True)})
+    doc = docs[f"/apps/{ADDR['P'].lower()}.json"]
+    totals = iter(common.calls([(C["Broker"], "totalFees(uint256)", (x,)) for x in range(1, r + 1)], b))
+    check(f"explorer: P's deposit and its pending release are earmarkOf's, and P's fees in every round, P the one payer, "
+          f"totalFees's, at block {b}",
+          ([int(doc["deposit_usdc_micro"]), int(doc["deposit_pending_usdc_micro"])],
+           {x["round"]: int(x["fees_usdc_micro"]) for x in doc["fees_by_round"]}),
+          (words(C["Broker"], "earmarkOf(address,address)", ADDR["P"], common.ZERO, block=b)[:2],
+           {x: v for x, v in zip(range(1, r + 1), totals) if v}))
+    split: dict[int, list[int]] = {}
+    for s in steps:
+        if s["action"] == "redeem" and s["payer"] == "P":
+            cut = rewards.calculate("settlement", {"gross_micro_usdc": s["face_micro_usdc"], "payee_registered": True})
+            f = split.setdefault(int(s["round"]), [0, 0, 0])
+            for i, k in enumerate(("recognized_micro_usdc", "node_micro_usdc", "network_micro_usdc")):
+                f[i] += int(cut[k])
+    rewards.beside(f"P: by round, rounds 1 to {last}, gross, node and network amounts (the case's redeem steps, split as "
+                   "the calculator splits them)",
+                   {x["round"]: [int(x[k]) for k in ("fees_usdc_micro", "node_usdc_micro", "network_usdc_micro")]
+                    for x in doc["fees_by_round"] if x["round"] <= last}, split)
+    page = urllib.request.urlopen(f"http://127.0.0.1:{PORT['explorer']}/apps/{ADDR['P']}", timeout=30).read().decode()
+    check("explorer: P's page marks it simulated", '<span class="badge sim">simulated</span>' in page, True)
+    return True
+
+
 def serve() -> int:
     """The standing services, from services.json and the role keys alone."""
     state_dir = public.outside_repo("LP2_STATE_DIR", False)
@@ -936,7 +1046,7 @@ def serve() -> int:
 
     PORT.update({"responder": RESPONDER, "sender": SENDER})
     listen = sender_listen()
-    common.preflight(["orch", "orch_metrics", "signer_p", "signer_p_metrics", "responder"] +
+    common.preflight(["orch", "orch_metrics", "signer_p", "signer_p_metrics", "responder", "explorer"] +
                      (["sender"] if listen == f"127.0.0.1:{SENDER}" else []), docker=False)
     node_bin = common.fetch_node()
     common.PROGRAMS.update({"lp2-sender": "./cmd/lp2-sender", "lp2-responder": "./cmd/lp2-responder",
@@ -955,6 +1065,9 @@ def serve() -> int:
     start_sender(listen, chain_id in public.LOCAL_CHAINS)
     start_faucet(state_dir, svc["from_block"])
     join_n(listen, chain_id)
+    start_explorer(state_dir, svc["from_block"])
+    since = common.block_number()
+    checked = chain_id not in public.LOCAL_CHAINS   # the explorer's figures are checked on a local chain
     say(f"  {time.strftime('%H:%M:%S')} round {first}; the services run until stopped (Ctrl-C or SIGTERM). "
         "Logs are in logs/ in the state directory")
     last, round_at, said_stall = first, time.time(), False
@@ -983,7 +1096,13 @@ def serve() -> int:
             for line in (ln.decode(errors="replace") for ln in lines):
                 if " relay: node " in line:
                     say(f"  lp2-sender: {line.split(' ', 2)[2][:160]}")
+            checked = checked or check_explorer(since)
             time.sleep(5)
     except KeyboardInterrupt:
         say("  the services are stopped")
+        if common.FAILURES:
+            say(f"{len(common.FAILURES)} check(s) of the explorer's figures failed:")
+            for f in common.FAILURES:
+                say(f"  {f}")
+            return 1
         return 0
