@@ -525,6 +525,53 @@ func TestIndexRereadsWhenItsCheckpointLeavesTheChain(t *testing.T) {
 	}
 }
 
+// A checkpoint replaced by a branch of the same length, or of a shorter
+// one, is found at the next catch-up with nothing new to read: the index
+// reads again from the first block and ends equal to a fresh index, its
+// checkpoint, totals and executors watched.
+func TestIndexRereadsWhenItsCheckpointIsReplacedAtItsHeight(t *testing.T) {
+	for _, head := range []uint64{1000, 900} {
+		f := newChain(&clock{})
+		busy(f)
+		ix := open(t, t.TempDir(), 1000)
+		catchUp(t, ix, source(f, 1000), 1000)
+		f.fork, f.branch, f.head = 440, "other", head
+		f.add(started(460, 3))
+		f.add(bought(firstExec, 470, 3, 5))
+		catchUp(t, ix, source(f, 1000), head)
+		want := open(t, t.TempDir(), 5000)
+		catchUp(t, want, source(f, 1000), head)
+		through, h, _ := ix.Through()
+		if ix.Rollbacks() != 1 || through != head || h != f.hash(head) || !same(ix.Totals(), want.Totals()) ||
+			!slices.Equal(ix.Watched(), want.Watched()) {
+			t.Errorf("head %d: rollbacks %d, checkpoint %d %s, watched %v and %v; totals equal a fresh index's: %v",
+				head, ix.Rollbacks(), through, h, ix.Watched(), want.Watched(), same(ix.Totals(), want.Totals()))
+		}
+	}
+}
+
+// An executor announced in a page the chain changed under is not watched:
+// it joins the index only with the page that announces it.
+func TestIndexForgetsAnExecutorOfAPageDropped(t *testing.T) {
+	f := newChain(&clock{})
+	busy(f)
+	ix := open(t, t.TempDir(), 2000)
+	reorganised := false
+	f.during = func() {
+		if !reorganised {
+			reorganised = true
+			f.mu.Lock()
+			f.fork, f.branch = 480, "other" // no announcement at 500 on this branch
+			f.mu.Unlock()
+		}
+	}
+	catchUp(t, ix, source(f, 1000), 1000)
+	want := fresh(t, f)
+	if slices.Contains(ix.Watched(), secondExec) || !same(ix.Totals(), want) {
+		t.Errorf("watched %v after the page announcing %s was dropped", ix.Watched(), secondExec)
+	}
+}
+
 // A page whose last block's hash changes while its logs are read is not
 // written: it is read again, and no event of the branch left is kept.
 func TestIndexDropsAPageTheChainChangedUnder(t *testing.T) {
@@ -541,7 +588,9 @@ func TestIndexDropsAPageTheChainChangedUnder(t *testing.T) {
 		}
 	}
 	catchUp(t, ix, source(f, 1000), 1000)
-	if !slices.Equal(f.asked, [][2]uint64{{100, 1000}, {100, 1000}, {100, 1000}}) {
+	// Read, read again for the executor it announces, dropped; then read
+	// afresh, announcement and all, since a dropped page leaves nothing.
+	if !slices.Equal(f.asked, [][2]uint64{{100, 1000}, {100, 1000}, {100, 1000}, {100, 1000}}) {
 		t.Errorf("pages %v", f.asked)
 	}
 	for _, b := range ix.Totals().Buys {
@@ -608,6 +657,13 @@ func TestIndexRefusesAnotherDeployment(t *testing.T) {
 	if err := ix.Begin(Header{ChainID: 1, Controller: controller, FirstBlock: 100}); !errors.Is(err, ErrDeployment) {
 		t.Errorf("another chain: %v", err)
 	}
+	if err := ix.Check(controller, 101); !errors.Is(err, ErrDeployment) || !strings.Contains(err.Error(), "from block 100") ||
+		!strings.Contains(err.Error(), "from block 101") {
+		t.Errorf("another first block: %v", err)
+	}
+	if err := ix.Begin(Header{ChainID: 1337, Controller: controller, FirstBlock: 101}); !errors.Is(err, ErrDeployment) {
+		t.Errorf("another first block, at Begin: %v", err)
+	}
 	if err := ix.Check(controller, 100); err != nil {
 		t.Errorf("its own deployment: %v", err)
 	}
@@ -616,6 +672,21 @@ func TestIndexRefusesAnotherDeployment(t *testing.T) {
 	}
 	ix.Close()
 	if after, _ := os.ReadFile(filepath.Join(dir, FileName)); string(after) != string(before) {
+		t.Errorf("the refused file changed")
+	}
+}
+
+// A file in another format is refused, and stays as it was.
+func TestIndexRefusesAnotherFormat(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, FileName)
+	other := []byte(`{"format":2,"chain_id":1337,"controller":"0x00000000000000000000000000000000000000c0","first_block":100}` + "\n" +
+		`{"through":200,"hash":"0x01"}` + "\n")
+	os.WriteFile(path, other, 0o644)
+	if _, err := Open(dir, 100, 5000); !errors.Is(err, ErrFormat) || !strings.Contains(err.Error(), "format 2") {
+		t.Errorf("format 2: %v", err)
+	}
+	if after, _ := os.ReadFile(path); string(after) != string(other) {
 		t.Errorf("the refused file changed")
 	}
 }

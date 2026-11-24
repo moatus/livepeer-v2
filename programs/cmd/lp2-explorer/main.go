@@ -53,7 +53,10 @@
 // Nothing on chain lists the nodes (R-23): they are the NodeRegistered
 // events. A claim's score, what it paid and its pot are its Claimed event
 // (R-12 reads the score when the claim executes); a node's own part of
-// the pot is Claims partOf. The score now, which a claim made now would
+// the pot is Claims partOf. A round with no Claimed event that a claim
+// could have executed in (its claim window opened) is read from Claims
+// entitlementOf: if Claims says it is claimed, it shows as claimed with
+// what it paid, and its claim score is unavailable, never 0. The score now, which a claim made now would
 // read, is scoreOf of the score source in force for the round (R-11,
 // R-20), read at every snapshot, since a validator's vote and a change of
 // the validator set (R-13) both move it. Stake and cut are StakeLedger's

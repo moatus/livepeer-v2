@@ -68,7 +68,10 @@ type fakeChain struct {
 	down     bool
 	revert   map[common.Address]bool // calls to these contracts fail
 	requests int                     // request elements answered
-	stake    string                  // every stakeAt
+	// claimedOnly is a round each node's entitlement says is claimed, with
+	// no Claimed event among the logs.
+	claimedOnly map[common.Address]uint64
+	stake       string // every stakeAt
 	// Blocks from fork on have hashes salted by branch: a new branch is a
 	// reorganisation from fork.
 	fork, branch uint64
@@ -214,6 +217,19 @@ func (f *fakeChain) call(to common.Address, data []byte) (any, error) {
 		out = []any{n(1_500_000)}
 	case to == brokerAt && m.Name == "earmarkOf":
 		out = []any{n(f.deposit[0]), n(f.deposit[1]), n(0)}
+	case to == claimsAt && m.Name == "entitlementOf":
+		out = []any{false, n(0), n(0)}
+		node, r := args[0].(common.Address), args[1].(*big.Int).Uint64()
+		claimed := f.claimedOnly[node] == r
+		for _, l := range f.logs {
+			if l.Address == claimsAt && l.Topics[0] == index.ABI.Events["Claimed"].ID &&
+				common.BytesToAddress(l.Topics[1].Bytes()) == node && new(big.Int).SetBytes(l.Topics[2].Bytes()).Uint64() == r {
+				claimed = true
+			}
+		}
+		if claimed {
+			out = []any{true, wei("300551889676665523465"), wei("150275944838332761733")}
+		}
 	case to == claimsAt && m.Name == "partOf":
 		out = []any{n(0), false}
 		if args[2].(*big.Int).Int64() == 2 {
@@ -376,6 +392,19 @@ func TestReadsTheNodeAndTheTestnet(t *testing.T) {
 	if c := *s.Claims; len(c) != 1 || c[0].Score.big().Int64() != 1_000_000 || (*s.FeesByPayer)[0].Address != payerAt {
 		t.Errorf("claims %+v, fees by payer %+v", c, *s.FeesByPayer)
 	}
+
+	// A claimed round whose Claimed event the index has not found has no
+	// claim score, and says so: never the score now, and never unclaimed.
+	f = newFake()
+	f.logs = slices.DeleteFunc(deployment(), func(l types.Log) bool { return l.BlockNumber == claimOf2.BlockNumber })
+	f.claimedOnly = map[common.Address]uint64{nodeAt: 2}
+	e = newTestExplorer(t, f, testConfig)
+	e.cycle(context.Background())
+	s, _ = e.nodeDoc(nodeAt)
+	if r2 := s.Node.Rounds[10]; r2.ClaimScore != nil || len(s.Unavailable) != 1 || !strings.Contains(s.Unavailable[0], "round 2's claim score") ||
+		!*r2.Claimed || *r2.State != stateClaimed || r2.Paid.big().String() != "300551889676665523465" || r2.Part.big().String() != "46961232761978988041" {
+		t.Errorf("round 2 with no Claimed event: %+v, unavailable %v", r2, s.Unavailable)
+	}
 }
 
 // A read that fails shows its figures as unavailable, null in the JSON and
@@ -399,17 +428,20 @@ func TestFailedReadIsUnavailableAndRecovers(t *testing.T) {
 	}
 
 	// Contracts failing leave the others read, and their own figures null.
-	// Whether a round is claimed, what it paid and its fees are the index's
-	// events, so they stay read.
+	// A round with a Claimed event, and one waiting to be claimable, stay
+	// read: neither needs Claims. One that could have been claimed with no
+	// event is unknown.
 	f.down, f.revert = false, map[common.Address]bool{claimsAt: true, ledgerAt: true}
 	e.cycle(context.Background())
 	m = getJSON(t, h, nodePath)
 	round := node(m)["rounds"].([]any)[0].(map[string]any)
 	r2 := node(m)["rounds"].([]any)[10].(map[string]any)
+	r5 := node(m)["rounds"].([]any)[7].(map[string]any)
 	if node(m)["stake_wei"] != nil || node(m)["bond_wei"] != nil || round["stake_wei"] != nil || round["claimed"] != false ||
 		round["paid_wei"] != "0" || round["part_wei"] != nil || round["claim_score"] != nil || r2["part_wei"] != nil ||
-		node(m)["registered"] != true || round["fees_usdc_micro"] != "0" || r2["fees_usdc_micro"] != "1000000" {
-		t.Errorf("with Claims and StakeLedger failing: %v, %v", node(m), round)
+		node(m)["registered"] != true || round["fees_usdc_micro"] != "0" || r2["fees_usdc_micro"] != "1000000" ||
+		r5["claimed"] != nil || r5["paid_wei"] != nil || r5["state"] != nil || r2["claimed"] != true || r2["paid_wei"] != "300551889676665523465" {
+		t.Errorf("with Claims and StakeLedger failing: %v, %v, %v", node(m), round, r5)
 	}
 
 	f.revert = map[common.Address]bool{}

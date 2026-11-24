@@ -89,8 +89,12 @@ type Index struct {
 	PageBlocks uint64
 }
 
-// ErrDeployment is a file that belongs to another deployment.
-var ErrDeployment = errors.New("the index belongs to another deployment")
+// ErrDeployment is a file that belongs to another deployment; ErrFormat
+// one in a format this reader does not read.
+var (
+	ErrDeployment = errors.New("the index belongs to another deployment")
+	ErrFormat     = errors.New("the index is in another format")
+)
 
 // Open opens the index in dir, creating the folder and the file when
 // missing, takes its lock, and reads the file to its last checkpoint,
@@ -139,7 +143,6 @@ func (ix *Index) load() error {
 	var (
 		offset, keep int64
 		page         []Event
-		events       []Event
 		bad          error // a line that could not be read: dropped, unless a checkpoint follows it
 		n            int
 	)
@@ -159,7 +162,7 @@ func (ix *Index) load() error {
 				return fmt.Errorf("%s line 1 is not the index's first line: %w", ix.path, err)
 			}
 			if h.Format != Format {
-				return fmt.Errorf("%s is in format %d; this reader reads format %d: use a new folder", ix.path, h.Format, Format)
+				return fmt.Errorf("%w: %s is in format %d; this reader reads format %d: use a new folder", ErrFormat, ix.path, h.Format, Format)
 			}
 			ix.header, ix.headerEnd, keep = &h, offset, offset
 			continue
@@ -173,8 +176,10 @@ func (ix *Index) load() error {
 			if bad != nil {
 				return fmt.Errorf("%s, before its last checkpoint: %w", ix.path, bad)
 			}
-			events = append(events, page...)
-			page = nil
+			for i := range page {
+				ix.add(&page[i])
+			}
+			page = page[:0]
 			through := *cp.Through
 			ix.through, ix.hash, keep = &through, *cp.Hash, offset
 			continue
@@ -193,9 +198,6 @@ func (ix *Index) load() error {
 	}
 	if _, err := ix.file.Seek(keep, io.SeekStart); err != nil {
 		return err
-	}
-	for i := range events {
-		ix.add(&events[i])
 	}
 	if ix.through != nil {
 		from := *ix.through + 1
@@ -378,21 +380,36 @@ func tooLarge(err error) bool {
 // checkpoint's block is no longer the chain's, the file keeps only its
 // first line and the index reads again from the first block.
 func (ix *Index) CatchUp(ctx context.Context, src *Source, c Contracts, head uint64, progress func()) error {
-	if ix.deployed == nil {
-		a, err := ix.deploymentExecutor(ctx, src, c)
-		if err != nil {
-			return err
-		}
-		ix.deployed = &a
-	}
 	changed := 0
 	for {
+		if ix.deployed == nil {
+			a, err := ix.deploymentExecutor(ctx, src, c)
+			if err != nil {
+				return err
+			}
+			ix.deployed = &a
+		}
 		next := ix.first
 		if ix.through != nil {
 			next = *ix.through + 1
 		}
 		if next > head {
-			return nil
+			// Nothing to read, and the checkpoint is still checked: a
+			// branch of the same length, or a shorter one, replaces it too.
+			if ix.through == nil {
+				return nil
+			}
+			hs, err := hashes(ctx, src, *ix.through)
+			if err != nil {
+				return err
+			}
+			if hs[0] == ix.hash {
+				return nil
+			}
+			if err := ix.reset(); err != nil {
+				return err
+			}
+			continue
 		}
 		to := min(next+ix.PageBlocks-1, head)
 		events, hash, err := ix.readPage(ctx, src, c, next, to)
@@ -407,7 +424,7 @@ func (ix *Index) CatchUp(ctx context.Context, src *Source, c Contracts, head uin
 			if err := ix.reset(); err != nil {
 				return err
 			}
-			return ix.CatchUp(ctx, src, c, head, progress)
+			continue
 		case errors.Is(err, errChanged):
 			if changed++; changed == 5 {
 				return fmt.Errorf("blocks %d to %d: %w, five times", next, to, err)
@@ -457,7 +474,8 @@ type header struct {
 	Time hexutil.Uint64 `json:"timestamp"`
 }
 
-// hashes reads the hash of each block.
+// hashes reads the hash of each block: the zero hash for a block the
+// chain does not have.
 func hashes(ctx context.Context, src *Source, blocks ...uint64) ([]common.Hash, error) {
 	out := make([]header, len(blocks))
 	reqs := make([]rpc.BatchElem, len(blocks))
@@ -470,9 +488,6 @@ func hashes(ctx context.Context, src *Source, blocks ...uint64) ([]common.Hash, 
 		if reqs[i].Error != nil {
 			return nil, fmt.Errorf("block %d: %w", blocks[i], reqs[i].Error)
 		}
-		if out[i].Hash == (common.Hash{}) {
-			return nil, fmt.Errorf("block %d: %w", blocks[i], errChanged)
-		}
 		hs[i] = out[i].Hash
 	}
 	return hs, nil
@@ -481,7 +496,7 @@ func hashes(ctx context.Context, src *Source, blocks ...uint64) ([]common.Hash, 
 // readPage reads blocks from to to: the hashes of the previous
 // checkpoint's block and of the page's last block, the logs, then the two
 // hashes again. A page that announces an executor not yet watched is read
-// again with it.
+// again with it; the executor joins the index's when the page is committed.
 func (ix *Index) readPage(ctx context.Context, src *Source, c Contracts, from, to uint64) ([]Event, common.Hash, error) {
 	blocks := []uint64{to}
 	if ix.through != nil {
@@ -494,6 +509,9 @@ func (ix *Index) readPage(ctx context.Context, src *Source, c Contracts, from, t
 	if ix.through != nil && before[1] != ix.hash {
 		return nil, common.Hash{}, errRollback
 	}
+	if before[0] == (common.Hash{}) {
+		return nil, common.Hash{}, fmt.Errorf("block %d: %w", to, errChanged)
+	}
 	emitter := emitters(c)
 	var topics []common.Hash
 	for _, ev := range ABI.Events {
@@ -501,8 +519,9 @@ func (ix *Index) readPage(ctx context.Context, src *Source, c Contracts, from, t
 	}
 	slices.SortFunc(topics, func(a, b common.Hash) int { return a.Cmp(b) })
 	var events []Event
+	var found []common.Address // executors this page announces, not yet the index's
 	for {
-		watched := ix.Watched()
+		watched := append(ix.Watched(), found...)
 		addresses := append([]common.Address{c.Registry, c.Broker, c.Claims, c.Clock, c.Parameters}, watched...)
 		var logs []types.Log
 		req := []rpc.BatchElem{{Method: "eth_getLogs", Result: &logs, Args: []any{map[string]any{
@@ -542,7 +561,7 @@ func (ix *Index) readPage(ctx context.Context, src *Source, c Contracts, from, t
 			if e.Name == "Announced" && e.Int("group").Cmp(big.NewInt(GroupExecutor)) == 0 {
 				for _, v := range e.Fields["values"].([]*big.Int) {
 					if a := common.BigToAddress(v); a != (common.Address{}) && !slices.Contains(watched, a) {
-						ix.totals.Executors[a] = true // watched from now on, even if this page is read again
+						found = append(found, a)
 						announced = true
 					}
 				}

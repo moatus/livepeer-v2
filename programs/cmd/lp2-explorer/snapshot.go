@@ -49,6 +49,10 @@ type rowViews struct {
 	round uint64
 	stake *view
 	part  *view // only for a claimed round
+	// ent is the round's entitlement, read only for a round with no Claimed
+	// event that a claim could have executed in: the index missing the
+	// event never makes a claimed round unclaimed.
+	ent *view
 }
 
 // read reads the snapshot at the checkpoint (through, hash).
@@ -152,8 +156,7 @@ func (e *explorer) read(ctx context.Context, through uint64, hash common.Hash) (
 			vs = append(vs, row.stake)
 			delay(k)
 			if _, ok := t.Claims[n][k]; ok {
-				row.part = &view{what: fmt.Sprintf("round %d's part of %s", k, n.Hex()), to: c.Claims, method: "partOf",
-					args: []any{n, n, kn}, keep: func(out []any) bool { return out[1].(bool) }}
+				row.part = partView(c.Claims, n, k)
 				vs = append(vs, row.part)
 			}
 			w.rows = append(w.rows, row)
@@ -204,7 +207,43 @@ func (e *explorer) read(ctx context.Context, through uint64, hash common.Hash) (
 			vs = append(vs, w.usdc)
 		}
 	}
+	for _, n := range nodes {
+		for i := range nv[n].rows {
+			row := &nv[n].rows[i]
+			if _, ok := t.Claims[n][row.round]; ok {
+				continue
+			}
+			expired := false
+			if d := delays[row.round]; d.err == nil && len(d.out[0].([]*big.Int)) > 0 {
+				from := row.round + d.out[0].([]*big.Int)[0].Uint64()
+				if now < from {
+					continue // waiting: no claim of it can have executed
+				}
+				expired = now > from+claimWindow // no claim of it can execute any more
+			}
+			row.ent = &view{what: fmt.Sprintf("round %d's entitlement of %s", row.round, n.Hex()), to: c.Claims,
+				method: "entitlementOf", args: []any{n, new(big.Int).SetUint64(row.round)},
+				keep: func(out []any) bool { return out[0].(bool) || expired }}
+			vs = append(vs, row.ent)
+		}
+	}
 	e.call(ctx, blk, vs...)
+
+	// A round Claims says is claimed, with no Claimed event in the index:
+	// its part, which the first read did not ask for.
+	vs = nil
+	for _, n := range nodes {
+		for i := range nv[n].rows {
+			row := &nv[n].rows[i]
+			if row.ent != nil && row.ent.err == nil && row.ent.out[0].(bool) {
+				row.part = partView(c.Claims, n, row.round)
+				vs = append(vs, row.part)
+			}
+		}
+	}
+	if len(vs) > 0 {
+		e.call(ctx, blk, vs...)
+	}
 
 	// The snapshot's block is still the chain's: nothing read is from a
 	// branch the chain left.
@@ -281,21 +320,42 @@ func (e *explorer) read(ctx context.Context, through uint64, hash common.Hash) (
 		for _, row := range w.rows {
 			out := Round{Round: row.round, Fees: feesOf(t, row.round, &n), Stake: r.int(row.stake)}
 			claim, claimed := t.Claims[n][row.round]
-			out.Claimed = &claimed
-			if claimed {
+			known := true
+			switch {
+			case claimed:
 				out.ClaimScore, out.Paid, out.Pot = newInt(claim.Score), newInt(claim.Paid), newInt(claim.Pot)
+			case row.ent == nil:
+				out.Paid, out.Pot = newInt(new(big.Int)), newInt(new(big.Int))
+			case row.ent.err != nil:
+				known = false
+				r.add(row.ent.what, row.ent.err)
+			case row.ent.out[0].(bool):
+				// Claims says claimed, and the index has no Claimed event
+				// for it: what it paid is the view's, its score is unknown.
+				claimed = true
+				out.Paid, out.Pot = newInt(row.ent.out[1].(*big.Int)), newInt(row.ent.out[2].(*big.Int))
+				r.add(fmt.Sprintf("round %d's claim score of %s", row.round, n.Hex()),
+					fmt.Errorf("no Claimed event for the node from block %d", e.cfg.first))
+			default:
+				out.Paid, out.Pot = newInt(new(big.Int)), newInt(new(big.Int))
+			}
+			if known {
+				out.Claimed = &claimed
+			}
+			if claimed {
 				if row.part.err == nil {
 					withdrawn := row.part.out[1].(bool)
 					out.Part, out.PartWithdrawn = newInt(row.part.out[0].(*big.Int)), &withdrawn
 				} else {
 					r.add(row.part.what, row.part.err)
 				}
-			} else {
-				out.Paid, out.Pot = newInt(new(big.Int)), newInt(new(big.Int))
 			}
 			if d := r.first(delays[row.round]); d != nil {
 				state, from, until := rewardState(row.round, now, d.Uint64(), claimed)
-				out.State, out.ClaimableFrom, out.ClaimableUntil = &state, &from, &until
+				out.ClaimableFrom, out.ClaimableUntil = &from, &until
+				if known {
+					out.State = &state
+				}
 			}
 			node.Rounds = append(node.Rounds, out)
 		}
@@ -426,4 +486,10 @@ func (e *explorer) hashOf(ctx context.Context, n uint64) (common.Hash, error) {
 		return common.Hash{}, fmt.Errorf("block %d: %w", n, req[0].Error)
 	}
 	return h.Hash, nil
+}
+
+// partView is node's own part of its round's pot, kept once withdrawn.
+func partView(claims, node common.Address, round uint64) *view {
+	return &view{what: fmt.Sprintf("round %d's part of %s", round, node.Hex()), to: claims, method: "partOf",
+		args: []any{node, node, new(big.Int).SetUint64(round)}, keep: func(out []any) bool { return out[1].(bool) }}
 }

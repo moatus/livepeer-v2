@@ -28,6 +28,7 @@ const viewsABI = `[
  {"type":"function","name":"bondAt","stateMutability":"view","inputs":[{"name":"holder","type":"address"},{"name":"node","type":"address"},{"name":"round","type":"uint256"}],"outputs":[{"name":"","type":"uint256"}]},
  {"type":"function","name":"networkHeld","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"uint256"}]},
  {"type":"function","name":"earmarkOf","stateMutability":"view","inputs":[{"name":"payer","type":"address"},{"name":"node","type":"address"}],"outputs":[{"name":"amount","type":"uint256"},{"name":"pending","type":"uint256"},{"name":"readyRound","type":"uint256"}]},
+ {"type":"function","name":"entitlementOf","stateMutability":"view","inputs":[{"name":"node","type":"address"},{"name":"round","type":"uint256"}],"outputs":[{"name":"claimed","type":"bool"},{"name":"paid","type":"uint256"},{"name":"pot","type":"uint256"}]},
  {"type":"function","name":"partOf","stateMutability":"view","inputs":[{"name":"holder","type":"address"},{"name":"node","type":"address"},{"name":"round","type":"uint256"}],"outputs":[{"name":"amount","type":"uint256"},{"name":"withdrawn","type":"bool"}]},
  {"type":"function","name":"scoreOf","stateMutability":"view","inputs":[{"name":"node","type":"address"}],"outputs":[{"name":"","type":"uint256"}]},
  {"type":"function","name":"membersAt","stateMutability":"view","inputs":[{"name":"round","type":"uint256"}],"outputs":[{"name":"","type":"address[]"}]},
