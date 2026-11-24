@@ -1,4 +1,4 @@
-"""Independent integer implementation of rulebook october-main-text-v5.
+"""Independent integer implementation of rulebook october-main-text-v6.
 
 LPT replay models round-start stake/cuts, bonding, transfers, unbonding,
 claims, minting and holder pots. It rejects overspending as invalid input.
@@ -358,6 +358,9 @@ def calculate(kind: str, inputs: dict, parameters: Parameters,
 
     if kind == "ledger":
         return ledger(inputs, parameters)
+
+    if kind == "upgrades":
+        return upgrades(inputs)
 
     if kind == "buyback":
         return buyback(inputs, parameters)
@@ -1082,3 +1085,111 @@ def buyback(inputs: dict, parameters: Parameters) -> dict:
     return {"bought": bought, "refused": refused, "held_micro_usdc": held,
             "reserve_usdc_micro_usdc": pool.usdc, "reserve_lpt_wei": pool.lpt,
             "lpt_supply_wei": supply}
+
+
+def upgrades(inputs: dict) -> dict:
+    """Replay R-27. Other-contract calls model only their own stop gate."""
+    upgrader, pauser = inputs["upgrader"], inputs["pauser"]
+    if "zero" in (upgrader, pauser) or len({upgrader, pauser, inputs["authority"]}) != 3:
+        raise ValueError("invalid deployment keys")
+    sides_by_contract = {
+        "Broker": ("USDC",),
+        "StakeLedger": ("LPT",), "Claims": ("LPT",),
+        "Scores": ("LPT",), "Buyback": ("LPT",),
+        "Parameters": ("USDC", "LPT"), "Registry": ("USDC", "LPT"),
+        "RoundClock": ("USDC", "LPT"),
+    }
+    gated = {
+        "Broker": {"fund", "requestRelease", "release", "redeemWinningTicket", "drawNetwork"},
+        "StakeLedger": {"bond", "unbond", "transferBond", "unbondTransfer", "rebond", "withdrawUnbonded"},
+        "Claims": {"claim", "withdrawParts", "mintRoundShares", "withdrawValidatorParts"},
+        "Buyback": {"buy"},
+    }
+    result = {key: [] for key in ("announced", "applied", "stops", "lifted", "named", "observed", "refused")}
+    pending, stops = {}, {"USDC": 0, "LPT": 0}
+    named, counts_from = "zero", 0
+    previous_round, previous_step = 0, 0
+    for step in sorted(inputs["steps"], key=lambda s: integer(s["step"])):
+        label, now = step["step"], integer(step["round"])
+        number = integer(label)
+        if number <= previous_step or now < max(1, previous_round):
+            raise ValueError("duplicate step, round zero or decreasing round")
+        previous_step, previous_round = number, now
+        if named != "zero" and now >= counts_from:
+            pauser, named, counts_from = named, "zero", 0
+        action = step["action"]
+        contract = step.get("contract")
+        code, args, by_call = None, [], False
+        active = {side: now < end for side, end in stops.items()}
+        if action in ("set_stop", "lift_stop"):
+            if step["side"] not in ("USDC", "LPT", "BOTH"):
+                raise ValueError("unknown stop side")
+            sides = ["USDC", "LPT"] if step["side"] == "BOTH" else [step["side"]]
+        privileged = {"announce_upgrade", "apply_upgrade", "withdraw_upgrade", "lift_stop", "name_pauser", "remove_pauser"}
+        if action in privileged and step["caller"] != upgrader:
+            code = "NOT_AUTHORIZED"
+        elif action == "set_stop" and (pauser == "zero" or step["caller"] != pauser):
+            code = "NOT_AUTHORIZED"
+        elif action in ("announce_upgrade", "apply_upgrade", "withdraw_upgrade", "observe_pending") and contract not in sides_by_contract:
+            code, args = "NOT_UPGRADEABLE", [contract]
+        elif action == "announce_upgrade":
+            address = step["code"]
+            if not boolean(inputs["addresses"].get(address, {}).get("code", False)):
+                code, args = "CODE_INVALID", [address]
+            else:
+                pending[contract] = {"code": address, "call": step.get("call", ""),
+                                     "applies_from": now + 7, "lapses_at": now + 28}
+                result["announced"].append({"step": label, "applies_from": now + 7, "lapses_at": now + 28})
+        elif action in ("apply_upgrade", "withdraw_upgrade"):
+            announcement = pending.get(contract)
+            under_stop = all(active[side] for side in sides_by_contract[contract])
+            if announcement is None:
+                code = "NOTHING_PENDING"
+            elif action == "withdraw_upgrade":
+                del pending[contract]
+            elif now >= announcement["lapses_at"]:
+                code, args = "UPGRADE_LAPSED", [announcement["lapses_at"]]
+            elif now < announcement["applies_from"] and not under_stop:
+                code, args = "UPGRADE_NOT_READY", [announcement["applies_from"]]
+            elif not boolean(inputs["addresses"][announcement["code"]]["code"]):
+                code, args = "CODE_INVALID", [announcement["code"]]
+            elif announcement["call"] and announcement["call"] in inputs["addresses"][announcement["code"]].get("refuses", []):
+                by_call = True
+            else:
+                del pending[contract]
+                result["applied"].append({"step": label, "under_stop": under_stop})
+        elif action == "set_stop":
+            for side in sides:
+                stops[side] = now + 7
+            result["stops"].append({"step": label, "ends_at": now + 7})
+        elif action == "lift_stop":
+            lifted = [side for side in sides if active[side]]
+            if not lifted:
+                code = "NOT_STOPPED"
+            else:
+                for side in lifted:
+                    stops[side] = 0
+                result["lifted"].append({"step": label, "sides": lifted})
+        elif action == "name_pauser":
+            if step["next"] in ("zero", upgrader):
+                code = "KEY_INVALID"
+            else:
+                named, counts_from = step["next"], now + 7
+                result["named"].append({"step": label, "counts_from": counts_from})
+        elif action == "remove_pauser":
+            pauser, named, counts_from = "zero", "zero", 0
+        elif action == "observe_keys":
+            result["observed"].append({"step": label, "pauser": pauser, "named": named, "counts_from": counts_from})
+        elif action == "observe_pending":
+            result["observed"].append({"step": label, **pending.get(contract, {
+                "code": "zero", "call": "", "applies_from": 0, "lapses_at": 0})})
+        elif action == "call":
+            if step["function"] in gated.get(contract, set()) and active[sides_by_contract[contract][0]]:
+                code = "STOPPED"
+        else:
+            raise ValueError(f"unknown upgrades action: {action}")
+        if code:
+            result["refused"].append({"step": label, "code": code, **({"args": args} if args else {})})
+        elif by_call:
+            result["refused"].append({"step": label, "by_call": True})
+    return result

@@ -1,6 +1,6 @@
 # Independent calculator
 
-Implements `rulebook/october-main-text-v5.md` using Python 3.12 and its
+Implements `rulebook/october-main-text-v6.md` using Python 3.12 and its
 standard library. It was built from the rulebook and shared examples,
 without reading contract implementations. Python's arbitrary-size integers
 allow exact products and powers without dependencies or floating point.
@@ -36,7 +36,7 @@ divided once, as R-08 and R-19 require. Claims recompute from the earning
 round's inputs with the claim's score.
 
 Ledger cases replay registration, funding, redemption, payout, observation and
-release in fresh in-memory state. The default check covers 98 v5, 97 v4, 93 v3, 74 v2, 35 v1 and 26 v0 cases. No state survives a calculation. The check also runs ledger input regressions.
+release in fresh in-memory state. The default check covers 104 v6, 98 v5, 97 v4, 93 v3, 74 v2, 35 v1 and 26 v0 cases. No state survives a calculation. The check also runs ledger input regressions.
 Decreasing rounds, conflicting details for one ticket ID (including refused
 attempts), and observations without a node raise `ValueError` with a
 `ledger input error` message, rather than returning a rule refusal code.
@@ -88,3 +88,9 @@ executor when present, otherwise the executor in force. Other executors
 use the case’s accepted-pool list. The checker selects ten groups for v5
 and nine for older profiles; direct callers may pass parameter_groups=9
 to Parameters.from_strings for older rules. The buyback replay is unchanged.
+
+Upgrade cases replay R-27 notices, stops and pause-key succession. Calls on
+other contracts check only their own stop gate, ignoring `meets` as the
+format requires. Steps sort by their numeric labels; duplicate labels,
+round zero and decreasing rounds are invalid inputs. No code or token
+execution is simulated by an application.
