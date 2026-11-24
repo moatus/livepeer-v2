@@ -6,6 +6,7 @@ import {IRoundClock} from "../../interfaces/IRoundClock.sol";
 import {IMockUSDC} from "../../interfaces/IMockUSDC.sol";
 import {IRegistry} from "../../interfaces/IRegistry.sol";
 import {IParameters} from "../../interfaces/IParameters.sol";
+import {IUpgrades} from "../../interfaces/IUpgrades.sol";
 
 /// Holds all USDC: payer accounts, used tickets, fees per round and node,
 /// and the network share (rulebook R-03, R-04, R-21, R-22). The node finds
@@ -34,6 +35,9 @@ contract Broker is INetworkShareTicketBroker {
     /// Where the node cut is read, for the round a fee is redeemed in, and
     /// the executor, for the round a draw runs in (R-03, R-16, R-25).
     IParameters private immutable params;
+    /// The upgrade contract, asked whether this contract's side is stopped
+    /// (R-27).
+    IUpgrades private immutable upgrades;
 
     /// One balance of a payer: its deposit (node address(0)) or its earmark
     /// for one node, with the release pending on it (R-22). A pending
@@ -56,12 +60,13 @@ contract Broker is INetworkShareTicketBroker {
     mapping(uint256 => uint256) public totalFees;
     uint256 public networkHeld;
 
-    constructor(IMockUSDC usdc_, IRegistry registry_, IRoundClock clock_, IParameters params_) {
-        require(address(params_) != address(0), "zero address");
+    constructor(IMockUSDC usdc_, IRegistry registry_, IRoundClock clock_, IParameters params_, IUpgrades upgrades_) {
+        require(address(params_) != address(0) && address(upgrades_) != address(0), "zero address");
         usdc = usdc_;
         registry = registry_;
         clock = clock_;
         params = params_;
+        upgrades = upgrades_;
     }
 
     // --- payer ---------------------------------------------------------
@@ -70,6 +75,7 @@ contract Broker is INetworkShareTicketBroker {
     /// earmark 0 it funds the deposit and names no node. Funding leaves a
     /// pending request as it is (R-22).
     function fund(uint256 deposit_, address node, uint256 earmark_) external {
+        _running();
         if (earmark_ == 0) {
             node = address(0);
         } else {
@@ -88,6 +94,7 @@ contract Broker is INetworkShareTicketBroker {
     /// balance less `amount`. A new request replaces the pending one and
     /// restarts the wait; amount 0 cancels it.
     function requestRelease(address node, uint256 amount) external {
+        _running();
         Balance storage b = balance[msg.sender][node];
         if (amount > b.amount) revert AMOUNT_TOO_LARGE();
         uint256 readyRound = amount == 0 ? 0 : clock.currentRound() + RELEASE_WAIT;
@@ -98,6 +105,7 @@ contract Broker is INetworkShareTicketBroker {
     /// Pays the payer its pending amount from the request's round + 3, and
     /// clears the request (R-22).
     function release(address node) external {
+        _running();
         Balance storage b = balance[msg.sender][node];
         uint256 amount = b.pending;
         if (amount == 0 || clock.currentRound() < b.readyRound) revert RELEASE_NOT_READY();
@@ -140,8 +148,10 @@ contract Broker is INetworkShareTicketBroker {
     /// Anyone may submit a ticket; the node's half goes only to the
     /// recipient's payout address (R-03). Pays min(face, deposit + that
     /// node's earmark), deposit first (R-04), drawing on the whole balance
-    /// whatever is pending.
-    function redeemWinningTicket(Ticket calldata t, bytes calldata sig, uint256 recipientRand) external {
+    /// whatever is pending. Virtual, so that new code for the Broker's proxy
+    /// may extend it (R-27).
+    function redeemWinningTicket(Ticket calldata t, bytes calldata sig, uint256 recipientRand) public virtual {
+        _running();
         bytes32 ticketHash = keccak256(
             abi.encodePacked(
                 t.recipient, t.sender, t.faceValue, t.winProb, t.senderNonce, t.recipientRandHash, t.auxData
@@ -185,6 +195,7 @@ contract Broker is INetworkShareTicketBroker {
     /// every caller while group 10 is address(0), then AMOUNT_TOO_LARGE
     /// above networkHeld.
     function drawNetwork(uint256 amount, address to) external {
+        _running();
         address executor = address(uint160(params.valuesAt(BUYBACK_EXECUTOR, clock.currentRound())[0]));
         if (msg.sender != executor || executor == address(0)) revert NOT_AUTHORIZED();
         if (amount > networkHeld) revert AMOUNT_TOO_LARGE();
@@ -194,6 +205,12 @@ contract Broker is INetworkShareTicketBroker {
     }
 
     // --- internals ------------------------------------------------------
+
+    /// R-27: refused STOPPED, before any other refusal, while the USDC stop
+    /// is in force.
+    function _running() private view {
+        if (upgrades.stopped(IUpgrades.Side.USDC)) revert STOPPED();
+    }
 
     /// floor(paid x cut / 10^6), with the node cut in force in `round`, the
     /// round the fee is redeemed in (R-03, R-25), split so that no product

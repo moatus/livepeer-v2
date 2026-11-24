@@ -5,6 +5,7 @@ import {vm, Vm} from "./Vm.sol";
 import {RewardsFixture} from "./RewardsFixture.sol";
 import {Scores} from "../src/scores/Scores.sol";
 import {IScores} from "../interfaces/IScores.sol";
+import {IUpgrades} from "../interfaces/IUpgrades.sol";
 import {StakeLedger} from "../src/money/StakeLedger.sol";
 import {IParameters} from "../interfaces/IParameters.sol";
 
@@ -45,7 +46,8 @@ contract ScoresTest is RewardsFixture {
 
     function world() internal {
         deployRewards();
-        vset = new Scores(registry, clock, ledger, params);
+        // The cases' Scores, behind a proxy as the deployment's is.
+        vset = Scores(behind(address(new Scores(registry, clock, ledger, params)), "", IUpgrades.Side.LPT));
     }
 
     // --- the shared examples ----------------------------------------------

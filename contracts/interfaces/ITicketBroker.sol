@@ -107,4 +107,6 @@ interface INetworkShareTicketBroker is ITicketBroker {
     event NetworkDrawn(address indexed to, uint256 amount);
 
     error NOT_AUTHORIZED();
+    /// Refused before any other refusal while R-27's USDC stop is in force.
+    error STOPPED();
 }

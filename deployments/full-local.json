@@ -1,6 +1,6 @@
 {
   "testnet": "full-local",
-  "about": "What the full system testnet contains and every stand-in it uses. It is deployed fresh on a local chain at every run, so no address is fixed here: ./dev demo buyback and ./dev demo full each print the addresses of their run and write them to .cache/demo/run/addresses.json. Both read the chain, LPT and pool values below from this file, and check the buyback values below against those Parameters holds at deployment, so what runs is what this file says. Rewards's testnet, rewards-local.json, still runs with ./dev demo.",
+  "about": "What the full system testnet contains and every stand-in it uses. It is deployed fresh on a local chain at every run, so no address is fixed here: ./dev demo buyback and ./dev demo full each print the addresses of their run and write them to .cache/demo/run/addresses.json. Both read the chain, LPT and pool values below from this file, and check the buyback values below against those Parameters holds at deployment, so what runs is what this file says. Rewards's testnet, rewards-local.json, still runs with ./dev demo. Each contract whose code may be replaced (rulebook R-27) is deployed behind a proxy, at the address everyone uses; its side is the stop under which its code may be replaced at once, and addresses.json also gives the code each proxy runs.",
   "rulebook": "rulebook/october-main-text-v5.md",
   "vectors": "vectors/october-main-text-v5.json",
   "contracts": [
@@ -12,16 +12,19 @@
     {
       "contract": "Registry",
       "source": "contracts/src/authority/Registry.sol",
+      "side": "both",
       "node_name": "BondingManager"
     },
     {
       "contract": "RoundClock",
       "source": "contracts/src/clock/RoundClock.sol",
+      "side": "both",
       "node_name": "RoundsManager"
     },
     {
       "contract": "Broker",
       "source": "contracts/src/money/Broker.sol",
+      "side": "USDC",
       "node_name": "TicketBroker",
       "checks": "only the executor Parameters' group 10 names for the round a draw runs in may draw the network share (drawNetwork); at deployment that is the Buyback"
     },
@@ -38,11 +41,13 @@
     {
       "contract": "StakeLedger",
       "source": "contracts/src/money/StakeLedger.sol",
+      "side": "LPT",
       "node_name": "none"
     },
     {
       "contract": "Scores",
       "source": "contracts/src/scores/Scores.sol",
+      "side": "LPT",
       "node_name": "none: Parameters names it as the deployment's score source, and Claims reads it as its validator set"
     },
     {
@@ -53,21 +58,35 @@
     {
       "contract": "Parameters",
       "source": "contracts/src/authority/Parameters.sol",
+      "side": "both",
       "node_name": "none: the Broker reads its fee split from it, Claims, StakeLedger and Scores their values, and the Buyback its values (groups 8 and 9), and the Broker the executor that may draw (group 10)",
       "checks": "authority() is G, the governance stand-in; deployed after the TestPool, at the address the Broker, StakeLedger and Scores were given; its deployment buyback values are the TestPool and the buyback values below, and its deployment executor (group 10) is the Buyback, taken at construction as the address predicted for it"
     },
     {
       "contract": "Claims",
       "source": "contracts/src/money/Claims.sol",
+      "side": "LPT",
       "node_name": "none"
     },
     {
       "contract": "Buyback",
       "source": "contracts/src/money/Buyback.sol",
+      "side": "LPT",
       "node_name": "none",
       "checks": "broker() is the Broker, values() is Parameters, poolCodeHash() is the runtime code hash of the TestPool deployed with it, and acceptsPool(TestPool) is true"
+    },
+    {
+      "contract": "Upgrades",
+      "source": "contracts/src/authority/Upgrades.sol",
+      "node_name": "none: the admin of every proxy, which the Broker, StakeLedger, Claims and the Buyback ask whether their side is stopped",
+      "checks": "deployed last, at the address every proxy names as its admin; each proxy's ERC-1967 admin slot is Upgrades and its implementation slot the code deployed for it; clock() is the RoundClock's proxy; upgrader() and pauser() are the keys below, and the authority, the upgrade key and the pause key are three distinct addresses"
     }
   ],
+  "keys": {
+    "authority": "G, the governance stand-in: a throwaway key the run makes",
+    "upgrader": "U, the upgrade key: an address the run makes up, whose key nobody holds, so no code is replaced",
+    "pauser": "S, the pause key: an address the run makes up, whose key nobody holds, so no side is stopped"
+  },
   "node": {
     "source": "https://github.com/livepeer/node",
     "commit": "e2b331958a5704016310153a7d33b7a634758f38",
@@ -156,7 +175,7 @@
     {
       "stand_in": "G, the governance stand-in",
       "for": "Governance announcing parameter changes (R-25)",
-      "value": "A throwaway key the run makes, fixed in Parameters at deployment as its one authority: it announces and withdraws with lp2-params, and a change counts from the announce round + 7. No contract has an owner key, and the Controller's names are fixed at deployment"
+      "value": "A throwaway key the run makes, fixed in Parameters at deployment as its one authority: it announces and withdraws with lp2-params, and a change counts from the announce round + 7. No contract has an owner key; the upgrade and pause keys are addresses the run makes up (below), and the Controller's names are fixed at deployment"
     },
     {
       "stand_in": "TestPool",
@@ -212,6 +231,21 @@
       "stand_in": "Keeper",
       "for": "Whoever starts rounds, mints each round's validator and treasury amounts, buys and pokes",
       "value": "A throwaway key: ./dev demo buyback starts rounds and makes the walk's pokes and buys with it at the walk's times, then runs lp2-keeper --once --parameters-address, which buys or pokes at the executor in force for the round only when its call would succeed, and then leaves lp2-keeper running while the buyback moves to a second executor; ./dev demo full runs lp2-keeper --parameters-address through the run. Anyone may do any of these (R-10, R-16, R-18), so a stopped keeper delays them and loses nothing"
+    },
+    {
+      "stand_in": "U, the upgrade key",
+      "for": "Livepeer's Security Committee (R-27)",
+      "value": "One address named at deployment, held by Upgrades: it announces new code for a contract, applies it from the announce round + 7 to + 27 (at once while the contract's side is stopped), withdraws it, lifts a stop and names or removes the pause key. Here an address the run makes up, whose key nobody holds"
+    },
+    {
+      "stand_in": "S, the pause key",
+      "for": "The Security Committee's emergency stop (R-27)",
+      "value": "One address named at deployment: it sets the USDC stop (the Broker's payments), the LPT stop (bonding, claims and the buy) or both, each in force for 7 rounds unless U lifts it. Here an address the run makes up, whose key nobody holds"
+    },
+    {
+      "stand_in": "Proxy, a short proxy of our own",
+      "for": "An audited standard proxy, as a network with value would use",
+      "value": "contracts/src/authority/Proxy.sol: the code in force in ERC-1967's implementation slot, its admin Upgrades, fixed in its code; only Upgrades' upgradeToAndCall is its own, and every other call runs the code in force"
     }
   ]
 }

@@ -91,7 +91,7 @@ contract BuybackRefusalsTest is FullFixture {
                     param("buyback_every_rounds")
                 )
             );
-            Buyback wired = new Buyback(named, broker, clock, lpt, usdc, f.codehash);
+            Buyback wired = new Buyback(named, broker, clock, lpt, usdc, f.codehash, upgradesAt);
             require(wired.poolCodeHash() == f.codehash, "the hash passes");
             expectRefused(
                 as_(who("Anyone"), address(wired), abi.encodeCall(IBuybackExecutor.poke, ())), poolInvalid(f), "poke"

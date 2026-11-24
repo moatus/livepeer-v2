@@ -8,6 +8,7 @@ import {IRoundClock} from "../../interfaces/IRoundClock.sol";
 import {IBurnableTestLPT} from "../../interfaces/ITestLPT.sol";
 import {IMockUSDC} from "../../interfaces/IMockUSDC.sol";
 import {ITestPool} from "../../interfaces/ITestPool.sol";
+import {IUpgrades} from "../../interfaces/IUpgrades.sol";
 
 /// Buys LPT with the network share and burns it (rulebook R-16). Anyone may
 /// buy, once every buyEveryRounds rounds, and the buy computes its own
@@ -26,6 +27,9 @@ contract Buyback is IBuyback {
     IBurnableTestLPT private immutable lpt;
     IMockUSDC private immutable usdc;
     bytes32 public immutable poolCodeHash;
+    /// The upgrade contract, asked whether this contract's side is stopped
+    /// (R-27).
+    IUpgrades private immutable upgrades;
 
     uint256 public lastBuyRound;
     address public observedPool;
@@ -52,7 +56,8 @@ contract Buyback is IBuyback {
         IRoundClock clock_,
         IBurnableTestLPT lpt_,
         IMockUSDC usdc_,
-        bytes32 poolCodeHash_
+        bytes32 poolCodeHash_,
+        IUpgrades upgrades_
     ) {
         source = values_;
         broker_ = brokerAddress;
@@ -60,6 +65,7 @@ contract Buyback is IBuyback {
         lpt = lpt_;
         usdc = usdc_;
         poolCodeHash = poolCodeHash_;
+        upgrades = upgrades_;
     }
 
     function values() external view returns (address) {
@@ -84,6 +90,7 @@ contract Buyback is IBuyback {
 
     /// R-16 rules 2 to 7, refusals in rule 11's order.
     function buy() external returns (uint256 usdcIn, uint256 lptBought, uint256 burned) {
+        _running();
         uint256 round = clock.currentRound();
         IBuybackValues.BuybackValues memory v = source.buybackValuesAt(round);
         if (lastBuyRound != 0 && round < lastBuyRound + v.buyEveryRounds) {
@@ -171,6 +178,12 @@ contract Buyback is IBuyback {
     }
 
     // --- internals ------------------------------------------------------
+
+    /// R-27: refused STOPPED, before any other refusal, while the LPT stop
+    /// is in force.
+    function _running() private view {
+        if (upgrades.stopped(IUpgrades.Side.LPT)) revert STOPPED();
+    }
 
     /// Rule 13 (_accepts, as acceptsPool), then the reserves (NO_LIQUIDITY) and the cumulative price
     /// of LPT in µUSDC per wei now, as v2's oracle library reads it: the

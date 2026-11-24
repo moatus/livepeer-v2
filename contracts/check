@@ -212,7 +212,8 @@ sys.excepthook = not_run
 PAIRS = [("Controller", "IController"), ("Registry", "IRegistry"), ("RoundClock", "IRoundClock"),
          ("Broker", "INetworkShareTicketBroker"), ("MockUSDC", "IMockUSDC"), ("StakeLedger", "IStakeLedger"),
          ("TestLPT", "IBurnableTestLPT"), ("Claims", "IClaims"), ("Scores", "IScores"),
-         ("Buyback", "IBuyback"), ("TestPool", "ITestPool"), ("Parameters", "IParameters")]
+         ("Buyback", "IBuyback"), ("TestPool", "ITestPool"), ("Parameters", "IParameters"),
+         ("Upgrades", "IUpgrades")]
 
 # A struct's fields always carry their names; top-level parameters only
 # where named is set (events and errors).
@@ -267,11 +268,10 @@ for contract, interface in PAIRS:
     if c == i and not swaps:
         print(f"abi: {contract} equals {interface}")
 
-# Interfaces with no contract in PAIRS: IUpgrades until its contract is
-# built, and IProxy, whose contract has no functions of its own (every call
-# enters its fallback). No contract imports them yet, so nothing else
-# compiles them: each must compile and declare its shape.
-for interface in ["IUpgrades", "IProxy"]:
+# The interface with no contract in PAIRS: IProxy, whose contract has no
+# functions of its own (every call enters its fallback). It must compile
+# and declare its shape; its tests call the proxy through it.
+for interface in ["IProxy"]:
     run = subprocess.run(["forge", "inspect", f"interfaces/{interface}.sol:{interface}", "abi", "--json"],
                          capture_output=True, text=True)
     if "Compiler run failed" in run.stdout + run.stderr:

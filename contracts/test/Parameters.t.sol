@@ -7,6 +7,7 @@ import {ScoreStub} from "./RewardsFixture.sol";
 import {Parameters} from "../src/authority/Parameters.sol";
 import {Scores} from "../src/scores/Scores.sol";
 import {IStakeLedger} from "../interfaces/IStakeLedger.sol";
+import {IUpgrades} from "../interfaces/IUpgrades.sol";
 import {Buyback} from "../src/money/Buyback.sol";
 import {TestPool} from "../src/money/TestPool.sol";
 import {MockUSDC} from "../src/money/MockUSDC.sol";
@@ -186,7 +187,18 @@ contract ParametersTest is FullFixture {
         name("MockUSDC", address(usdc));
         name("TestLPT", address(lpt));
         name("OtherToken", address(new MockUSDC()));
-        p = new Parameters(who(str(at, ".inputs.authority")), clock, address(s), address(pool), address(buyback));
+        // The case's Parameters, behind a proxy as the deployment's is.
+        p = Parameters(
+            behind(
+                address(
+                    new Parameters(
+                        who(str(at, ".inputs.authority")), clock, address(s), address(pool), address(buyback)
+                    )
+                ),
+                "",
+                IUpgrades.Side.BOTH
+            )
+        );
         string memory a = string.concat(at, ".inputs.addresses");
         if (!vm.keyExistsJson(vectors, a)) return;
         string[] memory ns = vm.parseJsonKeys(vectors, a);
@@ -375,7 +387,7 @@ contract ParametersTest is FullFixture {
         LyingPool ours = new LyingPool(address(usdc), address(lpt));
         LyingPool other = new LyingPool(address(usdc), address(new MockUSDC()));
         LyingPool same = new LyingPool(address(usdc), address(usdc));
-        Buyback pinned = new Buyback(params, broker, clock, lpt, usdc, address(ours).codehash);
+        Buyback pinned = new Buyback(params, broker, clock, lpt, usdc, address(ours).codehash, upgradesAt);
         Parameters q = new Parameters(who("G"), clock, address(0), address(ours), address(pinned));
         require(address(other).codehash == address(ours).codehash, "one code");
         expectEq(announceOn(q, address(ours)).length, 0, "the deployment's two tokens");

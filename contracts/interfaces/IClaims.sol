@@ -81,4 +81,6 @@ interface IClaims {
     error NOT_CLAIMED();
     error NO_SUCH_ROUND();
     error NOT_REGISTERED();
+    /// Refused before any other refusal while R-27's LPT stop is in force.
+    error STOPPED();
 }

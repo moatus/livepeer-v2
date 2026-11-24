@@ -82,4 +82,6 @@ interface IBuyback is IBuybackExecutor {
     error POOL_INVALID(address pool);
     /// The pool delivered less than it quoted.
     error LPT_SHORT(uint256 quoted, uint256 received);
+    /// Refused before any other refusal while R-27's LPT stop is in force.
+    error STOPPED();
 }

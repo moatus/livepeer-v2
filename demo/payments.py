@@ -95,7 +95,7 @@ def main() -> int:
         new_key(who)
     keys = {who: keystore(who, pw) for who in ("N", "P", "P2", "keeper")}
     deploy_payments()
-    (RUN / "addresses.json").write_text(json.dumps({"contracts": C, "accounts": {k: v for k, v in ADDR.items()}}, indent=1))
+    (RUN / "addresses.json").write_text(json.dumps({"contracts": C, "implementations": IMPL, "accounts": {k: v for k, v in ADDR.items()}}, indent=1))
     say(f"  local chain on {RPC} (chain id {chain['chain_id']}); throwaway keys for the node N, payers P and P2, the keeper")
     say("  contracts: " + ", ".join(f"{k} {v}" for k, v in C.items()))
     check("RoundClock.roundLength() equals the shared examples' round length", call(C["RoundClock"], "roundLength()"),

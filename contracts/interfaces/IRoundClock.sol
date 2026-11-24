@@ -8,6 +8,10 @@ interface IRoundClock {
     /// lasted roundLength() blocks; refused with ROUND_NOT_OVER before that.
     function initializeRound() external;
 
+    /// Starts round 1 while the round is 0, as a proxy's creation runs it;
+    /// refused with ALREADY_STARTED once a round has started (R-18).
+    function initialize() external;
+
     /// Counted from 1. A round lasts until someone starts the next one.
     function currentRound() external view returns (uint256);
 
@@ -24,4 +28,5 @@ interface IRoundClock {
     event RoundStarted(uint256 indexed round, uint256 startBlock, bytes32 blockHash);
 
     error ROUND_NOT_OVER();
+    error ALREADY_STARTED();
 }

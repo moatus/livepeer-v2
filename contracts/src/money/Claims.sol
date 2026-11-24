@@ -10,6 +10,7 @@ import {IStakeLedger} from "../../interfaces/IStakeLedger.sol";
 import {IScoreSource} from "../../interfaces/IScoreSource.sol";
 import {IScores} from "../../interfaces/IScores.sol";
 import {IParameters} from "../../interfaces/IParameters.sol";
+import {IUpgrades} from "../../interfaces/IUpgrades.sol";
 import {RewardMath} from "../math/RewardMath.sol";
 
 /// The one LPT minter (rulebook R-09, R-10, R-12, R-14, R-24). It mints each
@@ -53,6 +54,9 @@ contract Claims is IClaims {
     IScores private immutable validators;
     /// The treasury address, fixed at deployment (R-10).
     address private immutable treasury;
+    /// The upgrade contract, asked whether this contract's side is stopped
+    /// (R-27).
+    IUpgrades private immutable upgrades;
 
     /// One (node, round) entitlement: whether it has been claimed, what the
     /// claim minted, and the pot it left here for the node's holders.
@@ -94,12 +98,13 @@ contract Claims is IClaims {
         IStakeLedger ledger_,
         IParameters params_,
         IScores validators_,
-        address treasury_
+        address treasury_,
+        IUpgrades upgrades_
     ) {
         require(
             address(lpt_) != address(0) && address(registry_) != address(0) && address(clock_) != address(0)
                 && address(broker_) != address(0) && address(ledger_) != address(0) && address(params_) != address(0)
-                && address(validators_) != address(0) && treasury_ != address(0),
+                && address(validators_) != address(0) && treasury_ != address(0) && address(upgrades_) != address(0),
             "zero address"
         );
         lpt = lpt_;
@@ -110,6 +115,7 @@ contract Claims is IClaims {
         params = params_;
         validators = validators_;
         treasury = treasury_;
+        upgrades = upgrades_;
     }
 
     // --- the node's claim (R-12, R-24) --------------------------------------
@@ -117,6 +123,7 @@ contract Claims is IClaims {
     /// Refusals in the units section's order: who, then
     /// the round and the node named, then when, then once, then the score.
     function claim(address node, uint256 round) external {
+        _running();
         if (!registry.mayActFor(msg.sender, node)) revert IClaims.NOT_AUTHORIZED();
         if (round == 0) revert IClaims.NO_SUCH_ROUND();
         if (!registry.isRegistered(node)) revert IClaims.NOT_REGISTERED();
@@ -165,6 +172,7 @@ contract Claims is IClaims {
     /// list moves nothing. A list naming round 0 is refused with
     /// NO_SUCH_ROUND, whatever else it holds.
     function withdrawParts(address node, uint256[] calldata rounds) external {
+        _running();
         _noRoundZero(rounds);
         uint256 amount = 0;
         for (uint256 i = 0; i < rounds.length; i++) {
@@ -193,6 +201,7 @@ contract Claims is IClaims {
     /// address is read now . The loop runs over the members, at most
     /// 33 (R-13), never over holders or opted-in nodes (R-23).
     function mintRoundShares(uint256 round) external {
+        _running();
         if (round == 0) revert IClaims.NO_SUCH_ROUND();
         if (round >= clock.currentRound()) revert IClaims.CLAIM_TOO_EARLY();
         if (minted[round]) revert IClaims.ALREADY_CLAIMED();
@@ -249,6 +258,7 @@ contract Claims is IClaims {
     /// pot of 0 and withdraws as 0. Any refusal reverts the whole list, so a
     /// refused list moves nothing.
     function withdrawValidatorParts(address node, uint256[] calldata rounds) external {
+        _running();
         _noRoundZero(rounds);
         uint256 amount = 0;
         for (uint256 i = 0; i < rounds.length; i++) {
@@ -329,5 +339,11 @@ contract Claims is IClaims {
     function _part(uint256 pot, address holder, address node, uint256 round) private view returns (uint256) {
         if (pot == 0) return 0;
         return RewardMath.partOf(pot, ledger.bondAt(holder, node, round), ledger.stakeAt(node, round));
+    }
+
+    /// R-27: refused STOPPED, before any other refusal, while the LPT stop
+    /// is in force.
+    function _running() private view {
+        if (upgrades.stopped(IUpgrades.Side.LPT)) revert STOPPED();
     }
 }

@@ -75,4 +75,6 @@ interface IStakeLedger {
     error UNBOND_NOT_READY();
     error CUT_OUT_OF_RANGE();
     error SAME_NODE();
+    /// Refused before any other refusal while R-27's LPT stop is in force.
+    error STOPPED();
 }

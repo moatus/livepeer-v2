@@ -125,22 +125,15 @@ def keeper_once(keystore_file: Path, password_file: Path) -> tuple[int, str]:
 # --- deployment -------------------------------------------------------------------
 
 def deploy_full() -> None:
-    """Rewards's contracts with the pool, and Parameters naming the Buyback's
-    predicted address as the executor (group 10), then the Buyback, which
-    reads its values from Parameters and is pinned to the pool's code."""
-    # Payments creates five contracts and rewards with the pool six more
-    # (the token, StakeLedger, Scores, the pool, Parameters and Claims).
-    # The Buyback is the twelfth.
-    buyback_at = next_address(11)
-    deploy_rewards(buyback_at, pool=True)
+    """Rewards's contracts with the pool, Parameters naming the Buyback's
+    predicted address as the executor (group 10), and the Buyback, which
+    reads its values from Parameters and is pinned to the pool's code; each
+    upgradeable one behind its proxy, then Upgrades (common.deploy_system)."""
+    deploy_system(FULL)
     code_hash = sh(["cast", "keccak", rpc("eth_getCode", [C["TestPool"], "latest"])])
-    C["Buyback"] = forge_create("src/money/Buyback.sol:Buyback", C["Parameters"], C["Broker"],
-                                C["RoundClock"], C["TestLPT"], C["MockUSDC"], code_hash)
-    if C["Buyback"].lower() != buyback_at.lower():
-        raise Failed(f"the Buyback landed at {C['Buyback']}, not {buyback_at} as Parameters was told")
     for n in ("TestPool", "Buyback", "Broker", "Parameters"):
         NAMES[C[n].lower()] = n
-    (RUN / "addresses.json").write_text(json.dumps({**C, "t0": T0}, indent=1) + "\n")
+    (RUN / "addresses.json").write_text(json.dumps({**C, "implementations": IMPL, "t0": T0}, indent=1) + "\n")
     say("  " + ", ".join(f"{n} {C[n]}" for n in ("Broker", "TestLPT", "TestPool", "Parameters", "Buyback")))
 
     say("\n2. The deployment's check")
@@ -347,7 +340,7 @@ def main() -> int:
 
     latest = int(rpc("eth_getBlockByNumber", ["latest", False])["timestamp"], 16)
     T0 = (latest // 3600 + 2) * 3600
-    (RUN / "addresses.json").write_text(json.dumps({**C, "t0": T0}, indent=1) + "\n")
+    (RUN / "addresses.json").write_text(json.dumps({**C, "implementations": IMPL, "t0": T0}, indent=1) + "\n")
     supply_before = call(C["TestLPT"], "totalSupply()")
     say(f"\n3. Section 1's walk, from chain time {T0} (time 0 below); supply {lpt(supply_before)} LPT")
     if current_round() != 1:
@@ -600,8 +593,10 @@ def move(password: Path) -> None:
     say(f"\n8. The move (owner's instruction of 2026-11-23): the buyback executor is a parameter")
     pinned = f"0x{call(C['Buyback'], 'poolCodeHash()'):064x}"
     C["TestPool2"] = forge_create("src/money/TestPool.sol:TestPool", C["MockUSDC"], C["TestLPT"])
+    # A second executor, not the deployment's Buyback: no proxy, and it asks
+    # the deployment's Upgrades whether the LPT side is stopped.
     C["Buyback2"] = forge_create("src/money/Buyback.sol:Buyback", C["Parameters"], C["Broker"], C["RoundClock"],
-                                 C["TestLPT"], C["MockUSDC"], pinned)
+                                 C["TestLPT"], C["MockUSDC"], pinned, C["Upgrades"])
     x, x2, p, p2 = C["Buyback"], C["Buyback2"], C["TestPool"], C["TestPool2"]
     for n in ("TestPool2", "Buyback2"):
         NAMES[C[n].lower()] = n

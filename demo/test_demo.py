@@ -574,14 +574,14 @@ class PublicFull(unittest.TestCase):
         # which the full system template stands beside and does not replace: what
         # the rewards path reads from a template is the same in it, and its
         # contracts are the rewards template's, each with its address, but
-        # Parameters, which that deployment predates.
+        # Parameters and Upgrades, which that deployment predates.
         dated = json.loads((ROOT / "deployments" / "public-arbitrum-sepolia-2026-11-21.json").read_text())
         rewards = json.loads((ROOT / "deployments" / "public-arbitrum-sepolia.json").read_text())
         for key in ("node", "model", "price", "signer_limits", "lpt", "rulebook", "vectors", "chain"):
             with self.subTest(key=key):
                 self.assertEqual(dated[key], rewards[key])
         self.assertEqual([c["contract"] for c in dated["contracts"]],
-                         [c["contract"] for c in rewards["contracts"] if c["contract"] != "Parameters"])
+                         [c["contract"] for c in rewards["contracts"] if c["contract"] not in ("Parameters", "Upgrades")])
         self.assertTrue(all(c["address"].startswith("0x") and len(c["address"]) == 42 for c in dated["contracts"]))
         self.assertEqual((dated["deployment"]["deployed"], dated["deployment"]["chain_id"]), (True, 421614))
         self.assertTrue(dated["about"].endswith(f"from {rewards['testnet']}.json. The addresses, accounts and "

@@ -633,7 +633,7 @@ def main() -> int:
         if who not in ("deployer", "W"):
             KEYS[who] = keystore(who, pw)
     deploy_rewards()
-    (common.RUN / "addresses.json").write_text(json.dumps({"contracts": C, "accounts": dict(ADDR)}, indent=1))
+    (common.RUN / "addresses.json").write_text(json.dumps({"contracts": C, "implementations": common.IMPL, "accounts": dict(ADDR)}, indent=1))
     say(f"  local chain on {common.RPC} (chain id {MANIFEST['chain']['chain_id']}); throwaway keys for nodes N, M, K and L, N's payout W,")
     say("  holders O, D, E, F and H, payers P and P2, validators V1 to V4, the keeper and an anyone; the treasury is an address with no key")
     say("  contracts: " + ", ".join(f"{k} {v}" for k, v in C.items()))

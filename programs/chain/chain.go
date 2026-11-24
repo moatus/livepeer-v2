@@ -93,6 +93,7 @@ var Codes = []string{
 	"NOTHING_HELD", "NO_LIQUIDITY", "ALREADY_BOUGHT", "TWAP_NOT_READY", "SLIPPAGE", "NOT_DUE",
 	"POOL_INVALID", "LPT_SHORT",
 	"NOT_UPGRADEABLE", "CODE_INVALID", "UPGRADE_NOT_READY", "UPGRADE_LAPSED", "NOT_STOPPED", "KEY_INVALID",
+	"STOPPED", "ALREADY_STARTED",
 }
 
 // codeArgs are the argument types of the custom errors that carry

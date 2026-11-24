@@ -1,6 +1,6 @@
 {
   "testnet": "rewards-local",
-  "about": "What the rewards testnet contains and every stand-in it uses. It is deployed fresh on a local chain by ./dev demo at every run, so no address is fixed here: the demo prints the addresses of its run and writes them to .cache/demo/run/addresses.json. The demo reads the node, model, chain, flag and LPT values below from this file, so what runs is what this file says. Payments's testnet, payments-local.json, still runs with ./dev demo payments.",
+  "about": "What the rewards testnet contains and every stand-in it uses. It is deployed fresh on a local chain by ./dev demo at every run, so no address is fixed here: the demo prints the addresses of its run and writes them to .cache/demo/run/addresses.json. The demo reads the node, model, chain, flag and LPT values below from this file, so what runs is what this file says. Payments's testnet, payments-local.json, still runs with ./dev demo payments. Each contract whose code may be replaced (rulebook R-27) is deployed behind a proxy, at the address everyone uses; its side is the stop under which its code may be replaced at once, and addresses.json also gives the code each proxy runs.",
   "rulebook": "rulebook/october-main-text-v2.md",
   "vectors": "vectors/october-main-text-v2.json",
   "contracts": [
@@ -12,16 +12,19 @@
     {
       "contract": "Registry",
       "source": "contracts/src/authority/Registry.sol",
+      "side": "both",
       "node_name": "BondingManager"
     },
     {
       "contract": "RoundClock",
       "source": "contracts/src/clock/RoundClock.sol",
+      "side": "both",
       "node_name": "RoundsManager"
     },
     {
       "contract": "Broker",
       "source": "contracts/src/money/Broker.sol",
+      "side": "USDC",
       "node_name": "TicketBroker"
     },
     {
@@ -37,25 +40,40 @@
     {
       "contract": "StakeLedger",
       "source": "contracts/src/money/StakeLedger.sol",
+      "side": "LPT",
       "node_name": "none"
     },
     {
       "contract": "Scores",
       "source": "contracts/src/scores/Scores.sol",
+      "side": "LPT",
       "node_name": "none: Parameters names it as the deployment's score source, and Claims reads it as its validator set"
     },
     {
       "contract": "Parameters",
       "source": "contracts/src/authority/Parameters.sol",
+      "side": "both",
       "node_name": "none: the Broker reads its fee split from it, and Claims, StakeLedger and Scores their values",
       "checks": "authority() is the made-up address of the stand-in Parameters with no key; deployed after Scores, at the address the Broker, StakeLedger and Scores were given"
     },
     {
       "contract": "Claims",
       "source": "contracts/src/money/Claims.sol",
+      "side": "LPT",
       "node_name": "none"
+    },
+    {
+      "contract": "Upgrades",
+      "source": "contracts/src/authority/Upgrades.sol",
+      "node_name": "none: the admin of every proxy, which the Broker, StakeLedger, Claims and the Buyback ask whether their side is stopped",
+      "checks": "deployed last, at the address every proxy names as its admin; each proxy's ERC-1967 admin slot is Upgrades and its implementation slot the code deployed for it; clock() is the RoundClock's proxy; upgrader() and pauser() are the keys below, and the authority, the upgrade key and the pause key are three distinct addresses"
     }
   ],
+  "keys": {
+    "authority": "Parameters' authority: an address the run makes up, whose key nobody holds",
+    "upgrader": "U, the upgrade key: an address the run makes up, whose key nobody holds, so no code is replaced",
+    "pauser": "S, the pause key: an address the run makes up, whose key nobody holds, so no side is stopped"
+  },
   "node": {
     "source": "https://github.com/livepeer/node",
     "commit": "e2b331958a5704016310153a7d33b7a634758f38",
@@ -133,7 +151,7 @@
     {
       "stand_in": "Parameters with no key",
       "for": "Parameter changes (R-25)",
-      "value": "Parameters is deployed with an authority address the run makes up and whose key nobody holds, so no change can be announced and every value is the deployment's for every round; no contract has an owner key, and the Controller's names are fixed at deployment. ./dev demo buyback gives the authority to G, the governance stand-in"
+      "value": "Parameters is deployed with an authority address the run makes up and whose key nobody holds, so no change can be announced and every value is the deployment's for every round; no contract has an owner key, the upgrade and pause keys (keys) are made up too, and the Controller's names are fixed at deployment. ./dev demo buyback gives the authority to G, the governance stand-in"
     },
     {
       "stand_in": "No buyback",
@@ -169,6 +187,21 @@
       "stand_in": "Keeper",
       "for": "Whoever starts rounds and mints each round's validator and treasury amounts",
       "value": "lp2-keeper with a throwaway key; anyone may do either (R-10, R-18), so a stopped keeper delays them and loses nothing"
+    },
+    {
+      "stand_in": "U, the upgrade key",
+      "for": "Livepeer's Security Committee (R-27)",
+      "value": "One address named at deployment, held by Upgrades: it announces new code for a contract, applies it from the announce round + 7 to + 27 (at once while the contract's side is stopped), withdraws it, lifts a stop and names or removes the pause key. Here an address the run makes up, whose key nobody holds"
+    },
+    {
+      "stand_in": "S, the pause key",
+      "for": "The Security Committee's emergency stop (R-27)",
+      "value": "One address named at deployment: it sets the USDC stop (the Broker's payments), the LPT stop (bonding, claims and the buy) or both, each in force for 7 rounds unless U lifts it. Here an address the run makes up, whose key nobody holds"
+    },
+    {
+      "stand_in": "Proxy, a short proxy of our own",
+      "for": "An audited standard proxy, as a network with value would use",
+      "value": "contracts/src/authority/Proxy.sol: the code in force in ERC-1967's implementation slot, its admin Upgrades, fixed in its code; only Upgrades' upgradeToAndCall is its own, and every other call runs the code in force"
     }
   ]
 }

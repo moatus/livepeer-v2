@@ -6,6 +6,7 @@ import {ITestLPT} from "../../interfaces/ITestLPT.sol";
 import {IRegistry} from "../../interfaces/IRegistry.sol";
 import {IRoundClock} from "../../interfaces/IRoundClock.sol";
 import {IParameters} from "../../interfaces/IParameters.sol";
+import {IUpgrades} from "../../interfaces/IUpgrades.sol";
 
 /// Holds every bonded and unbonded LPT and answers stake by round (rulebook
 /// R-08, R-15, R-24).
@@ -45,6 +46,9 @@ contract StakeLedger is IStakeLedger {
     IRoundClock private immutable clock;
     /// Where u is read, for the round an unbond or transfer is made.
     IParameters private immutable params;
+    /// The upgrade contract, asked whether this contract's side is stopped
+    /// (R-27).
+    IUpgrades private immutable upgrades;
 
     /// One point of a history: `value` holds from `round` on. Also one
     /// entry of a transfer list: a transfer of `value` arriving at `round`,
@@ -92,21 +96,23 @@ contract StakeLedger is IStakeLedger {
     /// holder => node it was counting for => its unbonds, in the order made.
     mapping(address => mapping(address => Unbond[])) private unbonds;
 
-    constructor(ITestLPT lpt_, IRegistry registry_, IRoundClock clock_, IParameters params_) {
+    constructor(ITestLPT lpt_, IRegistry registry_, IRoundClock clock_, IParameters params_, IUpgrades upgrades_) {
         require(
             address(lpt_) != address(0) && address(registry_) != address(0) && address(clock_) != address(0)
-                && address(params_) != address(0),
+                && address(params_) != address(0) && address(upgrades_) != address(0),
             "zero address"
         );
         lpt = lpt_;
         registry = registry_;
         clock = clock_;
         params = params_;
+        upgrades = upgrades_;
     }
 
     // --- holder actions -----------------------------------------------------
 
     function bond(address node, uint256 amount) external {
+        _running();
         if (!registry.isRegistered(node)) revert NOT_REGISTERED();
         uint256 now_ = clock.currentRound();
         _add(stayingPoints[msg.sender][node], now_, amount);
@@ -117,6 +123,7 @@ contract StakeLedger is IStakeLedger {
     }
 
     function unbond(address node, uint256 amount) external {
+        _running();
         uint256 now_ = clock.currentRound();
         Point[] storage staying = stayingPoints[msg.sender][node];
         if (amount > _at(staying, now_)) revert AMOUNT_TOO_LARGE();
@@ -131,6 +138,7 @@ contract StakeLedger is IStakeLedger {
     /// Who, then the node named, then the amount: NOT_REGISTERED,
     /// SAME_NODE, AMOUNT_TOO_LARGE.
     function transferBond(address from, address to, uint256 amount) external {
+        _running();
         if (!registry.isRegistered(to)) revert NOT_REGISTERED();
         if (from == to) revert SAME_NODE();
         uint256 now_ = clock.currentRound();
@@ -149,6 +157,7 @@ contract StakeLedger is IStakeLedger {
     }
 
     function unbondTransfer(address from, address to, uint256 amount) external {
+        _running();
         if (from == to) revert SAME_NODE();
         uint256 now_ = clock.currentRound();
         Point[] storage list = transfers[msg.sender][from][to];
@@ -177,6 +186,7 @@ contract StakeLedger is IStakeLedger {
     }
 
     function rebond(address node, uint256 amount) external {
+        _running();
         if (!registry.isRegistered(node)) revert NOT_REGISTERED();
         uint256 now_ = clock.currentRound();
         Unbond[] storage list = unbonds[msg.sender][node];
@@ -202,6 +212,7 @@ contract StakeLedger is IStakeLedger {
     }
 
     function withdrawUnbonded() external {
+        _running();
         uint256 ready = _at(readyPoints[msg.sender], clock.currentRound()) - withdrawn[msg.sender];
         if (ready == 0) revert UNBOND_NOT_READY();
         withdrawn[msg.sender] += ready;
@@ -393,5 +404,11 @@ contract StakeLedger is IStakeLedger {
             points[k] = points[k - 1];
         }
         points[i] = Point(round, before);
+    }
+
+    /// R-27: refused STOPPED, before any other refusal, while the LPT stop
+    /// is in force.
+    function _running() private view {
+        if (upgrades.stopped(IUpgrades.Side.LPT)) revert STOPPED();
     }
 }

@@ -8,6 +8,7 @@ import {TestLPT} from "../src/money/TestLPT.sol";
 import {Claims} from "../src/money/Claims.sol";
 import {IScores} from "../interfaces/IScores.sol";
 import {IStakeLedger} from "../interfaces/IStakeLedger.sol";
+import {IUpgrades} from "../interfaces/IUpgrades.sol";
 
 /// Stake, bonds and cuts at the start of a round, set by the test: what a
 /// `validator-pay` case states as its inputs. Claims reads it through the
@@ -200,20 +201,31 @@ contract ValidatorPayTest is RewardLedgerRunner {
     }
 
     /// Payments, the token, the stubs and Claims, created at the address the
-    /// token was given.
+    /// token was given, then Upgrades.
     function deployWithStubs() internal {
-        uint256 n = vm.getNonce(address(this));
-        address next = vm.computeCreateAddress(address(this), n + 9);
-        deployBase(vm.computeCreateAddress(address(this), n + 8));
+        // deployBase's eight creations, the token, the two stubs, then
+        // Parameters' code and proxy and Claims'.
+        address next = ahead(14);
+        deployBase(ahead(12));
         lpt = new TestLPT(next, GENESIS);
         stakes = new StakeStub();
         scores = new ScoreStub();
         validatorSet = IScores(address(scores));
         newParameters(address(scores), address(0), address(0));
-        claims = new Claims(
-            lpt, registry, clock, broker, IStakeLedger(address(stakes)), params, validatorSet, treasuryAddress()
+        Claims code = new Claims(
+            lpt,
+            registry,
+            clock,
+            broker,
+            IStakeLedger(address(stakes)),
+            params,
+            validatorSet,
+            treasuryAddress(),
+            upgradesAt
         );
+        claims = Claims(behind(address(code), "", IUpgrades.Side.LPT));
         require(address(claims) == next, "Claims at the address the token was given");
+        newUpgrades();
     }
 
     function payCase(string memory id) internal {

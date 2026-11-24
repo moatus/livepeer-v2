@@ -13,18 +13,21 @@
     {
       "contract": "Registry",
       "source": "contracts/src/authority/Registry.sol",
+      "side": "both",
       "node_name": "BondingManager",
       "address": null
     },
     {
       "contract": "RoundClock",
       "source": "contracts/src/clock/RoundClock.sol",
+      "side": "both",
       "node_name": "RoundsManager",
       "address": null
     },
     {
       "contract": "Broker",
       "source": "contracts/src/money/Broker.sol",
+      "side": "USDC",
       "node_name": "TicketBroker",
       "checks": "only the executor Parameters' group 10 names for the round a draw runs in may draw the network share (drawNetwork); at deployment that is the Buyback",
       "address": null
@@ -44,12 +47,14 @@
     {
       "contract": "StakeLedger",
       "source": "contracts/src/money/StakeLedger.sol",
+      "side": "LPT",
       "node_name": "none",
       "address": null
     },
     {
       "contract": "Scores",
       "source": "contracts/src/scores/Scores.sol",
+      "side": "LPT",
       "node_name": "none: Parameters names it as the deployment's score source, and Claims reads it as its validator set",
       "address": null
     },
@@ -62,6 +67,7 @@
     {
       "contract": "Parameters",
       "source": "contracts/src/authority/Parameters.sol",
+      "side": "both",
       "node_name": "none: the Broker reads its fee split from it, Claims, StakeLedger and Scores their values, and the Buyback its values (groups 8 and 9), and the Broker the executor that may draw (group 10)",
       "checks": "authority() is G, the authority key the owner gives the run; deployed after the TestPool, at the address the Broker, StakeLedger and Scores were given; its deployment buyback values are the TestPool and the buyback values below, and its deployment executor (group 10) is the Buyback, taken at construction as the address predicted for it",
       "address": null
@@ -69,14 +75,23 @@
     {
       "contract": "Claims",
       "source": "contracts/src/money/Claims.sol",
+      "side": "LPT",
       "node_name": "none",
       "address": null
     },
     {
       "contract": "Buyback",
       "source": "contracts/src/money/Buyback.sol",
+      "side": "LPT",
       "node_name": "none",
       "checks": "broker() is the Broker, values() is Parameters, poolCodeHash() is the runtime code hash of the TestPool deployed with it, and acceptsPool(TestPool) is true",
+      "address": null
+    },
+    {
+      "contract": "Upgrades",
+      "source": "contracts/src/authority/Upgrades.sol",
+      "node_name": "none: the admin of every proxy, which the Broker, StakeLedger, Claims and the Buyback ask whether their side is stopped",
+      "checks": "deployed last, at the address every proxy names as its admin; each proxy's ERC-1967 admin slot is Upgrades and its implementation slot the code deployed for it; clock() is the RoundClock's proxy; upgrader() and pauser() are the keys below, and the authority, the upgrade key and the pause key are three distinct addresses",
       "address": null
     }
   ],

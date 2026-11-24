@@ -8,10 +8,18 @@ import {RoundClock} from "../src/clock/RoundClock.sol";
 import {Broker} from "../src/money/Broker.sol";
 import {MockUSDC} from "../src/money/MockUSDC.sol";
 import {Parameters} from "../src/authority/Parameters.sol";
+import {Proxy} from "../src/authority/Proxy.sol";
+import {Upgrades} from "../src/authority/Upgrades.sol";
 import {ITicketBroker} from "../interfaces/ITicketBroker.sol";
+import {IUpgrades} from "../interfaces/IUpgrades.sol";
 
 /// A fresh payments deployment, the shared examples, and the steps a test
 /// takes as a participant: register, fund, sign and redeem a ticket.
+///
+/// As every deployment does, it puts each upgradeable contract behind a
+/// Proxy whose admin is Upgrades (rulebook R-27): the contract's code, then
+/// its proxy, and the wiring names proxies. Upgrades is created last, by
+/// an address of its own, so its address is known before the first proxy.
 abstract contract PaymentsFixture {
     RoundClock internal clock;
     Registry internal registry;
@@ -19,27 +27,47 @@ abstract contract PaymentsFixture {
     Broker internal broker;
     Controller internal controller;
     Parameters internal params;
+    Upgrades internal upgrades;
+    /// Where Upgrades will be: every proxy's admin, and what the stopped
+    /// contracts ask.
+    IUpgrades internal upgradesAt;
+    /// The proxies made so far, and each one's side, for Upgrades.
+    address[] internal proxies;
+    IUpgrades.Side[] internal sides;
 
     string internal vectors;
 
     /// Deploys the five contracts at block 100 (round 1 starts there), then
-    /// Parameters with the authority G and no token, pool or score source.
-    /// The Registry is given the address the Broker will be created at. No
-    /// executor: nobody may draw the network share.
+    /// Parameters with the authority G and no token, pool or score source,
+    /// then Upgrades. The Registry is given the address the Broker will be
+    /// created at. No executor: nobody may draw the network share.
     function deploy() internal {
-        deployBase(vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 5));
+        deployBase(ahead(9));
         newParameters(address(0), address(0), address(0));
+        newUpgrades();
     }
 
     /// The five contracts, the Broker given `parameters`, the address the
-    /// caller then creates Parameters at with newParameters.
+    /// caller then creates Parameters at with newParameters. Eight
+    /// creations: the clock's code and proxy, MockUSDC, the Registry's and
+    /// the Broker's code and proxy, and the Controller.
     function deployBase(address parameters) internal {
         vm.roll(100);
-        clock = new RoundClock();
+        delete proxies;
+        delete sides;
+        upgradesAt = IUpgrades(vm.computeCreateAddress(upgradesDeployer(), vm.getNonce(upgradesDeployer())));
+        clock = RoundClock(
+            behind(address(new RoundClock()), abi.encodeCall(RoundClock.initialize, ()), IUpgrades.Side.BOTH)
+        );
         usdc = new MockUSDC();
-        address next = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1);
-        registry = new Registry(clock, next);
-        broker = new Broker(usdc, registry, clock, Parameters(parameters));
+        // The Registry's code and proxy, the Broker's code, then its proxy.
+        address next = ahead(3);
+        registry = Registry(behind(address(new Registry(clock, next)), "", IUpgrades.Side.BOTH));
+        broker = Broker(
+            behind(
+                address(new Broker(usdc, registry, clock, Parameters(parameters), upgradesAt)), "", IUpgrades.Side.USDC
+            )
+        );
         require(address(broker) == next, "Broker at the address the Registry was given");
         controller = new Controller(address(registry), address(clock), address(broker));
         params = Parameters(parameters);
@@ -47,11 +75,41 @@ abstract contract PaymentsFixture {
 
     /// Parameters with the authority G (the shared examples' governance
     /// address) and the deployment's score source, pool and executor, at the
-    /// address deployBase was given.
+    /// address deployBase was given: two creations, its code and its proxy.
     function newParameters(address scoreSource, address pool, address executor) internal {
         address at = address(params);
-        params = new Parameters(who("G"), clock, scoreSource, pool, executor);
+        params = Parameters(
+            behind(address(new Parameters(who("G"), clock, scoreSource, pool, executor)), "", IUpgrades.Side.BOTH)
+        );
         require(address(params) == at, "Parameters at the address the Broker was given");
+    }
+
+    /// A proxy running `implementation`, `init` run in it at creation, its
+    /// admin the address Upgrades will have, listed for Upgrades on `side`.
+    function behind(address implementation, bytes memory init, IUpgrades.Side side)
+        internal
+        returns (address payable proxy)
+    {
+        proxy = payable(address(new Proxy(implementation, address(upgradesAt), init)));
+        proxies.push(proxy);
+        sides.push(side);
+    }
+
+    /// Upgrades, admin of every proxy made, reading the round through the
+    /// clock's proxy, with U and S the shared examples' keys.
+    function newUpgrades() internal {
+        vm.prank(upgradesDeployer());
+        upgrades = new Upgrades(address(clock), who("U"), who("S"), proxies, sides);
+        require(address(upgrades) == address(upgradesAt), "Upgrades at the address its proxies name");
+    }
+
+    function upgradesDeployer() internal pure returns (address) {
+        return who("Upgrades deployer");
+    }
+
+    /// The address of this contract's creation after `k` more.
+    function ahead(uint256 k) internal view returns (address) {
+        return vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + k);
     }
 
     function loadVectors() internal {
@@ -225,7 +283,7 @@ abstract contract PaymentsFixture {
     /// The stable code a call was refused with: a custom error's name, or
     /// the kept revert text.
     function code(bytes memory ret) internal pure returns (string memory) {
-        string[28] memory codes = [
+        string[32] memory codes = [
             "NOT_REGISTERED",
             "TICKET_EXPIRED",
             "TICKET_USED",
@@ -253,7 +311,11 @@ abstract contract PaymentsFixture {
             "VALUE_OUT_OF_RANGE",
             "IDENTITY_NOT_WHOLE",
             "NOTHING_PENDING",
-            "OPERATOR_INVALID"
+            "OPERATOR_INVALID",
+            "STOPPED",
+            "ALREADY_STARTED",
+            "NOT_STOPPED",
+            "KEY_INVALID"
         ];
         if (ret.length == 4) {
             for (uint256 i = 0; i < codes.length; i++) {

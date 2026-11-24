@@ -3,7 +3,9 @@ pragma solidity 0.8.30;
 
 import {IRoundClock} from "../../interfaces/IRoundClock.sol";
 
-/// The round clock (rulebook R-18). Round 1 starts at deployment. Anyone
+/// The round clock (rulebook R-18). Round 1 starts at deployment: in this
+/// code's own storage when it is created, and in its proxy's when the proxy's
+/// creation runs initialize, which is refused once a round has started. Anyone
 /// starts the next round once the current one has lasted ROUND_LENGTH
 /// blocks of the block number the node reads; until then a round just
 /// lasts longer, and no round number is skipped. The node finds it under
@@ -17,6 +19,11 @@ contract RoundClock is IRoundClock {
     mapping(uint256 => bytes32) private roundHash;
 
     constructor() {
+        _start(1);
+    }
+
+    function initialize() external {
+        if (round != 0) revert ALREADY_STARTED();
         _start(1);
     }
 

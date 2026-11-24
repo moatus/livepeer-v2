@@ -11,6 +11,7 @@ import {IBuybackExecutor} from "../interfaces/IBuybackExecutor.sol";
 import {IBuybackValues} from "../interfaces/IBuybackValues.sol";
 import {ITicketBroker, INetworkShareTicketBroker} from "../interfaces/ITicketBroker.sol";
 import {IRoundClock} from "../interfaces/IRoundClock.sol";
+import {IUpgrades} from "../interfaces/IUpgrades.sol";
 
 /// A values source a test can change, so a test can name another pool or
 /// another interval from one round to the next.
@@ -145,12 +146,12 @@ abstract contract FullFixture is PaymentsFixture {
     function deployFull(uint256 genesis, uint256 opts) internal {
         bool misdelivers = opts & (SHORT | OVER) != 0;
         bool stub = opts & STUB != 0;
-        // deployBase creates five contracts; then the token, the pool, the
-        // ShortPool if any, the stub if any, and Parameters. The Buyback is
-        // next.
-        uint256 n = vm.getNonce(address(this)) + 7 + (misdelivers ? 1 : 0) + (stub ? 1 : 0);
-        address parameters = vm.computeCreateAddress(address(this), n);
-        address at = vm.computeCreateAddress(address(this), n + 1);
+        // deployBase's eight creations; then the token, the pool, the
+        // ShortPool if any, the stub if any, and Parameters' code and proxy.
+        // The Buyback's code and proxy are next.
+        uint256 k = 8 + 1 + 1 + (misdelivers ? 1 : 0) + (stub ? 1 : 0) + 1;
+        address parameters = ahead(k);
+        address at = ahead(k + 2);
         deployBase(parameters);
         lpt = newLpt(genesis, opts & LPT_FIRST != 0);
         pool = new TestPool(address(usdc), address(lpt));
@@ -172,8 +173,15 @@ abstract contract FullFixture is PaymentsFixture {
         if (stub) source = IBuybackValues(address(new ValuesStub(v)));
         newParameters(address(0), round_, at);
         if (!stub) source = params;
-        buyback = new Buyback(source, broker, clock, lpt, usdc, round_.codehash);
+        buyback = Buyback(
+            behind(
+                address(new Buyback(source, broker, clock, lpt, usdc, round_.codehash, upgradesAt)),
+                "",
+                IUpgrades.Side.LPT
+            )
+        );
         require(address(buyback) == at, "Buyback at the address Parameters was given");
+        newUpgrades();
         register("N");
     }
 

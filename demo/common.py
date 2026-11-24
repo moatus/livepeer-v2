@@ -650,79 +650,160 @@ def record(fields: dict, tx_receipt: dict | None = None, block: int | None = Non
 C: dict[str, str] = {}   # contract addresses
 
 
-def deploy_payments(more: int = 0) -> None:
-    """The payments contracts. The Broker reads its fee split, and the one
-    executor that may draw its network share (group 10), from Parameters,
-    created after the five contracts and `more` others; with none,
-    deploy_payments creates it at once, with no executor: nobody may draw."""
-    create = forge_create
-    C["RoundClock"] = create("src/clock/RoundClock.sol:RoundClock")
-    C["MockUSDC"] = create("src/money/MockUSDC.sol:MockUSDC")
-    # The Registry refuses the Broker as a payout address, so it is given the
-    # address the Broker will be created at: the deployer's next nonce.
-    broker_at = next_address(1)
-    params_at = next_address(3 + more)
-    C["Registry"] = create("src/authority/Registry.sol:Registry", C["RoundClock"], broker_at)
-    C["Broker"] = create("src/money/Broker.sol:Broker", C["MockUSDC"], C["Registry"], C["RoundClock"], params_at)
-    if C["Broker"].lower() != broker_at.lower():
-        raise Failed(f"the Broker landed at {C['Broker']}, not {broker_at} as the Registry was told")
-    C["Controller"] = create("src/authority/Controller.sol:Controller", C["Registry"], C["RoundClock"], C["Broker"])
-    names = {"BondingManager": "Registry", "RoundsManager": "RoundClock", "TicketBroker": "Broker"}
-    for legacy, ours in names.items():
-        got = call(C["Controller"], "getContract(bytes32)", sh(["cast", "keccak", legacy]))
-        if got != int(C[ours], 16):
-            raise Failed(f"the Controller does not answer {legacy} with the {ours}")
-    C["Parameters"] = params_at
-    if not more:
-        deploy_parameters()
+# The contracts whose code may be replaced at the same address (rulebook
+# R-27): each sits behind a Proxy whose admin is Upgrades, on the side whose
+# stop lets its code be replaced at once (IUpgrades.Side: 0 USDC, 1 LPT,
+# 2 both).
+UPGRADEABLE = {"RoundClock": 2, "Registry": 2, "Parameters": 2, "Broker": 0, "StakeLedger": 1, "Scores": 1,
+               "Claims": 1, "Buyback": 1}
+SIDES = ("USDC", "LPT", "both")
+IMPL: dict[str, str] = {}   # the code each proxy was created with
+# ERC-1967's slots: the code in force, and the proxy's admin.
+IMPLEMENTATION_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc"
+ADMIN_SLOT = "0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103"
+
+SOURCES = {
+    "RoundClock": "src/clock/RoundClock.sol:RoundClock", "MockUSDC": "src/money/MockUSDC.sol:MockUSDC",
+    "Registry": "src/authority/Registry.sol:Registry", "Broker": "src/money/Broker.sol:Broker",
+    "Controller": "src/authority/Controller.sol:Controller", "TestLPT": "src/money/TestLPT.sol:TestLPT",
+    "StakeLedger": "src/money/StakeLedger.sol:StakeLedger", "Scores": "src/scores/Scores.sol:Scores",
+    "TestPool": "src/money/TestPool.sol:TestPool", "Parameters": "src/authority/Parameters.sol:Parameters",
+    "Claims": "src/money/Claims.sol:Claims", "Buyback": "src/money/Buyback.sol:Buyback",
+}
+
+# Each deployment's contracts, in the order they are created.
+PAYMENTS = ["RoundClock", "MockUSDC", "Registry", "Broker", "Controller", "Parameters"]
+REWARDS = ["RoundClock", "MockUSDC", "Registry", "Broker", "Controller", "TestLPT", "StakeLedger", "Scores",
+           "Parameters", "Claims"]
+FULL = ["RoundClock", "MockUSDC", "Registry", "Broker", "Controller", "TestLPT", "StakeLedger", "Scores", "TestPool",
+        "Parameters", "Claims", "Buyback"]
+
+
+def made_up(name: str) -> str:
+    """An address the run makes up for `name`, whose key nobody holds."""
+    if name not in ADDR:
+        ADDR[name] = "0x" + os.urandom(20).hex()
+        NAMES[ADDR[name].lower()] = name
+    return ADDR[name]
 
 
 def governance() -> str:
     """Parameters' authority: G when the run made its key (./dev demo
     buyback), otherwise an address the run makes up and whose key nobody
     holds, so that nothing can be changed."""
-    if "G" not in ADDR:
-        ADDR["G"] = "0x" + os.urandom(20).hex()
-        NAMES[ADDR["G"].lower()] = "G"
-    return ADDR["G"]
+    return made_up("G")
 
 
-def deploy_parameters(score_source: str = ZERO, pool: str = ZERO, executor: str = ZERO) -> None:
-    """Parameters (R-25) at the address the Broker was given, with the
-    deployment's score source, pool and buyback executor (group 10): the
-    address the deployment predicts for its Buyback, or ZERO with none."""
-    at = C["Parameters"]
-    C["Parameters"] = forge_create("src/authority/Parameters.sol:Parameters", governance(), C["RoundClock"],
-                                   score_source, pool, executor)
-    if C["Parameters"].lower() != at.lower():
-        raise Failed(f"Parameters landed at {C['Parameters']}, not {at} as the Broker was told")
+def upgrade_keys() -> tuple[str, str]:
+    """The upgrade key U and the pause key S (R-27): addresses the run makes
+    up and whose keys nobody holds, so that no code is replaced and no side
+    stopped."""
+    return made_up("Upgrader"), made_up("Pauser")
 
 
-def deploy_rewards(executor: str = ZERO, pool: bool = False) -> None:
-    """Payments's contracts, then test LPT, StakeLedger, Scores, the pool
-    when asked, Parameters, naming `executor` as the buyback executor, and
-    Claims. The token is given the address Claims will have, its one
-    minter; the Broker, StakeLedger and Scores the address Parameters will
-    have."""
-    deploy_payments(4 if pool else 3)
-    claims_at = next_address(4 + pool)
-    C["TestLPT"] = forge_create("src/money/TestLPT.sol:TestLPT", claims_at, MANIFEST["lpt"]["genesis_supply_wei"])
-    C["StakeLedger"] = forge_create("src/money/StakeLedger.sol:StakeLedger", C["TestLPT"], C["Registry"],
-                                    C["RoundClock"], C["Parameters"])
-    C["Scores"] = forge_create("src/scores/Scores.sol:Scores", C["Registry"], C["RoundClock"], C["StakeLedger"],
-                               C["Parameters"])
-    if pool:
-        C["TestPool"] = forge_create("src/money/TestPool.sol:TestPool", C["MockUSDC"], C["TestLPT"])
-        deploy_parameters(C["Scores"], C["TestPool"], executor)
-    else:
-        deploy_parameters(C["Scores"], executor=executor)
-    C["Claims"] = forge_create("src/money/Claims.sol:Claims", C["TestLPT"], C["Registry"], C["RoundClock"], C["Broker"],
-                               C["StakeLedger"], C["Parameters"], C["Scores"], ADDR["Treasury"])
-    if C["Claims"].lower() != claims_at.lower():
-        raise Failed(f"Claims landed at {C['Claims']}, not {claims_at} as the token was told")
+def constructor_args(name: str, at: dict[str, str]) -> list:
+    """`name`'s wiring: the addresses everyone calls, each a proxy for an
+    upgradeable contract, including those created after it; ZERO for a
+    contract the deployment does not have."""
+    has = lambda n: at.get(n, ZERO)  # noqa: E731
+    return {
+        "RoundClock": lambda: [],
+        "MockUSDC": lambda: [],
+        # The Registry refuses the Broker as a payout address.
+        "Registry": lambda: [at["RoundClock"], at["Broker"]],
+        "Broker": lambda: [at["MockUSDC"], at["Registry"], at["RoundClock"], at["Parameters"], at["Upgrades"]],
+        "Controller": lambda: [at["Registry"], at["RoundClock"], at["Broker"]],
+        # Claims is the token's one minter.
+        "TestLPT": lambda: [at["Claims"], MANIFEST["lpt"]["genesis_supply_wei"]],
+        "StakeLedger": lambda: [at["TestLPT"], at["Registry"], at["RoundClock"], at["Parameters"], at["Upgrades"]],
+        "Scores": lambda: [at["Registry"], at["RoundClock"], at["StakeLedger"], at["Parameters"]],
+        "TestPool": lambda: [at["MockUSDC"], at["TestLPT"]],
+        # The score source, the pool and the buyback executor (group 10):
+        # the Buyback, or none, so that nobody may draw.
+        "Parameters": lambda: [governance(), at["RoundClock"], has("Scores"), has("TestPool"), has("Buyback")],
+        "Claims": lambda: [at["TestLPT"], at["Registry"], at["RoundClock"], at["Broker"], at["StakeLedger"],
+                           at["Parameters"], at["Scores"], ADDR["Treasury"], at["Upgrades"]],
+        # Pinned to the runtime code of the pool deployed before it.
+        "Buyback": lambda: [at["Parameters"], at["Broker"], at["RoundClock"], at["TestLPT"], at["MockUSDC"],
+                            sh(["cast", "keccak", rpc("eth_getCode", [C["TestPool"], "latest"])]), at["Upgrades"]],
+    }[name]()
+
+
+def deploy_system(parts: list[str]) -> None:
+    """Every contract of `parts`, in order, then Upgrades (rulebook R-27).
+    An upgradeable contract is its code, then a Proxy running it, with
+    Upgrades' predicted address as admin (and, for RoundClock, its
+    initialize); the wiring, the Controller's names, TestLPT's minter and
+    Parameters' executor name proxies, never code. Every address is
+    predicted from the deployer's nonce before the first creation, and each
+    must land where it was predicted."""
+    nonce = int(rpc("eth_getTransactionCount", [ADDR["deployer"], "latest"]), 16)
+    at, k = {}, 0
+    for name in parts:
+        k += 1 if name in UPGRADEABLE else 0
+        at[name] = compute_address(nonce + k)
+        k += 1
+    at["Upgrades"] = compute_address(nonce + k)
+    upgrader, pauser = upgrade_keys()
+    for name in parts:
+        args = constructor_args(name, at)
+        if name in UPGRADEABLE:
+            IMPL[name] = forge_create(SOURCES[name], *args)
+            init = calldata("initialize()") if name == "RoundClock" else "0x"
+            C[name] = forge_create("src/authority/Proxy.sol:Proxy", IMPL[name], at["Upgrades"], init)
+        else:
+            C[name] = forge_create(SOURCES[name], *args)
+        if C[name].lower() != at[name].lower():
+            raise Failed(f"{name} landed at {C[name]}, not {at[name]} as the deployment predicted")
+    proxies = [n for n in parts if n in UPGRADEABLE]
+    C["Upgrades"] = forge_create("src/authority/Upgrades.sol:Upgrades", C["RoundClock"], upgrader, pauser,
+                                 "[" + ",".join(C[n] for n in proxies) + "]",
+                                 "[" + ",".join(str(UPGRADEABLE[n]) for n in proxies) + "]")
+    if C["Upgrades"].lower() != at["Upgrades"].lower():
+        raise Failed(f"Upgrades landed at {C['Upgrades']}, not {at['Upgrades']}, which every proxy names as its admin")
+    check_deployment(proxies, upgrader, pauser)
     for n in ("Claims", "StakeLedger"):
-        NAMES[C[n].lower()] = n
-        ADDR[n] = C[n]
+        if n in C:
+            NAMES[C[n].lower()] = n
+            ADDR[n] = C[n]
+
+
+def check_deployment(proxies: list[str], upgrader: str, pauser: str) -> None:
+    """The Controller's three names; each proxy's ERC-1967 admin slot is
+    Upgrades and its implementation slot the code deployed for it, on its
+    side; Upgrades reads the round through the clock's proxy; three distinct
+    keys."""
+    names = {"BondingManager": "Registry", "RoundsManager": "RoundClock", "TicketBroker": "Broker"}
+    for legacy, ours in names.items():
+        got = call(C["Controller"], "getContract(bytes32)", sh(["cast", "keccak", legacy]))
+        if got != int(C[ours], 16):
+            raise Failed(f"the Controller does not answer {legacy} with the {ours}")
+    for n in proxies:
+        admin, code = (int(rpc("eth_getStorageAt", [C[n], s, "latest"]), 16) for s in (ADMIN_SLOT, IMPLEMENTATION_SLOT))
+        if (admin, code) != (int(C["Upgrades"], 16), int(IMPL[n], 16)):
+            raise Failed(f"{n}'s proxy names admin {admin:#x} and code {code:#x}, not Upgrades and the code deployed")
+        if call(C["Upgrades"], "sideOf(address)", C[n]) != UPGRADEABLE[n]:
+            raise Failed(f"Upgrades does not put {n} on the {SIDES[UPGRADEABLE[n]]} side")
+    keys = [int(k, 16) for k in (governance(), upgrader, pauser)]
+    if len(set(keys)) != 3:
+        raise Failed("the authority, the upgrade key and the pause key are not three distinct addresses")
+    got = [call(C["Upgrades"], f) for f in ("clock()", "upgrader()", "pauser()")]
+    if got != [int(C["RoundClock"], 16), keys[1], keys[2]]:
+        raise Failed("Upgrades does not read the clock's proxy, or does not hold the deployment's two keys")
+
+
+def deploy_payments() -> None:
+    """The payments contracts. The Broker reads its fee split, and the one
+    executor that may draw its network share (group 10), from Parameters,
+    which names none: nobody may draw."""
+    deploy_system(PAYMENTS)
+
+
+def deploy_rewards() -> None:
+    """Payments's contracts with test LPT, StakeLedger, Scores and Claims.
+    The token's one minter is Claims; Parameters names Scores as the score
+    source and no executor."""
+    deploy_system(REWARDS)
 
 
 # How forge signs as the deployer: the demo's throwaway key, or, when set
@@ -742,10 +823,9 @@ def forge_create(path: str, *args) -> str:
     return next(line.split()[-1] for line in out.splitlines() if line.startswith("Deployed to:"))
 
 
-def next_address(skip: int = 0) -> str:
-    """The address the deployer's contract creation after `skip` more will have."""
-    nonce = int(rpc("eth_getTransactionCount", [ADDR["deployer"], "latest"]), 16)
-    return sh(["cast", "compute-address", ADDR["deployer"], "--nonce", str(nonce + skip)]).split()[-1]
+def compute_address(nonce: int) -> str:
+    """The address of the deployer's contract creation at `nonce`."""
+    return sh(["cast", "compute-address", ADDR["deployer"], "--nonce", str(nonce)]).split()[-1]
 
 
 def current_round(block="latest") -> int:

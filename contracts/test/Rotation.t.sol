@@ -58,19 +58,28 @@ contract RotationTest is RewardsFixture {
         l[17] = "MockUSDC.transferFrom(address,address,uint256)";
     }
 
-    /// Any address; the effect is fixed by rule.
+    /// Any address; the effect is fixed by rule. The clock's initialize is
+    /// refused once a round has started, and a proxy's fallback runs the
+    /// code in force, whose own calls are listed here.
     function permissionless() internal pure returns (string[] memory l) {
-        l = new string[](10);
+        l = new string[](12);
         (l[0], l[1], l[2]) = ("Registry.register()", "Scores.seat(address)", "Scores.unseat(address)");
         (l[3], l[4]) = ("Claims.mintRoundShares(uint256)", "RoundClock.initializeRound()");
         l[5] = "Broker.redeemWinningTicket((address,address,uint256,uint256,uint256,bytes32,bytes),bytes,uint256)";
         (l[6], l[7]) = ("Buyback.buy()", "Buyback.poke()");
         (l[8], l[9]) = ("TestPool.mint(address)", "TestPool.swap(uint256,uint256,address,bytes)");
+        (l[10], l[11]) = ("RoundClock.initialize()", "Proxy.fallback()");
     }
 
+    /// The parameter authority's calls, and the upgrade and pause keys'
+    /// (R-25, R-27).
     function authority() internal pure returns (string[] memory l) {
-        l = new string[](2);
+        l = new string[](9);
         (l[0], l[1]) = ("Parameters.announce(uint256,uint256[])", "Parameters.withdraw(uint256)");
+        (l[2], l[3]) = ("Upgrades.announceUpgrade(address,address,bytes)", "Upgrades.applyUpgrade(address)");
+        (l[4], l[5]) = ("Upgrades.withdrawUpgrade(address)", "Upgrades.liftStop(uint8)");
+        (l[6], l[7]) = ("Upgrades.removePauser()", "Upgrades.namePauser(address)");
+        l[8] = "Upgrades.setStop(uint8)";
     }
 
     /// One caller fixed at deployment, or open on a test token: the mints,

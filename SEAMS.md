@@ -43,7 +43,7 @@ a row here.
 | rules | The rules we build against, and the numbers they must produce | `rulebook/` `vectors/` | council | yes | in force |
 | interfaces | The public shape of every contract | `contracts/interfaces/` | owner | yes | in force |
 | money | Minting LPT, and holding or moving USDC | `contracts/src/money/` | owner | no | in force |
-| authority | Who may act for a node, and who may change a parameter | `contracts/src/authority/` | owner | no | in force |
+| authority | Who may act for a node, who may change a parameter, and who may replace a contract's code or stop a side | `contracts/src/authority/` | owner | no | in force |
 | maths | Reward calculation inside the contracts | `contracts/src/math/` | agent | no | in force |
 | node | Where the node meets the contracts, and every change we carry against upstream | `nodefork/` | owner | no | in force |
 | deployment | What one testnet version contains | `deployments/` | owner | no | in force |
@@ -66,6 +66,7 @@ fails `./dev verify`.
 |---|---|---|---|---|
 | one-mint-path | `[._ ]mint\(` | `contracts/src/` | `contracts/src/money/` | There is one path that mints LPT |
 | one-funds-door | `[tT]ransfer(From)?\(` | `contracts/src/` | `contracts/src/money/` | Tokens are held and moved in one place |
+| one-upgrade-path | `upgradeToAndCall\(` | `contracts/src/` | `contracts/src/authority/` | Code in force is replaced in one place |
 <!-- END ONLY-HERE RULES -->
 
 These searches are deliberately crude. They catch a second door being opened

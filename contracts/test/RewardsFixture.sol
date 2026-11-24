@@ -7,6 +7,9 @@ import {TestLPT} from "../src/money/TestLPT.sol";
 import {StakeLedger} from "../src/money/StakeLedger.sol";
 import {Claims} from "../src/money/Claims.sol";
 import {Scores} from "../src/scores/Scores.sol";
+import {TestPool} from "../src/money/TestPool.sol";
+import {Buyback} from "../src/money/Buyback.sol";
+import {IUpgrades} from "../interfaces/IUpgrades.sol";
 import {IScoreSource} from "../interfaces/IScoreSource.sol";
 import {IScores} from "../interfaces/IScores.sol";
 
@@ -58,6 +61,10 @@ abstract contract RewardsFixture is PaymentsFixture {
     /// What Claims reads membersAt from: the stub or the real Scores.
     IScores internal validatorSet;
     Claims internal claims;
+    /// With deploySystem only: the pool and the Buyback, Parameters'
+    /// executor.
+    TestPool internal pool;
+    Buyback internal buyback;
 
     function deployRewards() internal {
         deployRewards(GENESIS);
@@ -73,20 +80,38 @@ abstract contract RewardsFixture is PaymentsFixture {
         deployRewards(GENESIS, true);
     }
 
-    /// Payments's five contracts, then the token, StakeLedger, the stub or
-    /// Scores, Parameters and Claims, in that order: the Broker, StakeLedger
-    /// and Scores are given the address Parameters will have, and the token
-    /// Claims'.
     function deployRewards(uint256 genesis, bool real) internal {
-        uint256 n = vm.getNonce(address(this));
-        address parameters = vm.computeCreateAddress(address(this), n + 8);
-        address next = vm.computeCreateAddress(address(this), n + 9);
+        deployRewards(genesis, real, false);
+    }
+
+    /// The whole system the full demo deploys, every upgradeable contract
+    /// behind its proxy: rewards with the real Scores, the pool, and the
+    /// Buyback as Parameters' executor.
+    function deploySystem() internal {
+        deployRewards(GENESIS, true, true);
+    }
+
+    /// Payments's five contracts, then the token, StakeLedger, the stub or
+    /// Scores, the pool with `withBuyback`, Parameters and Claims, then the
+    /// Buyback with `withBuyback`, then Upgrades: the Broker, StakeLedger and
+    /// Scores are given the address Parameters will have, the token Claims',
+    /// and Parameters the Buyback's.
+    function deployRewards(uint256 genesis, bool real, bool withBuyback) internal {
+        // deployBase's eight creations, the token, StakeLedger's code and
+        // proxy, Scores' code and proxy or the stub, and the pool: then
+        // Parameters' code and proxy, Claims' and the Buyback's.
+        uint256 k = 8 + 1 + 2 + (real ? 2 : 1) + (withBuyback ? 1 : 0);
+        address parameters = ahead(k + 1);
+        address next = ahead(k + 3);
+        address buybackAt = withBuyback ? ahead(k + 5) : address(0);
         deployBase(parameters);
         lpt = new TestLPT(next, genesis);
-        ledger = new StakeLedger(lpt, registry, clock, params);
+        ledger = StakeLedger(
+            behind(address(new StakeLedger(lpt, registry, clock, params, upgradesAt)), "", IUpgrades.Side.LPT)
+        );
         address source;
         if (real) {
-            Scores s = new Scores(registry, clock, ledger, params);
+            Scores s = Scores(behind(address(new Scores(registry, clock, ledger, params)), "", IUpgrades.Side.LPT));
             scores = ScoreStub(address(0));
             validatorSet = s;
             source = address(s);
@@ -95,9 +120,31 @@ abstract contract RewardsFixture is PaymentsFixture {
             validatorSet = IScores(address(scores));
             source = address(scores);
         }
-        newParameters(source, address(0), address(0));
-        claims = new Claims(lpt, registry, clock, broker, ledger, params, validatorSet, treasuryAddress());
+        pool = withBuyback ? new TestPool(address(usdc), address(lpt)) : TestPool(address(0));
+        newParameters(source, address(pool), buybackAt);
+        claims = Claims(
+            behind(
+                address(
+                    new Claims(
+                        lpt, registry, clock, broker, ledger, params, validatorSet, treasuryAddress(), upgradesAt
+                    )
+                ),
+                "",
+                IUpgrades.Side.LPT
+            )
+        );
         require(address(claims) == next, "Claims at the address the token was given");
+        if (withBuyback) {
+            buyback = Buyback(
+                behind(
+                    address(new Buyback(params, broker, clock, lpt, usdc, address(pool).codehash, upgradesAt)),
+                    "",
+                    IUpgrades.Side.LPT
+                )
+            );
+            require(address(buyback) == buybackAt, "Buyback at the address Parameters was given");
+        }
+        newUpgrades();
     }
 
     function claimsAddress() internal view returns (address) {
