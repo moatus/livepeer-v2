@@ -79,14 +79,9 @@
       "contract": "Upgrades",
       "source": "contracts/src/authority/Upgrades.sol",
       "node_name": "none: the admin of every proxy, which the Broker, StakeLedger, Claims and the Buyback ask whether their side is stopped",
-      "checks": "deployed last, at the address every proxy names as its admin; each proxy's ERC-1967 admin slot is Upgrades and its implementation slot the code deployed for it; clock() is the RoundClock's proxy; upgrader() and pauser() are the keys below, and the authority, the upgrade key and the pause key are three distinct addresses"
+      "checks": "deployed last, at the address every proxy names as its admin; each proxy's ERC-1967 admin slot is Upgrades and its implementation slot the code deployed for it; clock() is the RoundClock's proxy; upgrader() and pauser() are U and S, the keys below, and Upgrades refuses to be deployed with one address as both"
     }
   ],
-  "keys": {
-    "authority": "G, the governance stand-in: a throwaway key the run makes",
-    "upgrader": "U, the upgrade key: an address the run makes up, whose key nobody holds, so no code is replaced",
-    "pauser": "S, the pause key: an address the run makes up, whose key nobody holds, so no side is stopped"
-  },
   "node": {
     "source": "https://github.com/livepeer/node",
     "commit": "e2b331958a5704016310153a7d33b7a634758f38",
