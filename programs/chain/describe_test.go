@@ -36,6 +36,8 @@ func TestDescribeTellsAProvidersFailureByItsCategoryOnly(t *testing.T) {
 		{keyed(coded), "read bondAt: the RPC provider http://" + coded + " answered with an error (code -32001)"},
 		{keyed(garbled), "read bondAt: the RPC provider http://" + garbled + "'s answer could not be read"},
 		{keyed(limited), "read bondAt: the RPC provider http://" + limited + " rate-limited the request (HTTP 429)"},
+		{"ws://synthetic-user:" + encodedPassword + "@" + limited + "/ws/synthetic-key",
+			"read bondAt: the RPC provider ws://" + limited + " rate-limited the request (HTTP 429)"},
 		{"ws://synthetic-user:" + encodedPassword + "@" + status + "/ws/synthetic-key",
 			"read bondAt: the RPC provider ws://" + status + " refused the request (HTTP 401)"},
 	} {

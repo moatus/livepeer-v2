@@ -899,10 +899,13 @@ def start_explorer(state_dir: Path, from_block: int) -> None:
     """lp2-explorer beside the services, with no node, so / is the Network
     page: its index in index/ in the state directory, kept across
     restarts, and the accounts named by the labels.json the run wrote."""
-    rewards.start_explorer("explorer", PORT["explorer"], state_dir / "index", common.RPC, "--labels", str(state_dir / LABELS),
+    labels = state_dir / LABELS
+    rewards.start_explorer("explorer", PORT["explorer"], state_dir / "index", common.RPC,
+                           *(["--labels", str(labels)] if labels.is_file() else []),
                            first_block=from_block, binary=state_dir / "bin" / "lp2-explorer")
     public.note_holders()
-    say(f"  lp2-explorer on http://127.0.0.1:{PORT['explorer']}/, its index in index/ in the state directory")
+    say(f"  lp2-explorer on http://127.0.0.1:{PORT['explorer']}/, its index in index/ in the state directory"
+        + ("" if labels.is_file() else f"; no {LABELS} in the state directory, so it names no account"))
 
 
 def check_explorer(since: int) -> bool:

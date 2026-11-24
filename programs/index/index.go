@@ -75,6 +75,7 @@ type Index struct {
 	header     *Header
 	headerEnd  int64 // the file's length with its first line alone
 
+	seen    map[key]bool
 	totals  *Totals
 	through *uint64 // the last checkpoint's block, nil before the first
 	hash    common.Hash
@@ -134,7 +135,7 @@ func (ix *Index) Close() {
 // checkpoint. A line that cannot be read before the last checkpoint is an
 // error; what follows the last checkpoint is cut off.
 func (ix *Index) load() error {
-	ix.totals, ix.through, ix.header, ix.headerEnd = newTotals(), nil, nil, 0
+	ix.seen, ix.totals, ix.through, ix.header, ix.headerEnd = map[key]bool{}, newTotals(), nil, nil, 0
 	if _, err := ix.file.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
@@ -176,7 +177,7 @@ func (ix *Index) load() error {
 				return fmt.Errorf("%s, before its last checkpoint: %w", ix.path, bad)
 			}
 			for i := range page {
-				ix.totals.fold(&page[i])
+				ix.add(&page[i])
 			}
 			page = page[:0]
 			through := *cp.Through
@@ -201,6 +202,25 @@ func (ix *Index) load() error {
 	if ix.through != nil {
 		from := *ix.through + 1
 		ix.resumed = &from
+	}
+	return nil
+}
+
+// add folds one event in, once.
+func (ix *Index) add(e *Event) {
+	if ix.seen[e.key()] {
+		return
+	}
+	ix.seen[e.key()] = true
+	ix.totals.fold(e)
+}
+
+// Check refuses a file that names another Controller or first block. A
+// file with no first line yet passes.
+func (ix *Index) Check(controller common.Address, first uint64) error {
+	if h := ix.header; h != nil && (h.Controller != controller || h.FirstBlock != first) {
+		return fmt.Errorf("%w: %s holds Controller %s from block %d, and this explorer reads Controller %s from block %d; give a new folder",
+			ErrDeployment, ix.path, h.Controller.Hex(), h.FirstBlock, controller.Hex(), first)
 	}
 	return nil
 }
@@ -251,7 +271,7 @@ func (ix *Index) commit(events []Event, through uint64, hash common.Hash) error 
 		return err
 	}
 	for i := range events {
-		ix.totals.fold(&events[i])
+		ix.add(&events[i])
 	}
 	ix.through, ix.hash = &through, hash
 	return nil
@@ -269,7 +289,7 @@ func (ix *Index) reset() error {
 	if err := ix.file.Sync(); err != nil {
 		return err
 	}
-	ix.totals, ix.through, ix.resumed, ix.deployed = newTotals(), nil, nil, nil
+	ix.seen, ix.totals, ix.through, ix.resumed, ix.deployed = map[key]bool{}, newTotals(), nil, nil, nil
 	ix.rollbacks++
 	return nil
 }

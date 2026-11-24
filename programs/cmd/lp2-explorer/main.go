@@ -168,6 +168,9 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
+	if err := ix.Check(cfg.controller, firstBlock); err != nil {
+		fail(err)
+	}
 	waits := &chain.RetryAfter{}
 	client, err := chain.DialRPCWaits(context.Background(), *rpcURL, waits)
 	if err != nil {

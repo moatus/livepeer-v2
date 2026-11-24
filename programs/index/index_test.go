@@ -626,15 +626,22 @@ func TestIndexRefusesAnotherDeployment(t *testing.T) {
 		t.Fatal(err)
 	}
 	other := common.HexToAddress("0xc0ffee")
-	if err := ix.Begin(Header{ChainID: 1337, Controller: other, FirstBlock: 100}); !errors.Is(err, ErrDeployment) ||
-		!strings.Contains(err.Error(), other.Hex()) || !strings.Contains(err.Error(), controller.Hex()) {
+	if err := ix.Check(other, 100); !errors.Is(err, ErrDeployment) || !strings.Contains(err.Error(), other.Hex()) ||
+		!strings.Contains(err.Error(), controller.Hex()) {
 		t.Errorf("another Controller: %v", err)
 	}
 	if err := ix.Begin(Header{ChainID: 1, Controller: controller, FirstBlock: 100}); !errors.Is(err, ErrDeployment) {
 		t.Errorf("another chain: %v", err)
 	}
-	if err := ix.Begin(Header{ChainID: 1337, Controller: controller, FirstBlock: 101}); !errors.Is(err, ErrDeployment) {
+	if err := ix.Check(controller, 101); !errors.Is(err, ErrDeployment) || !strings.Contains(err.Error(), "from block 100") ||
+		!strings.Contains(err.Error(), "from block 101") {
 		t.Errorf("another first block: %v", err)
+	}
+	if err := ix.Begin(Header{ChainID: 1337, Controller: controller, FirstBlock: 101}); !errors.Is(err, ErrDeployment) {
+		t.Errorf("another first block, at Begin: %v", err)
+	}
+	if err := ix.Check(controller, 100); err != nil {
+		t.Errorf("its own deployment: %v", err)
 	}
 	if _, err := Open(dir, 100, 5000); err == nil || !strings.Contains(err.Error(), "another reader") {
 		t.Errorf("a second reader of the folder: %v", err)
